@@ -1,0 +1,200 @@
+@import "tailwindcss";
+
+/* Class-based dark mode driven by a `.dark` class on <html>.
+   Telegram sets the initial theme; the user can override via ThemeSwitcher. */
+@custom-variant dark (&:is(.dark *));
+
+/* ------------------------------------------------------------------ */
+/*  MetroFitness brand tokens                                          */
+/*  Palette discipline: on any screen we use at most black/white +     */
+/*  the yellow accent. Everything else is a neutral step.              */
+/* ------------------------------------------------------------------ */
+:root {
+  /* Brand accent — MetroFitness yellow */
+  --brand: #ffd60a;
+  --brand-strong: #f5c400;
+  --brand-soft: #fff4cc;
+  --brand-foreground: #0a0a0a;
+
+  /* Surfaces (Light) */
+  --background: #f7f7f8;
+  --background-elevated: #ffffff;
+  --card: #ffffff;
+  --card-foreground: #0a0a0a;
+
+  /* Text */
+  --foreground: #0a0a0a;
+  --muted: #f1f1f3;
+  --muted-foreground: #71717a;
+
+  /* Lines & controls */
+  --border: #ececee;
+  --border-strong: #e0e0e3;
+  --ring: #ffd60a;
+
+  /* Semantic */
+  --success: #22c55e;
+  --success-soft: #dcfce7;
+
+  /* Glass */
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-border: rgba(0, 0, 0, 0.06);
+
+  /* Elevation — deliberately soft, never heavy */
+  --shadow-sm: 0 1px 2px rgba(10, 10, 10, 0.04);
+  --shadow-card: 0 8px 30px -12px rgba(10, 10, 10, 0.12);
+  --shadow-float: 0 20px 50px -20px rgba(10, 10, 10, 0.22);
+  --shadow-brand: 0 12px 30px -10px rgba(245, 196, 0, 0.5);
+
+  /* Motion */
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.dark {
+  --brand: #ffd60a;
+  --brand-strong: #ffe14d;
+  --brand-soft: #2a2410;
+  --brand-foreground: #0a0a0a;
+
+  --background: #09090b;
+  --background-elevated: #111113;
+  --card: #141416;
+  --card-foreground: #fafafa;
+
+  --foreground: #fafafa;
+  --muted: #1c1c1f;
+  --muted-foreground: #a1a1aa;
+
+  --border: #232326;
+  --border-strong: #2e2e33;
+  --ring: #ffd60a;
+
+  --success: #4ade80;
+  --success-soft: #10281a;
+
+  --glass-bg: rgba(20, 20, 22, 0.62);
+  --glass-border: rgba(255, 255, 255, 0.08);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-card: 0 8px 30px -12px rgba(0, 0, 0, 0.6);
+  --shadow-float: 0 20px 50px -20px rgba(0, 0, 0, 0.8);
+  --shadow-brand: 0 12px 30px -10px rgba(245, 196, 0, 0.35);
+}
+
+/* Map tokens into Tailwind's theme so utilities like bg-card / text-brand exist */
+@theme inline {
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-foreground: var(--brand-foreground);
+
+  --color-background: var(--background);
+  --color-background-elevated: var(--background-elevated);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-ring: var(--ring);
+
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+
+  --radius-xl: 1.25rem; /* 20px */
+  --radius-2xl: 1.5rem; /* 24px */
+  --radius-3xl: 1.75rem; /* 28px */
+
+  --shadow-card: var(--shadow-card);
+  --shadow-float: var(--shadow-float);
+  --shadow-brand: var(--shadow-brand);
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Base                                                               */
+/* ------------------------------------------------------------------ */
+* {
+  border-color: var(--border);
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  color-scheme: light dark;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  /* Respect Telegram safe areas on modern clients */
+  overscroll-behavior-y: none;
+}
+
+/* Mobile-first canvas: the app lives inside a phone-width column, centered
+   on larger screens so it always reads as a native Mini App, never a website. */
+.app-shell {
+  width: 100%;
+  max-width: 480px;
+  margin-inline: auto;
+  min-height: 100dvh;
+  position: relative;
+}
+
+/* Hide scrollbars for horizontal rails without losing scroll */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Subtle premium background wash behind the whole app */
+.brand-aura {
+  background-image: radial-gradient(
+      120% 80% at 100% 0%,
+      color-mix(in srgb, var(--brand) 14%, transparent) 0%,
+      transparent 55%
+    ),
+    radial-gradient(
+      100% 60% at 0% 0%,
+      color-mix(in srgb, var(--brand) 6%, transparent) 0%,
+      transparent 50%
+    );
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+.shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--foreground) 6%, transparent),
+    transparent
+  );
+  animation: shimmer 1.6s infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
