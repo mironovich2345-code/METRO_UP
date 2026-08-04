@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { Building2, Check, ChevronLeft, MapPin } from "lucide-react";
-import { GlassCard } from "@/components/ui/glass-card";
 import { CITIES, POSITIONS, clubsForCity } from "@/lib/data";
 import { useApp } from "@/providers/app-provider";
 import { cn } from "@/lib/utils";

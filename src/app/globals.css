@@ -126,6 +126,9 @@
 
 html {
   color-scheme: light dark;
+  /* Mobile-first Mini App: the page itself must never scroll sideways.
+     Edge-to-edge rails scroll inside their own overflow container. */
+  overflow-x: hidden;
 }
 
 body {
@@ -134,6 +137,7 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  overflow-x: hidden;
   /* Respect Telegram safe areas on modern clients */
   overscroll-behavior-y: none;
 }
