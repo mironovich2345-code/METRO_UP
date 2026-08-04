@@ -27,12 +27,15 @@ interface AppContextValue {
 
 const STORAGE_KEY = "metro.profile";
 
-/** Development fallback so the app is fully usable outside Telegram. */
-const DEV_USER: TelegramUser = {
+/**
+ * Demo fallback used when the Telegram WebApp SDK is unavailable (e.g. the app
+ * is opened in a normal browser for a demo or presentation). In production,
+ * real Telegram data takes priority over this — see the effect below.
+ */
+const DEMO_USER: TelegramUser = {
   id: 0,
-  firstName: "Артём",
-  lastName: "Метрик",
-  username: "metro_hero",
+  firstName: "Даниил",
+  username: "metro_demo",
 };
 
 function defaultProfile(name: string): UserProfile {
@@ -52,12 +55,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [hydrated, setHydrated] = useState(false);
   const [telegramUser, setTelegramUser] = useState<TelegramUser | null>(null);
   const [profile, setProfile] = useState<UserProfile>(() =>
-    defaultProfile(DEV_USER.firstName),
+    defaultProfile(DEMO_USER.firstName),
   );
 
   useEffect(() => {
     initViewport();
-    const tgUser = getTelegramUser() ?? DEV_USER;
+    // Prefer real Telegram data; fall back to the browser demo user.
+    const tgUser = getTelegramUser() ?? DEMO_USER;
     setTelegramUser(tgUser);
 
     const stored = localStorage.getItem(STORAGE_KEY);
@@ -85,7 +89,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const resetProfile = useCallback(() => {
-    setProfile(defaultProfile(telegramUser?.firstName ?? DEV_USER.firstName));
+    setProfile(defaultProfile(telegramUser?.firstName ?? DEMO_USER.firstName));
   }, [telegramUser]);
 
   const value = useMemo<AppContextValue>(
