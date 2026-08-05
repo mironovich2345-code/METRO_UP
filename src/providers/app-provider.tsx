@@ -8,16 +8,14 @@ import {
   useMemo,
   useState,
 } from "react";
-import {
-  getTelegramUser,
-  initViewport,
-} from "@/lib/telegram";
+import { useTelegram } from "@/providers/TelegramProvider";
 import type { TelegramUser, UserProfile } from "@/lib/types";
 
 interface AppContextValue {
   /** True once client-side hydration of the stored profile is complete. */
   hydrated: boolean;
-  telegramUser: TelegramUser | null;
+  /** Resolved user: Telegram user inside Telegram, demo user otherwise. */
+  telegramUser: TelegramUser;
   profile: UserProfile;
   updateProfile: (patch: Partial<UserProfile>) => void;
   resetProfile: () => void;
@@ -26,17 +24,6 @@ interface AppContextValue {
 }
 
 const STORAGE_KEY = "metro.profile";
-
-/**
- * Demo fallback used when the Telegram WebApp SDK is unavailable (e.g. the app
- * is opened in a normal browser for a demo or presentation). In production,
- * real Telegram data takes priority over this — see the effect below.
- */
-const DEMO_USER: TelegramUser = {
-  id: 0,
-  firstName: "Даниил",
-  username: "metro_demo",
-};
 
 function defaultProfile(name: string): UserProfile {
   return {
@@ -52,33 +39,32 @@ function defaultProfile(name: string): UserProfile {
 const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
+  const { user, isReady: tgReady } = useTelegram();
   const [hydrated, setHydrated] = useState(false);
-  const [telegramUser, setTelegramUser] = useState<TelegramUser | null>(null);
   const [profile, setProfile] = useState<UserProfile>(() =>
-    defaultProfile(DEMO_USER.firstName),
+    defaultProfile(user.firstName),
   );
 
+  // Seed the profile from localStorage once the Telegram environment resolves.
+  // Stored setup (city/club/position) and edited name take priority; the
+  // display name otherwise defaults to the Telegram/demo first name.
   useEffect(() => {
-    initViewport();
-    // Prefer real Telegram data; fall back to the browser demo user.
-    const tgUser = getTelegramUser() ?? DEMO_USER;
-    setTelegramUser(tgUser);
-
+    if (!tgReady || hydrated) return;
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
       try {
         const parsed = JSON.parse(stored) as UserProfile;
-        setProfile({ ...defaultProfile(tgUser.firstName), ...parsed });
+        setProfile({ ...defaultProfile(user.firstName), ...parsed });
       } catch {
-        setProfile(defaultProfile(tgUser.firstName));
+        setProfile(defaultProfile(user.firstName));
       }
     } else {
-      setProfile(defaultProfile(tgUser.firstName));
+      setProfile(defaultProfile(user.firstName));
     }
     setHydrated(true);
-  }, []);
+  }, [tgReady, hydrated, user.firstName]);
 
-  // Persist profile changes after hydration.
+  // Persist profile changes (setup, display name) after hydration.
   useEffect(() => {
     if (!hydrated) return;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(profile));
@@ -89,13 +75,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const resetProfile = useCallback(() => {
-    setProfile(defaultProfile(telegramUser?.firstName ?? DEMO_USER.firstName));
-  }, [telegramUser]);
+    setProfile(defaultProfile(user.firstName));
+  }, [user.firstName]);
 
   const value = useMemo<AppContextValue>(
     () => ({
       hydrated,
-      telegramUser,
+      telegramUser: user,
       profile,
       updateProfile,
       resetProfile,
@@ -103,7 +89,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         profile.cityId && profile.clubId && profile.positionId,
       ),
     }),
-    [hydrated, telegramUser, profile, updateProfile, resetProfile],
+    [hydrated, user, profile, updateProfile, resetProfile],
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

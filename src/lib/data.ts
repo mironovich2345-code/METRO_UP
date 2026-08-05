@@ -82,6 +82,18 @@ export function clubsForCity(cityId: string | null): Club[] {
   return CLUBS.filter((club) => club.cityId === cityId);
 }
 
+export function cityById(id: string | null): City | undefined {
+  return id ? CITIES.find((c) => c.id === id) : undefined;
+}
+
+export function clubById(id: string | null): Club | undefined {
+  return id ? CLUBS.find((c) => c.id === id) : undefined;
+}
+
+export function positionById(id: string | null): Position | undefined {
+  return id ? POSITIONS.find((p) => p.id === id) : undefined;
+}
+
 /* ---------------------------------- Home --------------------------------- */
 
 export const DAILY_TASKS: DailyTask[] = [
