@@ -9,15 +9,28 @@ import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
 import { MetricCharacter } from "@/components/ui/metric-character";
 import { useApp } from "@/providers/app-provider";
+import {
+  useTelegram,
+  useTelegramMainButton,
+} from "@/providers/TelegramProvider";
 import { cardIn, easeOutSoft, staggerStack } from "@/lib/motion";
 import { hapticSuccess } from "@/lib/telegram";
 
 export default function WelcomeScreen() {
   const router = useRouter();
   const { telegramUser, profile, updateProfile } = useApp();
+  const { isInsideTelegram } = useTelegram();
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(profile.displayName);
+
+  // Inside Telegram, drive the flow with the native MainButton; in a browser we
+  // fall back to the on-screen button below.
+  useTelegramMainButton(
+    isInsideTelegram && !editing
+      ? { text: "Далее", onClick: () => router.push("/setup") }
+      : null,
+  );
 
   const save = () => {
     const name = draft.trim();
@@ -140,17 +153,19 @@ export default function WelcomeScreen() {
         </motion.div>
       </motion.div>
 
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.4, duration: 0.6, ease: easeOutSoft }}
-        className="pb-[calc(env(safe-area-inset-bottom)+24px)] pt-6"
-      >
-        <Button block size="lg" onClick={() => router.push("/setup")}>
-          Далее
-          <ArrowRight className="size-5" />
-        </Button>
-      </motion.div>
+      {!isInsideTelegram && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.4, duration: 0.6, ease: easeOutSoft }}
+          className="pb-[calc(env(safe-area-inset-bottom)+24px)] pt-6"
+        >
+          <Button block size="lg" onClick={() => router.push("/setup")}>
+            Далее
+            <ArrowRight className="size-5" />
+          </Button>
+        </motion.div>
+      )}
     </main>
   );
 }

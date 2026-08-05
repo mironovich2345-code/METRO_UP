@@ -19,11 +19,14 @@ import { AchievementCard } from "@/components/achievement-card";
 import { useApp } from "@/providers/app-provider";
 import {
   ACHIEVEMENTS,
+  cityById,
+  clubById,
   CONTINUE_COURSE,
   COURSES,
   DAILY_TASKS,
   MYSTERY_SHOPPER,
   NEWS,
+  positionById,
   RANKING_PREVIEW,
 } from "@/lib/data";
 import { cardIn, staggerStack } from "@/lib/motion";
@@ -46,6 +49,12 @@ export default function HomeScreen() {
   useEffect(() => setGreeting(computeGreeting()), []);
 
   const firstName = profile.displayName.split(" ")[0];
+  const position = positionById(profile.positionId);
+  const club = clubById(profile.clubId);
+  const city = cityById(profile.cityId);
+  const identity = [position?.title, club?.name, city?.name]
+    .filter(Boolean)
+    .join(" · ");
   const continueCourse = COURSES.find((c) => c.id === CONTINUE_COURSE.courseId);
   const continueRatio = continueCourse
     ? continueCourse.completedLessons / continueCourse.totalLessons
@@ -70,6 +79,11 @@ export default function HomeScreen() {
             <h1 className="truncate text-xl font-extrabold tracking-tight text-foreground">
               {firstName}
             </h1>
+            {identity && (
+              <p className="truncate text-xs font-medium text-muted-foreground">
+                {identity}
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1 rounded-2xl border border-border bg-card px-3 py-2.5">
