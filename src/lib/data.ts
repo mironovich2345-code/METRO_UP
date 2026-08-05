@@ -114,12 +114,10 @@ export const RANKING: RankingEntry[] = [
   { id: "r9", name: "Артур Гусев", xp: 3540, position: 9 },
 ];
 
-/** Compact preview (top-2 + you) used on the Home screen. */
-export const RANKING_PREVIEW: RankingEntry[] = [
-  RANKING[0],
-  RANKING[1],
-  RANKING.find((r) => r.isCurrentUser)!,
-];
+/** Network-wide figures backing the compact Home ranking summary. */
+export const RANKING_TOTAL = 248;
+/** Positions gained (positive) or lost (negative) over the last week. */
+export const RANKING_WEEKLY_CHANGE = 2;
 
 export const MYSTERY_SHOPPER: MysteryShopperResult = {
   score: 92,

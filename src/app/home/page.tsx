@@ -7,16 +7,16 @@ import { BottomNavigation } from "@/components/bottom-navigation";
 import { ThemeSwitcher } from "@/components/ui/theme-switcher";
 import { Avatar } from "@/components/ui/avatar";
 import { MetricCharacter } from "@/components/ui/metric-character";
-import { GlassCard } from "@/components/ui/glass-card";
 import { SectionHeader } from "@/components/ui/section-header";
 import { ProgressCard } from "@/components/progress-card";
 import { LessonCard } from "@/components/lesson-card";
-import { RankingCard } from "@/components/ranking-card";
+import { RankingSummaryCard } from "@/components/ranking-summary-card";
 import { TaskCard } from "@/components/task-card";
 import { NewsCard } from "@/components/news-card";
 import { MysteryShopperCard } from "@/components/mystery-shopper-card";
 import { AchievementCard } from "@/components/achievement-card";
 import { useApp } from "@/providers/app-provider";
+import { formatNumber } from "@/lib/utils";
 import {
   ACHIEVEMENTS,
   cityById,
@@ -27,7 +27,6 @@ import {
   MYSTERY_SHOPPER,
   NEWS,
   positionById,
-  RANKING_PREVIEW,
 } from "@/lib/data";
 import { cardIn, staggerStack } from "@/lib/motion";
 
@@ -111,13 +110,16 @@ export default function HomeScreen() {
         {/* Today's plan */}
         <Section variants={cardIn} className="flex flex-col gap-3">
           <SectionHeader title="План на сегодня" />
-          <GlassCard variant="plain" pad="none" animateIn={false}>
-            <div className="mb-3 flex items-center justify-between px-1">
-              <p className="text-sm font-medium text-muted-foreground">
+          <div>
+            <div className="mb-3 flex items-center justify-between gap-3 px-1">
+              <p className="min-w-0 truncate text-sm font-medium text-muted-foreground">
                 Выполнено {doneToday} из {DAILY_TASKS.length}
               </p>
-              <p className="text-sm font-bold text-brand">
-                +{DAILY_TASKS.reduce((s, t) => s + (t.done ? 0 : t.xp), 0)} XP
+              <p className="shrink-0 whitespace-nowrap text-sm font-bold text-brand">
+                +{formatNumber(
+                  DAILY_TASKS.reduce((s, t) => s + (t.done ? 0 : t.xp), 0),
+                )}{" "}
+                XP
               </p>
             </div>
             <div className="flex flex-col gap-2.5">
@@ -125,7 +127,7 @@ export default function HomeScreen() {
                 <TaskCard key={task.id} task={task} />
               ))}
             </div>
-          </GlassCard>
+          </div>
         </Section>
 
         {/* Continue learning */}
@@ -142,7 +144,7 @@ export default function HomeScreen() {
         {/* Ranking */}
         <Section variants={cardIn} className="flex flex-col gap-3">
           <SectionHeader title="Рейтинг" action={{ label: "Открыть", href: "/ranking" }} />
-          <RankingCard entries={RANKING_PREVIEW} />
+          <RankingSummaryCard />
         </Section>
 
         {/* Mystery shopper */}
