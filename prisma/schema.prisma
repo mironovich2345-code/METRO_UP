@@ -1,0 +1,113 @@
+// Metro UP — application data foundation.
+// Production changes flow through migrations (never `prisma db push`).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ------------------------------ Enums ------------------------------
+
+enum AppRole {
+  EMPLOYEE
+  CLUB_MANAGER
+  SPM
+  ADMIN
+}
+
+enum EmployeePosition {
+  CLIENT_MANAGER
+  NIGHT_MANAGER
+  ADMINISTRATOR
+}
+
+enum CareerLevel {
+  NEWCOMER
+  MANAGER
+  TOP_MANAGER
+  LEADER
+  MANAGER_PRO
+}
+
+enum AccessStatus {
+  LIMITED
+  PENDING_APPROVAL
+  FULL
+  SUSPENDED
+}
+
+// ------------------------------ Models -----------------------------
+
+model User {
+  id                String   @id @default(uuid()) @db.Uuid
+  telegramId        String   @unique
+  telegramUsername  String?
+  telegramFirstName String?
+  telegramLastName  String?
+  telegramPhotoUrl  String?
+  displayName       String
+  role              AppRole  @default(EMPLOYEE)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  lastLoginAt       DateTime?
+
+  employeeProfile EmployeeProfile?
+
+  @@index([telegramId])
+  @@map("users")
+}
+
+model EmployeeProfile {
+  id                  String           @id @default(uuid()) @db.Uuid
+  userId              String           @unique @db.Uuid
+  cityId              String
+  clubId              String
+  positionId          EmployeePosition
+  careerLevel         CareerLevel      @default(NEWCOMER)
+  accessStatus        AccessStatus     @default(LIMITED)
+  onboardingCompleted Boolean          @default(false)
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  city City @relation(fields: [cityId], references: [id])
+  club Club @relation(fields: [clubId], references: [id])
+
+  @@index([cityId])
+  @@index([clubId])
+  @@map("employee_profiles")
+}
+
+model City {
+  id        String   @id
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  clubs            Club[]
+  employeeProfiles EmployeeProfile[]
+
+  @@map("cities")
+}
+
+model Club {
+  id        String   @id
+  cityId    String
+  name      String
+  address   String
+  landmark  String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  city             City              @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  employeeProfiles EmployeeProfile[]
+
+  @@index([cityId])
+  @@map("clubs")
+}
