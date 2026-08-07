@@ -12,23 +12,9 @@ import { ALL_LESSONS, lessonsByIds } from "@/content/lessons";
  * placeholder set of lesson ids. When a real progress store lands, only this
  * module changes — the UI already reads through the helpers below.
  *
- * Snapshot: День 1 завершён, День 2 в процессе (5 из 7), День 3 не начат.
+ * Snapshot: fresh новичок — базовая адаптация ещё не начата (0%).
  */
-export const COMPLETED_LESSON_IDS: ReadonlySet<string> = new Set([
-  // Day 1 — completed
-  "l-d1-welcome",
-  "l-d1-how-learning-works",
-  "l-d1-history",
-  "l-d1-mission",
-  "l-d1-difference",
-  "l-d1-test",
-  // Day 2 — in progress
-  "l-d2-club-card",
-  "l-d2-training-types",
-  "l-d2-zones",
-  "l-d2-equipment",
-  "l-d2-group-programs",
-]);
+export const COMPLETED_LESSON_IDS: ReadonlySet<string> = new Set<string>([]);
 
 export function isLessonCompleted(id: string): boolean {
   return COMPLETED_LESSON_IDS.has(id);

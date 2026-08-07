@@ -23,6 +23,7 @@ import type { TelegramUser } from "@/lib/types";
 export const DEMO_USER: TelegramUser = {
   id: 0,
   firstName: "Даниил",
+  lastName: "Миронович",
   username: "metro_demo",
 };
 

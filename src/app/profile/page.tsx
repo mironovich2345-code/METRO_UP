@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Building2, Check, MapPin, Briefcase } from "lucide-react";
 import { BottomNavigation } from "@/components/bottom-navigation";
@@ -10,22 +12,51 @@ import { Badge } from "@/components/ui/badge";
 import { ThemeSegmented } from "@/components/ui/theme-switcher";
 import { SectionHeader } from "@/components/ui/section-header";
 import { useApp } from "@/providers/app-provider";
-import { CITIES, CLUBS, POSITIONS } from "@/lib/data";
-import { RANKS, getRankProgress } from "@/lib/ranks";
+import { getCityById, getClubById, getPositionById } from "@/content";
+import { RANKS } from "@/lib/ranks";
+import type { AccessStatus, CareerLevel } from "@/lib/profile";
 import { cardIn, staggerStack } from "@/lib/motion";
 import { cn, formatNumber } from "@/lib/utils";
 
-export default function ProfileScreen() {
-  const { profile, telegramUser } = useApp();
+const CAREER_RANK_INDEX: Record<CareerLevel, number> = {
+  NEWCOMER: 0,
+  MANAGER: 1,
+  TOP_MANAGER: 2,
+  LEADER: 3,
+  DIRECTOR: 4,
+};
 
-  const city = CITIES.find((c) => c.id === profile.cityId);
-  const club = CLUBS.find((c) => c.id === profile.clubId);
-  const position = POSITIONS.find((p) => p.id === profile.positionId);
-  const rankProgress = getRankProgress(profile.xp);
+const ACCESS_LABELS: Record<AccessStatus, string> = {
+  LIMITED: "Базовый доступ",
+  PENDING_APPROVAL: "Ожидает подтверждения",
+  FULL: "Полный доступ",
+};
+
+export default function ProfileScreen() {
+  const { profile, isOnboarded, hydrated, telegramUser } = useApp();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (hydrated && !isOnboarded) router.replace("/welcome");
+  }, [hydrated, isOnboarded, router]);
+
+  if (!hydrated || !profile) {
+    return <div className="min-h-[100dvh]" />;
+  }
+
+  const city = getCityById(profile.cityId);
+  const club = getClubById(profile.clubId);
+  const position = getPositionById(profile.positionId);
+  const levelIndex = CAREER_RANK_INDEX[profile.careerLevel];
+  const currentRank = RANKS[levelIndex];
 
   const info = [
     { icon: MapPin, label: "Город", value: city?.name ?? "—" },
-    { icon: Building2, label: "Клуб", value: club?.name ?? "—" },
+    {
+      icon: Building2,
+      label: "Клуб",
+      value: club ? `MetroFitness ${club.name}` : "—",
+    },
     { icon: Briefcase, label: "Должность", value: position?.title ?? "—" },
   ];
 
@@ -43,7 +74,7 @@ export default function ProfileScreen() {
         <motion.div variants={cardIn} className="flex flex-col items-center pt-2">
           <Avatar
             name={profile.displayName}
-            src={telegramUser?.photoUrl}
+            src={telegramUser.photoUrl}
             size={92}
             ring
           />
@@ -52,10 +83,10 @@ export default function ProfileScreen() {
           </h1>
           <div className="mt-2 flex items-center gap-2">
             <Badge variant="brand" size="md">
-              {rankProgress.current.title}
+              {currentRank.title}
             </Badge>
             <Badge variant="neutral" size="md">
-              {formatNumber(profile.xp)} XP
+              {ACCESS_LABELS[profile.accessStatus]}
             </Badge>
           </div>
         </motion.div>
@@ -79,7 +110,7 @@ export default function ProfileScreen() {
                   <span className="flex-1 text-sm text-muted-foreground">
                     {row.label}
                   </span>
-                  <span className="text-[15px] font-semibold text-foreground">
+                  <span className="max-w-[55%] truncate text-[15px] font-semibold text-foreground">
                     {row.value}
                   </span>
                 </div>
@@ -94,8 +125,8 @@ export default function ProfileScreen() {
           <GlassCard variant="solid" pad="md" animateIn={false}>
             <ol className="flex flex-col">
               {RANKS.map((rank, i) => {
-                const reached = i <= rankProgress.levelIndex;
-                const current = i === rankProgress.levelIndex;
+                const reached = i <= levelIndex;
+                const current = i === levelIndex;
                 return (
                   <li key={rank.id} className="flex items-center gap-3.5">
                     <div className="flex flex-col items-center self-stretch">
@@ -124,11 +155,16 @@ export default function ProfileScreen() {
                         />
                       )}
                     </div>
-                    <div className={cn("flex-1 pb-4", i === RANKS.length - 1 && "pb-0")}>
+                    <div
+                      className={cn(
+                        "flex-1 pb-4",
+                        i === RANKS.length - 1 && "pb-0",
+                      )}
+                    >
                       <p
                         className={cn(
                           "text-[15px] font-bold",
-                          current ? "text-foreground" : reached ? "text-foreground" : "text-muted-foreground",
+                          reached ? "text-foreground" : "text-muted-foreground",
                         )}
                       >
                         {rank.title}

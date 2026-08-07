@@ -8,13 +8,21 @@ import {
 import { ThemeProvider } from "@/providers/theme-provider";
 import { AppProvider } from "@/providers/app-provider";
 
-/** Wires the native Telegram BackButton on detail routes (e.g. a course page). */
+/** Native Telegram BackButton on the course detail route. */
+function AcademyBack() {
+  const router = useRouter();
+  useTelegramBackButton(true, () => router.back());
+  return null;
+}
+
+/**
+ * Mount the BackButton controller only on routes that don't manage it
+ * themselves (Setup owns its own step-aware BackButton).
+ */
 function TelegramChrome() {
   const pathname = usePathname();
-  const router = useRouter();
-  const isDetail = /^\/academy\/[^/]+$/.test(pathname ?? "");
-  useTelegramBackButton(isDetail, () => router.back());
-  return null;
+  const isAcademyDetail = /^\/academy\/[^/]+$/.test(pathname ?? "");
+  return isAcademyDetail ? <AcademyBack /> : null;
 }
 
 export function Providers({ children }: { children: React.ReactNode }) {

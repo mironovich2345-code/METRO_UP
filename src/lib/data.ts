@@ -1,16 +1,12 @@
 import {
   Award,
   BadgeCheck,
-  Dumbbell,
   Flame,
-  HeartHandshake,
   Medal,
   MessageSquareHeart,
-  Salad,
   ShieldCheck,
   Sparkles,
   Target,
-  TrendingUp,
   UserRound,
   Users,
 } from "lucide-react";
@@ -20,47 +16,10 @@ import type {
   DailyTask,
   MysteryShopperResult,
   NewsItem,
-  Position,
   RankingEntry,
 } from "./types";
 
-/* --------------------------------- Setup --------------------------------- */
-
-// Cities & clubs now live in the content layer (src/content). Re-exported here
-// so existing setup/home/profile imports keep working unchanged.
-export { CITIES, cityById } from "@/content/cities";
-export { CLUBS, clubsForCity, clubById } from "@/content/clubs";
-
-export const POSITIONS: Position[] = [
-  {
-    id: "trainer",
-    title: "Персональный тренер",
-    description: "Тренировки и сопровождение клиентов",
-    icon: Dumbbell,
-  },
-  {
-    id: "sales",
-    title: "Менеджер по продажам",
-    description: "Продажи абонементов и услуг",
-    icon: TrendingUp,
-  },
-  {
-    id: "reception",
-    title: "Администратор",
-    description: "Встреча гостей и сервис на ресепшн",
-    icon: HeartHandshake,
-  },
-  {
-    id: "nutrition",
-    title: "Нутрициолог",
-    description: "Питание и восстановление клиентов",
-    icon: Salad,
-  },
-];
-
-export function positionById(id: string | null): Position | undefined {
-  return id ? POSITIONS.find((p) => p.id === id) : undefined;
-}
+// Cities, clubs and positions now live in the content layer (@/content).
 
 /* ---------------------------------- Home --------------------------------- */
 

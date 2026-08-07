@@ -217,18 +217,7 @@ export interface GroupClass {
   icon: string;
 }
 
-export interface City {
-  id: string;
-  name: string;
-  clubsCount: number;
-}
-
-export interface Club {
-  id: string;
-  cityId: string;
-  name: string;
-  address: string;
-}
+// City/Club now live in @/content/cities (real network model).
 
 export interface Achievement {
   id: string;
