@@ -8,10 +8,11 @@ import { ThemeSwitcher } from "@/components/ui/theme-switcher";
 import { Avatar } from "@/components/ui/avatar";
 import { MetricCharacter } from "@/components/ui/metric-character";
 import { SectionHeader } from "@/components/ui/section-header";
-import { NewcomerCard } from "@/components/home/newcomer-card";
+import { CareerCard } from "@/components/home/career-card";
+import { XPCard } from "@/components/home/xp-card";
 import { FirstRunWelcome } from "@/components/home/first-run-welcome";
 import { LessonCard } from "@/components/lesson-card";
-import { RankingSummaryCard } from "@/components/ranking-summary-card";
+import { RatingPlaceCard } from "@/components/home/rating-place-card";
 import { TaskCard } from "@/components/task-card";
 import { NewsCard } from "@/components/news-card";
 import { MysteryShopperCard } from "@/components/mystery-shopper-card";
@@ -24,6 +25,7 @@ import {
   getPositionById,
   programProgress,
 } from "@/content";
+import { CURRENT_EMPLOYEE_ID } from "@/domain/rating";
 import {
   ACHIEVEMENTS,
   CONTINUE_COURSE,
@@ -149,9 +151,14 @@ export default function HomeScreen() {
           </motion.div>
         )}
 
-        {/* Newcomer level */}
+        {/* Career level */}
         <motion.div variants={cardIn}>
-          <NewcomerCard ratio={adaptation.ratio} />
+          <CareerCard adaptationRatio={adaptation.ratio} />
+        </motion.div>
+
+        {/* XP */}
+        <motion.div variants={cardIn}>
+          <XPCard employeeId={CURRENT_EMPLOYEE_ID} />
         </motion.div>
 
         {/* Today's plan */}
@@ -192,13 +199,13 @@ export default function HomeScreen() {
           />
         </Section>
 
-        {/* Ranking */}
+        {/* Monthly rating — place last month */}
         <Section variants={cardIn} className="flex flex-col gap-3">
           <SectionHeader
             title="Рейтинг"
             action={{ label: "Открыть", href: "/ranking" }}
           />
-          <RankingSummaryCard />
+          <RatingPlaceCard />
         </Section>
 
         {/* Mystery shopper */}
