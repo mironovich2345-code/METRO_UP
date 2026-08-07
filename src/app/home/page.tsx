@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Flame } from "lucide-react";
 import { BottomNavigation } from "@/components/bottom-navigation";
 import { ThemeSwitcher } from "@/components/ui/theme-switcher";
 import { Avatar } from "@/components/ui/avatar";
 import { MetricCharacter } from "@/components/ui/metric-character";
 import { SectionHeader } from "@/components/ui/section-header";
-import { ProgressCard } from "@/components/progress-card";
+import { NewcomerCard } from "@/components/home/newcomer-card";
+import { FirstRunWelcome } from "@/components/home/first-run-welcome";
 import { LessonCard } from "@/components/lesson-card";
 import { RankingSummaryCard } from "@/components/ranking-summary-card";
 import { TaskCard } from "@/components/task-card";
@@ -16,19 +17,25 @@ import { NewsCard } from "@/components/news-card";
 import { MysteryShopperCard } from "@/components/mystery-shopper-card";
 import { AchievementCard } from "@/components/achievement-card";
 import { useApp } from "@/providers/app-provider";
-import { formatNumber } from "@/lib/utils";
+import {
+  ADAPTATION_PROGRAM,
+  getCityById,
+  getClubById,
+  getPositionById,
+  programProgress,
+} from "@/content";
 import {
   ACHIEVEMENTS,
-  cityById,
-  clubById,
   CONTINUE_COURSE,
   COURSES,
   DAILY_TASKS,
   MYSTERY_SHOPPER,
   NEWS,
-  positionById,
 } from "@/lib/data";
 import { cardIn, staggerStack } from "@/lib/motion";
+import { formatNumber } from "@/lib/utils";
+
+const WELCOME_SEEN_KEY = "metro.home.welcomed";
 
 function computeGreeting() {
   const h = new Date().getHours();
@@ -41,19 +48,54 @@ function computeGreeting() {
 const Section = motion.section;
 
 export default function HomeScreen() {
-  const { profile, telegramUser } = useApp();
+  const { profile, isOnboarded, hydrated, telegramUser } = useApp();
+  const router = useRouter();
 
-  // Time-of-day greeting resolved after mount to avoid hydration mismatch.
   const [greeting, setGreeting] = useState("С возвращением");
+  const [showWelcome, setShowWelcome] = useState(false);
+
   useEffect(() => setGreeting(computeGreeting()), []);
 
+  // Onboarding guard: no valid profile → back to onboarding.
+  useEffect(() => {
+    if (hydrated && !isOnboarded) router.replace("/welcome");
+  }, [hydrated, isOnboarded, router]);
+
+  // First-run welcome (once), triggered by /home?welcome=1.
+  useEffect(() => {
+    if (!isOnboarded) return;
+    try {
+      const wants =
+        new URLSearchParams(window.location.search).get("welcome") === "1";
+      const seen = localStorage.getItem(WELCOME_SEEN_KEY) === "1";
+      if (wants && !seen) setShowWelcome(true);
+    } catch {
+      /* noop */
+    }
+  }, [isOnboarded]);
+
+  const dismissWelcome = () => {
+    setShowWelcome(false);
+    try {
+      localStorage.setItem(WELCOME_SEEN_KEY, "1");
+      window.history.replaceState({}, "", "/home");
+    } catch {
+      /* noop */
+    }
+  };
+
+  if (!hydrated || !profile) {
+    return <div className="min-h-[100dvh]" />;
+  }
+
   const firstName = profile.displayName.split(" ")[0];
-  const position = positionById(profile.positionId);
-  const club = clubById(profile.clubId);
-  const city = cityById(profile.cityId);
+  const position = getPositionById(profile.positionId);
+  const club = getClubById(profile.clubId);
+  const city = getCityById(profile.cityId);
   const identity = [position?.title, club?.name, city?.name]
     .filter(Boolean)
     .join(" · ");
+  const adaptation = programProgress(ADAPTATION_PROGRAM);
   const continueCourse = COURSES.find((c) => c.id === CONTINUE_COURSE.courseId);
   const continueRatio = continueCourse
     ? continueCourse.completedLessons / continueCourse.totalLessons
@@ -67,7 +109,7 @@ export default function HomeScreen() {
         <div className="flex items-center gap-3">
           <Avatar
             name={profile.displayName}
-            src={telegramUser?.photoUrl}
+            src={telegramUser.photoUrl}
             size={48}
             ring
           />
@@ -84,15 +126,7 @@ export default function HomeScreen() {
               </p>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1 rounded-2xl border border-border bg-card px-3 py-2.5">
-              <Flame className="size-4 text-brand" fill="currentColor" />
-              <span className="text-sm font-bold text-foreground">
-                {profile.streak}
-              </span>
-            </div>
-            <ThemeSwitcher />
-          </div>
+          <ThemeSwitcher />
         </div>
       </header>
 
@@ -102,9 +136,22 @@ export default function HomeScreen() {
         animate="show"
         className="flex flex-col gap-7 px-5 pt-4"
       >
-        {/* Level */}
+        {showWelcome && (
+          <motion.div variants={cardIn}>
+            <FirstRunWelcome
+              name={firstName}
+              onStart={() => {
+                dismissWelcome();
+                router.push("/academy");
+              }}
+              onDismiss={dismissWelcome}
+            />
+          </motion.div>
+        )}
+
+        {/* Newcomer level */}
         <motion.div variants={cardIn}>
-          <ProgressCard xp={profile.xp} />
+          <NewcomerCard ratio={adaptation.ratio} />
         </motion.div>
 
         {/* Today's plan */}
@@ -116,7 +163,8 @@ export default function HomeScreen() {
                 Выполнено {doneToday} из {DAILY_TASKS.length}
               </p>
               <p className="shrink-0 whitespace-nowrap text-sm font-bold text-brand">
-                +{formatNumber(
+                +
+                {formatNumber(
                   DAILY_TASKS.reduce((s, t) => s + (t.done ? 0 : t.xp), 0),
                 )}{" "}
                 XP
@@ -132,7 +180,10 @@ export default function HomeScreen() {
 
         {/* Continue learning */}
         <Section variants={cardIn} className="flex flex-col gap-3">
-          <SectionHeader title="Продолжить обучение" action={{ label: "Все курсы", href: "/academy" }} />
+          <SectionHeader
+            title="Продолжить обучение"
+            action={{ label: "Все курсы", href: "/academy" }}
+          />
           <LessonCard
             courseTitle={CONTINUE_COURSE.courseTitle}
             lessonTitle={CONTINUE_COURSE.lessonTitle}
@@ -143,7 +194,10 @@ export default function HomeScreen() {
 
         {/* Ranking */}
         <Section variants={cardIn} className="flex flex-col gap-3">
-          <SectionHeader title="Рейтинг" action={{ label: "Открыть", href: "/ranking" }} />
+          <SectionHeader
+            title="Рейтинг"
+            action={{ label: "Открыть", href: "/ranking" }}
+          />
           <RankingSummaryCard />
         </Section>
 
@@ -180,7 +234,7 @@ export default function HomeScreen() {
         >
           <MetricCharacter size={72} mood="cheer" />
           <p className="max-w-[240px] text-center text-sm font-medium text-muted-foreground">
-            Отличный темп! Заверши план на сегодня и обгони ещё двоих в рейтинге.
+            Отличный старт! Пройди базовую адаптацию и открой новые возможности.
           </p>
         </motion.div>
       </motion.main>

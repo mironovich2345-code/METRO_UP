@@ -28,8 +28,25 @@ export {
 export { QUIZZES, quizById } from "@/content/quizzes";
 export { EQUIPMENT, equipmentById } from "@/content/equipment";
 export { GROUP_CLASSES, groupClassById } from "@/content/group-classes";
-export { CITIES, cityById } from "@/content/cities";
-export { CLUBS, clubsForCity, clubById } from "@/content/clubs";
+export {
+  CITIES,
+  getCities,
+  getCityById,
+  getClubsByCityId,
+  getClubById,
+  getCityByClubId,
+  isClubInCity,
+  type City,
+  type Club,
+} from "@/content/cities";
+export {
+  POSITIONS,
+  getPositions,
+  getPositionById,
+  isValidPositionId,
+  type Position,
+  type PositionId,
+} from "@/content/positions";
 
 export {
   COMPLETED_LESSON_IDS,

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ArrowRight } from "lucide-react";
@@ -10,10 +11,15 @@ import { easeOutSoft } from "@/lib/motion";
 
 export default function SplashScreen() {
   const router = useRouter();
-  const { isSetupComplete, hydrated } = useApp();
+  const { isOnboarded, hydrated } = useApp();
+
+  // Returning employees skip the splash and go straight Home.
+  useEffect(() => {
+    if (hydrated && isOnboarded) router.replace("/home");
+  }, [hydrated, isOnboarded, router]);
 
   const start = () => {
-    router.push(isSetupComplete ? "/home" : "/welcome");
+    router.push("/welcome");
   };
 
   return (
