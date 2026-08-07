@@ -1,39 +1,25 @@
 "use client";
 
-import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { GraduationCap } from "lucide-react";
+import { GraduationCap, Lock } from "lucide-react";
 import { BottomNavigation } from "@/components/bottom-navigation";
 import { AppHeader } from "@/components/app-header";
 import { GlassCard } from "@/components/ui/glass-card";
 import { XPProgress } from "@/components/ui/xp-progress";
-import { CourseCard } from "@/components/course-card";
-import { CATEGORY_LABELS, COURSES } from "@/lib/data";
-import type { CourseCategory } from "@/lib/types";
+import { SectionHeader } from "@/components/ui/section-header";
+import { DayCard } from "@/components/day-card";
+import { LockedCourseCard } from "@/components/locked-course-card";
+import {
+  ADAPTATION_PROGRAM,
+  ADVANCED_COURSES,
+  ADVANCED_LOCK_REASON,
+  programProgress,
+} from "@/content";
 import { cardIn, staggerStack } from "@/lib/motion";
-import { cn } from "@/lib/utils";
-import { hapticSelection } from "@/lib/telegram";
-
-type Filter = "all" | CourseCategory;
-
-const FILTERS: Filter[] = ["all", "sales", "service", "product", "brand"];
 
 export default function AcademyScreen() {
-  const [filter, setFilter] = useState<Filter>("all");
-
-  const totals = useMemo(() => {
-    const done = COURSES.reduce((s, c) => s + c.completedLessons, 0);
-    const total = COURSES.reduce((s, c) => s + c.totalLessons, 0);
-    return { done, total, ratio: total ? done / total : 0 };
-  }, []);
-
-  const visible = useMemo(
-    () =>
-      filter === "all"
-        ? COURSES
-        : COURSES.filter((c) => c.category === filter),
-    [filter],
-  );
+  const program = ADAPTATION_PROGRAM;
+  const progress = programProgress(program);
 
   return (
     <div className="relative min-h-[100dvh] pb-32">
@@ -57,63 +43,67 @@ export default function AcademyScreen() {
                   Общий прогресс
                 </p>
                 <p className="text-2xl font-extrabold tracking-tight text-foreground">
-                  {Math.round(totals.ratio * 100)}%
+                  {Math.round(progress.ratio * 100)}%
                 </p>
               </div>
               <div className="text-right">
                 <p className="text-2xl font-extrabold text-foreground">
-                  {totals.done}
+                  {progress.completed}
                 </p>
                 <p className="text-xs font-medium text-muted-foreground">
-                  из {totals.total} уроков
+                  из {progress.total} уроков
                 </p>
               </div>
             </div>
             <div className="mt-4">
-              <XPProgress value={totals.ratio} size="md" />
+              <XPProgress value={progress.ratio} size="md" />
             </div>
           </GlassCard>
         </motion.div>
 
-        {/* Category filter */}
-        <motion.div
-          variants={cardIn}
-          className="no-scrollbar -mx-5 mt-5 flex gap-2 overflow-x-auto px-5"
-        >
-          {FILTERS.map((f) => {
-            const active = filter === f;
-            return (
-              <button
-                key={f}
-                type="button"
-                onClick={() => {
-                  hapticSelection();
-                  setFilter(f);
-                }}
-                className={cn(
-                  "shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition-colors",
-                  active
-                    ? "bg-foreground text-background"
-                    : "bg-muted text-muted-foreground",
-                )}
-              >
-                {f === "all" ? "Все" : CATEGORY_LABELS[f]}
-              </button>
-            );
-          })}
+        {/* Base adaptation — three days */}
+        <motion.div variants={cardIn} className="mt-6">
+          <SectionHeader title={program.title} />
         </motion.div>
-
-        {/* Course grid */}
         <motion.div
-          key={filter}
           variants={staggerStack}
           initial="hidden"
           animate="show"
-          className="mt-5 grid grid-cols-2 gap-3"
+          className="mt-3 grid grid-cols-2 gap-3"
         >
-          {visible.map((course) => (
+          {program.days.map((day) => (
+            <motion.div key={day.id} variants={cardIn}>
+              <DayCard day={day} />
+            </motion.div>
+          ))}
+        </motion.div>
+
+        {/* Locked advanced Academy */}
+        <motion.div variants={cardIn} className="mt-8">
+          <SectionHeader title="Дальше в Академии" />
+          <GlassCard
+            variant="outline"
+            pad="md"
+            animateIn={false}
+            className="mt-3 flex items-start gap-3"
+          >
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+              <Lock className="size-4" />
+            </div>
+            <p className="text-sm font-medium text-muted-foreground">
+              {ADVANCED_LOCK_REASON}
+            </p>
+          </GlassCard>
+        </motion.div>
+        <motion.div
+          variants={staggerStack}
+          initial="hidden"
+          animate="show"
+          className="mt-3 grid grid-cols-2 gap-3"
+        >
+          {ADVANCED_COURSES.map((course) => (
             <motion.div key={course.id} variants={cardIn}>
-              <CourseCard course={course} />
+              <LockedCourseCard course={course} />
             </motion.div>
           ))}
         </motion.div>

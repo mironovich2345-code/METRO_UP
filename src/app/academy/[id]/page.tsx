@@ -2,29 +2,57 @@
 
 import { useParams } from "next/navigation";
 import { motion } from "framer-motion";
-import { Check, Lock, Play } from "lucide-react";
+import { Check, ClipboardCheck, Clock, Lock, Play } from "lucide-react";
 import { BottomNavigation } from "@/components/bottom-navigation";
 import { AppHeader } from "@/components/app-header";
 import { GlassCard } from "@/components/ui/glass-card";
 import { XPProgress } from "@/components/ui/xp-progress";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { CATEGORY_LABELS, COURSES } from "@/lib/data";
+import {
+  ADVANCED_LOCK_REASON,
+  type ContentState,
+  courseBySlug,
+  dayLessonViews,
+  dayProgress,
+  findDay,
+  STATE_LABELS,
+} from "@/content";
+import { resolveIcon } from "@/lib/icons";
 import { cardIn, springSoft, staggerStack } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { haptic } from "@/lib/telegram";
 
+const isDone = (s: ContentState) =>
+  s === "completed" || s === "awaiting_approval";
+const isActive = (s: ContentState) =>
+  s === "available" || s === "awaiting_attestation";
+
+function StateIcon({ state }: { state: ContentState }) {
+  if (isDone(state)) return <Check className="size-5" strokeWidth={3} />;
+  if (state === "awaiting_attestation")
+    return <ClipboardCheck className="size-5" />;
+  if (state === "available")
+    return <Play className="size-5 translate-x-[1px] fill-current" />;
+  return <Lock className="size-4" />;
+}
+
 export default function CourseDetailScreen() {
   const params = useParams<{ id: string }>();
-  const course = COURSES.find((c) => c.id === params.id);
+  const day = findDay(params.id);
 
-  if (!course) {
+  // Not a base-adaptation day: either a locked advanced track or unknown.
+  if (!day) {
+    const course = courseBySlug(params.id);
     return (
       <div className="flex min-h-[100dvh] flex-col">
-        <AppHeader showBack title="Курс не найден" />
+        <AppHeader showBack title={course?.title ?? "Раздел недоступен"} />
         <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
+          <div className="flex size-14 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
+            <Lock className="size-6" />
+          </div>
           <p className="text-muted-foreground">
-            Похоже, этот курс ещё не опубликован.
+            {course ? ADVANCED_LOCK_REASON : "Этот раздел ещё не опубликован."}
           </p>
           <Button onClick={() => history.back()} size="md">
             Назад к Академии
@@ -34,22 +62,13 @@ export default function CourseDetailScreen() {
     );
   }
 
-  const Icon = course.icon;
-  const ratio = course.completedLessons / course.totalLessons;
-
-  const lessons = Array.from({ length: course.totalLessons }, (_, i) => {
-    const status =
-      i < course.completedLessons
-        ? "done"
-        : i === course.completedLessons
-          ? "current"
-          : "locked";
-    return { index: i + 1, status } as const;
-  });
+  const Icon = resolveIcon(day.icon);
+  const { completed, total, ratio } = dayProgress(day);
+  const views = dayLessonViews(day);
 
   return (
     <div className="relative min-h-[100dvh] pb-32">
-      <AppHeader showBack title={course.title} showThemeSwitcher={false} />
+      <AppHeader showBack title={day.title} showThemeSwitcher={false} />
 
       <motion.main
         variants={staggerStack}
@@ -61,19 +80,16 @@ export default function CourseDetailScreen() {
         <motion.div variants={cardIn}>
           <GlassCard variant="solid" pad="lg" animateIn={false}>
             <div className="flex items-center gap-4">
-              <div
-                className="flex size-16 items-center justify-center rounded-3xl"
-                style={{ backgroundColor: `${course.accent}22` }}
-              >
-                <Icon className="size-8" style={{ color: course.accent }} />
+              <div className="flex size-16 items-center justify-center rounded-3xl bg-brand/12">
+                <Icon className="size-8 text-foreground" />
               </div>
               <div className="flex-1">
                 <Badge variant="neutral" size="sm">
-                  {CATEGORY_LABELS[course.category]}
+                  {day.subtitle}
                 </Badge>
-                <p className="mt-2 text-sm font-medium text-muted-foreground">
-                  {course.completedLessons} из {course.totalLessons} уроков
-                  пройдено
+                <p className="mt-2 flex items-center gap-1 text-sm font-medium text-muted-foreground">
+                  <Clock className="size-3.5" />~{day.estimatedMinutes} мин ·{" "}
+                  {completed} из {total} уроков
                 </p>
               </div>
             </div>
@@ -88,59 +104,52 @@ export default function CourseDetailScreen() {
 
         {/* Lessons */}
         <motion.div variants={cardIn} className="flex flex-col gap-2.5">
-          {lessons.map((lesson) => (
-            <motion.button
-              key={lesson.index}
-              type="button"
-              disabled={lesson.status === "locked"}
-              whileTap={lesson.status !== "locked" ? { scale: 0.98 } : undefined}
-              transition={springSoft}
-              onClick={() => haptic("medium")}
-              className={cn(
-                "flex items-center gap-4 rounded-3xl border p-4 text-left transition-colors",
-                lesson.status === "current"
-                  ? "border-brand bg-brand/8"
-                  : "border-border bg-card",
-                lesson.status === "locked" && "opacity-55",
-              )}
-            >
-              <div
+          {views.map(({ lesson, state }) => {
+            const active = isActive(state);
+            const done = isDone(state);
+            const locked = state === "locked";
+            return (
+              <motion.button
+                key={lesson.id}
+                type="button"
+                disabled={locked}
+                whileTap={!locked ? { scale: 0.98 } : undefined}
+                transition={springSoft}
+                onClick={() => haptic("medium")}
                 className={cn(
-                  "flex size-11 shrink-0 items-center justify-center rounded-2xl",
-                  lesson.status === "done" && "bg-success text-white",
-                  lesson.status === "current" &&
-                    "bg-brand text-brand-foreground",
-                  lesson.status === "locked" &&
-                    "bg-muted text-muted-foreground",
+                  "flex items-center gap-4 rounded-3xl border p-4 text-left transition-colors",
+                  active ? "border-brand bg-brand/8" : "border-border bg-card",
+                  locked && "opacity-55",
                 )}
               >
-                {lesson.status === "done" && (
-                  <Check className="size-5" strokeWidth={3} />
-                )}
-                {lesson.status === "current" && (
-                  <Play className="size-5 translate-x-[1px] fill-current" />
-                )}
-                {lesson.status === "locked" && <Lock className="size-4" />}
-              </div>
+                <div
+                  className={cn(
+                    "flex size-11 shrink-0 items-center justify-center rounded-2xl",
+                    done && "bg-success text-white",
+                    active && "bg-brand text-brand-foreground",
+                    locked && "bg-muted text-muted-foreground",
+                  )}
+                >
+                  <StateIcon state={state} />
+                </div>
 
-              <div className="min-w-0 flex-1">
-                <p className="text-[15px] font-bold text-foreground">
-                  Урок {lesson.index}
-                </p>
-                <p className="text-xs font-medium text-muted-foreground">
-                  {lesson.status === "done"
-                    ? "Завершён"
-                    : lesson.status === "current"
-                      ? "Продолжить"
-                      : "Откроется позже"}
-                </p>
-              </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[15px] font-bold text-foreground">
+                    {lesson.title}
+                  </p>
+                  <p className="text-xs font-medium text-muted-foreground">
+                    {STATE_LABELS[state]} · {lesson.durationMinutes} мин
+                  </p>
+                </div>
 
-              {lesson.status !== "locked" && (
-                <span className="text-xs font-bold text-brand">+50 XP</span>
-              )}
-            </motion.button>
-          ))}
+                {!locked && (
+                  <span className="shrink-0 whitespace-nowrap text-xs font-bold text-brand">
+                    +{lesson.xpReward} XP
+                  </span>
+                )}
+              </motion.button>
+            );
+          })}
         </motion.div>
       </motion.main>
 
