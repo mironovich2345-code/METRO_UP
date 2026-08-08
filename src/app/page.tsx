@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, RotateCw, WifiOff } from "lucide-react";
 import { Logo } from "@/components/brand/logo";
 import { Button } from "@/components/ui/button";
 import { useApp } from "@/providers/app-provider";
@@ -11,9 +11,10 @@ import { easeOutSoft } from "@/lib/motion";
 
 export default function SplashScreen() {
   const router = useRouter();
-  const { isOnboarded, hydrated } = useApp();
+  const { isOnboarded, hydrated, bootstrapError, retryBootstrap } = useApp();
 
-  // Returning employees skip the splash and go straight Home.
+  // Returning employees skip the splash and go straight Home. We only route
+  // once bootstrap has resolved, so Home is never shown to the wrong user.
   useEffect(() => {
     if (hydrated && isOnboarded) router.replace("/home");
   }, [hydrated, isOnboarded, router]);
@@ -57,10 +58,25 @@ export default function SplashScreen() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.5, duration: 0.7, ease: easeOutSoft }}
       >
-        <Button block size="lg" onClick={start} disabled={!hydrated}>
-          Начать
-          <ArrowRight className="size-5" />
-        </Button>
+        {bootstrapError ? (
+          <div className="flex flex-col items-center gap-4 text-center">
+            <div className="flex items-center gap-2 text-white/60">
+              <WifiOff className="size-4" />
+              <p className="text-sm font-medium">
+                Не удалось подключиться. Попробуй снова.
+              </p>
+            </div>
+            <Button block size="lg" onClick={retryBootstrap}>
+              <RotateCw className="size-5" />
+              Попробовать снова
+            </Button>
+          </div>
+        ) : (
+          <Button block size="lg" onClick={start} disabled={!hydrated}>
+            Начать
+            <ArrowRight className="size-5" />
+          </Button>
+        )}
       </motion.div>
     </main>
   );
