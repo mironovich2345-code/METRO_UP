@@ -125,6 +125,8 @@ export default function SetupScreen() {
   const [step, setStep] = useState<Step>(0);
   const [dir, setDir] = useState(1);
   const [query, setQuery] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState(false);
 
   const goTo = (next: Step, direction: number) => {
     setDir(direction);
@@ -173,10 +175,23 @@ export default function SetupScreen() {
     setTimeout(() => goTo(3, 1), 160);
   };
 
-  const finish = () => {
-    hapticSuccess();
-    const profile = completeOnboarding();
-    if (profile) router.replace("/home?welcome=1");
+  const finish = async () => {
+    if (submitting) return;
+    setSubmitError(false);
+    setSubmitting(true);
+    try {
+      const profile = await completeOnboarding();
+      if (profile) {
+        hapticSuccess();
+        // Server EmployeeProfile is now the source of truth — no reload needed.
+        router.replace("/home?welcome=1");
+        return;
+      }
+      setSubmitError(true);
+    } catch {
+      setSubmitError(true);
+    }
+    setSubmitting(false);
   };
 
   const confirmCity = getCityById(draft.cityId);
@@ -385,14 +400,26 @@ export default function SetupScreen() {
                   твоего клуба.
                 </p>
 
+                {submitError && (
+                  <p className="mt-4 text-center text-sm font-medium text-red-500">
+                    Не удалось сохранить профиль. Попробуй снова.
+                  </p>
+                )}
+
                 <div className="mt-6 flex flex-col gap-3">
-                  <Button block size="lg" onClick={finish}>
-                    Всё верно
+                  <Button
+                    block
+                    size="lg"
+                    onClick={finish}
+                    loading={submitting}
+                  >
+                    {submitError ? "Попробовать снова" : "Всё верно"}
                   </Button>
                   <Button
                     block
                     size="md"
                     variant="ghost"
+                    disabled={submitting}
                     onClick={() => goTo(0, -1)}
                   >
                     Изменить

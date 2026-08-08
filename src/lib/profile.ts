@@ -6,15 +6,20 @@ import {
 import { isValidPositionId, type PositionId } from "@/content/positions";
 
 /** Career ladder level. UI/types ready ahead of backend logic. */
+// Values mirror the Prisma enums (DB is the source of truth).
 export type CareerLevel =
   | "NEWCOMER"
   | "MANAGER"
   | "TOP_MANAGER"
   | "LEADER"
-  | "DIRECTOR";
+  | "MANAGER_PRO";
 
-/** Platform access tier. */
-export type AccessStatus = "LIMITED" | "PENDING_APPROVAL" | "FULL";
+/** Platform access tier. Mirrors the Prisma AccessStatus enum. */
+export type AccessStatus =
+  | "LIMITED"
+  | "PENDING_APPROVAL"
+  | "FULL"
+  | "SUSPENDED";
 
 export const PROFILE_STORAGE_KEY = "metro.profile";
 export const PROFILE_VERSION = 2 as const;
@@ -40,12 +45,13 @@ const CAREER_LEVELS = new Set<string>([
   "MANAGER",
   "TOP_MANAGER",
   "LEADER",
-  "DIRECTOR",
+  "MANAGER_PRO",
 ]);
 const ACCESS_STATUSES = new Set<string>([
   "LIMITED",
   "PENDING_APPROVAL",
   "FULL",
+  "SUSPENDED",
 ]);
 
 function nowISO(): string {

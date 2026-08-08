@@ -230,3 +230,45 @@ test(
   { skip: "integration: requires Postgres + running server" },
   () => {},
 );
+
+/* ---------- connect-backend-to-ui: additional bootstrap coverage ---------- */
+
+// C — authenticated Telegram user without an EmployeeProfile → onboarding
+// (server is not yet the source of truth; local is only a prefill).
+test("C: server user without profile → onboarding, not server source", () => {
+  const noProfile: AppUserDTO = {
+    displayName: "Иван",
+    role: "EMPLOYEE",
+    telegram: {
+      username: "ivan",
+      firstName: "Иван",
+      lastName: null,
+      photoUrl: null,
+    },
+    onboardingCompleted: false,
+    profile: null,
+  };
+  assert.equal(resolveProfileSource(noProfile, false), "none");
+  assert.equal(resolveProfileSource(noProfile, true), "local"); // prefill only
+});
+
+test(
+  "A2: initData → session cookie → /me returns server user",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+test(
+  "J: existing server profile → Home without Setup flicker",
+  { skip: "integration: requires browser + server" },
+  () => {},
+);
+test(
+  "K2: logout invalidates the session cookie",
+  { skip: "integration: requires server + cookie jar" },
+  () => {},
+);
+test(
+  "M: DB failure → controlled error state (health 503)",
+  { skip: "integration: requires running server" },
+  () => {},
+);

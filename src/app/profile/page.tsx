@@ -23,13 +23,14 @@ const CAREER_RANK_INDEX: Record<CareerLevel, number> = {
   MANAGER: 1,
   TOP_MANAGER: 2,
   LEADER: 3,
-  DIRECTOR: 4,
+  MANAGER_PRO: 4,
 };
 
 const ACCESS_LABELS: Record<AccessStatus, string> = {
   LIMITED: "Базовый доступ",
   PENDING_APPROVAL: "Ожидает подтверждения",
   FULL: "Полный доступ",
+  SUSPENDED: "Доступ приостановлен",
 };
 
 export default function ProfileScreen() {

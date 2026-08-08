@@ -31,7 +31,12 @@ interface AppUserContextValue {
   status: AppUserStatus;
   user: AppUserDTO | null;
   isAuthenticated: boolean;
+  /** True only while the initial bootstrap is in flight. */
+  isBootstrapping: boolean;
+  /** True when bootstrap failed inside Telegram (needs retry). */
+  hasError: boolean;
   refresh: () => Promise<void>;
+  retry: () => void;
   saveOnboarding: (input: OnboardingInputDTO) => Promise<AppUserDTO>;
   signOut: () => Promise<void>;
 }
@@ -78,6 +83,12 @@ export function AppUserProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  /** Re-run the full bootstrap (used by the error/retry UI). */
+  const retry = useCallback(() => {
+    setStatus("loading");
+    void bootstrap();
+  }, [bootstrap]);
+
   const saveOnboarding = useCallback(async (input: OnboardingInputDTO) => {
     const saved = await submitOnboarding(input);
     setUser(saved);
@@ -99,11 +110,14 @@ export function AppUserProvider({ children }: { children: React.ReactNode }) {
       status,
       user,
       isAuthenticated: status === "authenticated",
+      isBootstrapping: status === "loading",
+      hasError: status === "error",
       refresh,
+      retry,
       saveOnboarding,
       signOut,
     }),
-    [status, user, refresh, saveOnboarding, signOut],
+    [status, user, refresh, retry, saveOnboarding, signOut],
   );
 
   return (
