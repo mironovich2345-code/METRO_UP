@@ -138,8 +138,8 @@ export default function AcademyScreen() {
 
 function DayCardDb({ day }: { day: AcademyDayCardDTO }) {
   const router = useRouter();
-  const empty = day.lessonCount === 0;
-  const done = day.lessonCount > 0 && day.completedCount === day.lessonCount;
+  const empty = day.totalLessons === 0;
+  const done = day.totalLessons > 0 && day.completedLessons === day.totalLessons;
   const disabled = day.locked || empty;
 
   const open = () => {
@@ -164,11 +164,11 @@ function DayCardDb({ day }: { day: AcademyDayCardDTO }) {
             done ? "bg-success text-white" : day.locked ? "bg-muted text-muted-foreground" : "bg-brand/12 text-brand",
           )}
         >
-          {done ? <CheckCircle2 className="size-5" /> : day.locked ? <Lock className="size-4" /> : day.dayNumber}
+          {done ? <CheckCircle2 className="size-5" /> : day.locked ? <Lock className="size-4" /> : day.virtual ? <GraduationCap className="size-5" /> : day.dayNumber}
         </span>
         {!empty && (
           <Badge variant="neutral" size="sm">
-            {day.completedCount}/{day.lessonCount}
+            {day.completedLessons}/{day.totalLessons}
           </Badge>
         )}
       </div>
@@ -183,7 +183,7 @@ function DayCardDb({ day }: { day: AcademyDayCardDTO }) {
             <Clock className="size-3" /> ~{day.durationMinutes} мин
           </div>
           <div className="mt-auto pt-3">
-            <XPProgress value={day.ratio} size="sm" />
+            <XPProgress value={day.progressPercent / 100} size="sm" />
           </div>
         </>
       )}

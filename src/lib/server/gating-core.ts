@@ -12,6 +12,8 @@ export interface SequenceLesson {
   courseOrder: number;
   lessonOrder: number;
   durationMinutes?: number;
+  /** null when the lesson's course is not attached to a TrainingDay. */
+  trainingDayId?: string | null;
 }
 
 export interface Access {

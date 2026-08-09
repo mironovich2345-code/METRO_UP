@@ -111,11 +111,13 @@ export interface AcademyDayCardDTO {
   id: string;
   title: string;
   dayNumber: number;
-  lessonCount: number;
-  completedCount: number;
-  ratio: number;
+  totalLessons: number;
+  completedLessons: number;
+  progressPercent: number;
   durationMinutes: number;
   locked: boolean;
+  /** True for the synthetic "Уроки" bucket holding lessons with no TrainingDay. */
+  virtual: boolean;
 }
 export interface AcademyProgramDTO {
   id: string;

@@ -113,25 +113,55 @@ export async function getAcademyOverview(userId: string): Promise<AcademyOvervie
       }
     }
 
-    const days = program.days.map((day) => {
-      const dayLessons = sequence.filter((l) => l.dayNumber === day.dayNumber);
-      const completedCount = dayLessons.filter((l) => completed.has(l.id)).length;
+    const dayCard = (
+      id: string,
+      title: string,
+      dayNumber: number,
+      dayLessons: typeof sequence,
+      locked: boolean,
+      virtual: boolean,
+    ) => {
+      const completedLessons = dayLessons.filter((l) => completed.has(l.id)).length;
       const durationMinutes = dayLessons.reduce((s, l) => s + (l.durationMinutes ?? 0), 0);
-      // A day unlocks only when every REQUIRED lesson in a PRIOR day is done.
+      return {
+        id,
+        title,
+        dayNumber,
+        totalLessons: dayLessons.length,
+        completedLessons,
+        progressPercent: dayLessons.length
+          ? Math.round((completedLessons / dayLessons.length) * 100)
+          : 0,
+        durationMinutes,
+        locked,
+        virtual,
+      };
+    };
+
+    // Real training days: match lessons by trainingDayId. A day unlocks only when
+    // every REQUIRED lesson in a PRIOR day is done.
+    const days = program.days.map((day) => {
+      const dayLessons = sequence.filter((l) => l.trainingDayId === day.id);
       const locked = sequence.some(
         (l) => l.dayNumber < day.dayNumber && l.isRequired && !completed.has(l.id),
       );
-      return {
-        id: day.id,
-        title: day.title,
-        dayNumber: day.dayNumber,
-        lessonCount: dayLessons.length,
-        completedCount,
-        ratio: dayLessons.length ? completedCount / dayLessons.length : 0,
-        durationMinutes,
-        locked,
-      };
+      return dayCard(day.id, day.title, day.dayNumber, dayLessons, locked, false);
     });
+
+    // Published lessons whose course has NO TrainingDay must still be reachable
+    // (never hide published content). Surface them in a synthetic "Уроки" day.
+    const looseLessons = sequence.filter((l) => !l.trainingDayId);
+    if (looseLessons.length > 0) {
+      if (process.env.NODE_ENV !== "production") {
+        console.warn(
+          `[academy] program ${program.id} has ${looseLessons.length} published lesson(s) with no TrainingDay (course.trainingDayId=null). Shown under a virtual day. Attach the course to a day in the CMS.`,
+        );
+      }
+      const firstIdx = sequence.findIndex((l) => !l.trainingDayId);
+      const locked = firstIdx >= 0 ? accessAt(sequence, firstIdx, completed).locked : false;
+      const maxDayNumber = program.days.reduce((m, d) => Math.max(m, d.dayNumber), 0);
+      days.push(dayCard(`nodays:${program.id}`, "Уроки", maxDayNumber + 1, looseLessons, locked, true));
+    }
 
     outPrograms.push({ id: program.id, title: program.title, days });
   }
@@ -155,11 +185,17 @@ export async function getAcademyDayDetail(
   userId: string,
   dayId: string,
 ): Promise<AcademyDayDetailDTO | null> {
+  // Virtual "Уроки" bucket: courses of a program that have no TrainingDay.
+  if (dayId.startsWith("nodays:")) {
+    return getVirtualDayDetail(userId, dayId.slice("nodays:".length));
+  }
+
   const day = await prisma.trainingDay.findUnique({
     where: { id: dayId },
     include: {
       program: { select: { title: true } },
       courses: {
+        where: { trainingDayId: dayId },
         orderBy: { order: "asc" },
         include: {
           lessons: { where: { status: "PUBLISHED" }, orderBy: { order: "asc" } },
@@ -204,6 +240,61 @@ export async function getAcademyDayDetail(
     description: day.description,
     dayNumber: day.dayNumber,
     programTitle: day.program.title,
+    courses,
+  };
+}
+
+/** Detail for the synthetic "Уроки" day — a program's courses without a TrainingDay. */
+async function getVirtualDayDetail(
+  userId: string,
+  programId: string,
+): Promise<AcademyDayDetailDTO | null> {
+  const program = await prisma.trainingProgram.findUnique({
+    where: { id: programId },
+    select: { title: true },
+  });
+  if (!program) return null;
+
+  const [dbCourses, sequence, completed] = await Promise.all([
+    prisma.course.findMany({
+      where: { programId, trainingDayId: null },
+      orderBy: { order: "asc" },
+      include: { lessons: { where: { status: "PUBLISHED" }, orderBy: { order: "asc" } } },
+    }),
+    getProgramSequence(programId),
+    getCompletedLessonIds(userId),
+  ]);
+  const indexById = new Map(sequence.map((l, i) => [l.id, i]));
+
+  const courses = dbCourses
+    .map((c) => ({
+      id: c.id,
+      title: c.title,
+      shortDescription: c.shortDescription,
+      lessons: c.lessons.map((l) => {
+        const i = indexById.get(l.id);
+        const locked = i == null ? true : accessAt(sequence, i, completed).locked;
+        return {
+          id: l.id,
+          slug: l.slug,
+          title: l.title,
+          shortDescription: l.shortDescription,
+          durationMinutes: l.durationMinutes,
+          xpReward: l.xpReward,
+          isRequired: l.isRequired,
+          completed: completed.has(l.id),
+          locked,
+        };
+      }),
+    }))
+    .filter((c) => c.lessons.length > 0);
+
+  return {
+    id: `nodays:${programId}`,
+    title: "Уроки",
+    description: null,
+    dayNumber: 0,
+    programTitle: program.title,
     courses,
   };
 }
