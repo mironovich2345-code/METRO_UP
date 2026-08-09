@@ -3,37 +3,37 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
+import {
+  ArrowDown,
+  ArrowUp,
+  CheckCircle2,
+  ChevronRight,
+  Circle,
+  Eye,
+  ListChecks,
+  Lock,
+  Sparkles,
+  Trophy,
+} from "lucide-react";
 import { BottomNavigation } from "@/components/bottom-navigation";
 import { ThemeSwitcher } from "@/components/ui/theme-switcher";
 import { Avatar } from "@/components/ui/avatar";
-import { MetricCharacter } from "@/components/ui/metric-character";
-import { SectionHeader } from "@/components/ui/section-header";
-import { CareerCard } from "@/components/home/career-card";
-import { XPCard } from "@/components/home/xp-card";
+import { GlassCard } from "@/components/ui/glass-card";
+import { Button } from "@/components/ui/button";
+import { XPProgress } from "@/components/ui/xp-progress";
 import { FirstRunWelcome } from "@/components/home/first-run-welcome";
 import { ContinueLearningCard } from "@/components/home/ContinueLearningCard";
-import { RatingPlaceCard } from "@/components/home/rating-place-card";
-import { TaskCard } from "@/components/task-card";
-import { NewsCard } from "@/components/news-card";
-import { MysteryShopperCard } from "@/components/mystery-shopper-card";
-import { AchievementCard } from "@/components/achievement-card";
 import { useApp } from "@/providers/app-provider";
-import {
-  ADAPTATION_PROGRAM,
-  getCityById,
-  getClubById,
-  getPositionById,
-  programProgress,
-} from "@/content";
-import { CURRENT_EMPLOYEE_ID } from "@/domain/rating";
-import {
-  ACHIEVEMENTS,
-  DAILY_TASKS,
-  MYSTERY_SHOPPER,
-  NEWS,
-} from "@/lib/data";
+import { getPositionById, getClubById, getCityById } from "@/content";
 import { cardIn, staggerStack } from "@/lib/motion";
-import { formatNumber } from "@/lib/utils";
+import { cn, formatNumber } from "@/lib/utils";
+import { fetchHome } from "@/lib/api/home-client";
+import type {
+  DailyTaskDTO,
+  HomeDashboardDTO,
+  MysterySummaryDTO,
+  RatingSummaryDTO,
+} from "@/lib/api/home-types";
 
 const WELCOME_SEEN_KEY = "metro.home.welcomed";
 
@@ -45,28 +45,38 @@ function computeGreeting() {
   return "Добрый вечер";
 }
 
-const Section = motion.section;
-
 export default function HomeScreen() {
   const { profile, isOnboarded, hydrated, telegramUser } = useApp();
   const router = useRouter();
 
   const [greeting, setGreeting] = useState("С возвращением");
   const [showWelcome, setShowWelcome] = useState(false);
+  const [dash, setDash] = useState<HomeDashboardDTO | null>(null);
+  const [dashStatus, setDashStatus] = useState<"loading" | "ready" | "error">("loading");
 
   useEffect(() => setGreeting(computeGreeting()), []);
 
-  // Onboarding guard: no valid profile → back to onboarding.
   useEffect(() => {
     if (hydrated && !isOnboarded) router.replace("/welcome");
   }, [hydrated, isOnboarded, router]);
 
-  // First-run welcome (once), triggered by /home?welcome=1.
+  const loadDash = () => {
+    setDashStatus("loading");
+    fetchHome()
+      .then((d) => {
+        setDash(d);
+        setDashStatus("ready");
+      })
+      .catch(() => setDashStatus("error"));
+  };
+  useEffect(() => {
+    if (isOnboarded) loadDash();
+  }, [isOnboarded]);
+
   useEffect(() => {
     if (!isOnboarded) return;
     try {
-      const wants =
-        new URLSearchParams(window.location.search).get("welcome") === "1";
+      const wants = new URLSearchParams(window.location.search).get("welcome") === "1";
       const seen = localStorage.getItem(WELCOME_SEEN_KEY) === "1";
       if (wants && !seen) setShowWelcome(true);
     } catch {
@@ -89,49 +99,29 @@ export default function HomeScreen() {
   }
 
   const firstName = profile.displayName.split(" ")[0];
-  const position = getPositionById(profile.positionId);
-  const club = getClubById(profile.clubId);
-  const city = getCityById(profile.cityId);
-  const identity = [position?.title, club?.name, city?.name]
+  const identity = [
+    getPositionById(profile.positionId)?.title,
+    getClubById(profile.clubId)?.name,
+    getCityById(profile.cityId)?.name,
+  ]
     .filter(Boolean)
     .join(" · ");
-  const adaptation = programProgress(ADAPTATION_PROGRAM);
-  const doneToday = DAILY_TASKS.filter((t) => t.done).length;
 
   return (
     <div className="relative min-h-[100dvh] pb-32">
-      {/* Greeting */}
       <header className="brand-aura px-5 pb-2 pt-[calc(env(safe-area-inset-top)+16px)]">
         <div className="flex items-center gap-3">
-          <Avatar
-            name={profile.displayName}
-            src={telegramUser.photoUrl}
-            size={48}
-            ring
-          />
+          <Avatar name={profile.displayName} src={telegramUser.photoUrl} size={48} ring />
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-medium text-muted-foreground">
-              {greeting},
-            </p>
-            <h1 className="truncate text-xl font-extrabold tracking-tight text-foreground">
-              {firstName}
-            </h1>
-            {identity && (
-              <p className="truncate text-xs font-medium text-muted-foreground">
-                {identity}
-              </p>
-            )}
+            <p className="text-xs font-medium text-muted-foreground">{greeting},</p>
+            <h1 className="truncate text-xl font-extrabold tracking-tight text-foreground">{firstName}</h1>
+            {identity && <p className="truncate text-xs font-medium text-muted-foreground">{identity}</p>}
           </div>
           <ThemeSwitcher />
         </div>
       </header>
 
-      <motion.main
-        variants={staggerStack}
-        initial="hidden"
-        animate="show"
-        className="flex flex-col gap-7 px-5 pt-4"
-      >
+      <motion.main variants={staggerStack} initial="hidden" animate="show" className="flex flex-col gap-6 px-5 pt-4">
         {showWelcome && (
           <motion.div variants={cardIn}>
             <FirstRunWelcome
@@ -145,97 +135,193 @@ export default function HomeScreen() {
           </motion.div>
         )}
 
-        {/* Career level */}
-        <motion.div variants={cardIn}>
-          <CareerCard adaptationRatio={adaptation.ratio} />
-        </motion.div>
-
-        {/* XP */}
-        <motion.div variants={cardIn}>
-          <XPCard employeeId={CURRENT_EMPLOYEE_ID} />
-        </motion.div>
-
-        {/* Today's plan */}
-        <Section variants={cardIn} className="flex flex-col gap-3">
-          <SectionHeader title="План на сегодня" />
-          <div>
-            <div className="mb-3 flex items-center justify-between gap-3 px-1">
-              <p className="min-w-0 truncate text-sm font-medium text-muted-foreground">
-                Выполнено {doneToday} из {DAILY_TASKS.length}
-              </p>
-              <p className="shrink-0 whitespace-nowrap text-sm font-bold text-brand">
-                +
-                {formatNumber(
-                  DAILY_TASKS.reduce((s, t) => s + (t.done ? 0 : t.xp), 0),
-                )}{" "}
-                XP
-              </p>
-            </div>
-            <div className="flex flex-col gap-2.5">
-              {DAILY_TASKS.map((task) => (
-                <TaskCard key={task.id} task={task} />
-              ))}
-            </div>
+        {dashStatus === "loading" && (
+          <div className="flex flex-col gap-4">
+            <div className="h-32 animate-pulse rounded-3xl bg-muted" />
+            <div className="h-24 animate-pulse rounded-3xl bg-muted" />
+            <div className="h-24 animate-pulse rounded-3xl bg-muted" />
           </div>
-        </Section>
+        )}
 
-        {/* Continue learning */}
-        <Section variants={cardIn} className="flex flex-col gap-3">
-          <SectionHeader
-            title="Продолжить обучение"
-            action={{ label: "Все курсы", href: "/academy" }}
-          />
-          <ContinueLearningCard />
-        </Section>
+        {dashStatus === "error" && (
+          <GlassCard variant="solid" pad="lg" animateIn={false} className="text-center">
+            <p className="font-semibold">Не удалось загрузить данные</p>
+            <Button className="mt-4" variant="secondary" onClick={loadDash}>Повторить</Button>
+          </GlassCard>
+        )}
 
-        {/* Monthly rating — place last month */}
-        <Section variants={cardIn} className="flex flex-col gap-3">
-          <SectionHeader
-            title="Рейтинг"
-            action={{ label: "Открыть", href: "/ranking" }}
-          />
-          <RatingPlaceCard />
-        </Section>
+        {dashStatus === "ready" && dash && (
+          <>
+            <motion.div variants={cardIn}>
+              <PlanCard plan={dash.plan} onOpen={() => router.push("/plan")} />
+            </motion.div>
 
-        {/* Mystery shopper */}
-        <Section variants={cardIn} className="flex flex-col gap-3">
-          <SectionHeader title="Тайный покупатель" />
-          <MysteryShopperCard result={MYSTERY_SHOPPER} />
-        </Section>
+            <motion.div variants={cardIn} className="flex flex-col gap-3">
+              <p className="px-1 text-sm font-bold text-foreground">Продолжить обучение</p>
+              <ContinueLearningCard />
+            </motion.div>
 
-        {/* Company news */}
-        <Section variants={cardIn} className="flex flex-col gap-3">
-          <SectionHeader title="Новости компании" />
-          <div className="no-scrollbar -mx-5 flex snap-x snap-mandatory gap-3 overflow-x-auto px-5">
-            {NEWS.map((item) => (
-              <NewsCard key={item.id} item={item} />
-            ))}
-          </div>
-        </Section>
+            <motion.div variants={cardIn}>
+              <XpCard total={dash.xp.total} today={dash.xp.today} />
+            </motion.div>
 
-        {/* Recent achievements */}
-        <Section variants={cardIn} className="flex flex-col gap-3">
-          <SectionHeader title="Последние достижения" />
-          <div className="no-scrollbar -mx-5 flex snap-x snap-mandatory gap-3 overflow-x-auto px-5">
-            {ACHIEVEMENTS.map((a) => (
-              <AchievementCard key={a.id} achievement={a} />
-            ))}
-          </div>
-        </Section>
+            <motion.div variants={cardIn}>
+              <RatingCard rating={dash.rating} onOpen={() => router.push("/ranking")} />
+            </motion.div>
 
-        {/* Metric sign-off */}
-        <motion.div
-          variants={cardIn}
-          className="flex flex-col items-center gap-3 pb-2 pt-2"
-        >
-          <MetricCharacter size={72} mood="cheer" />
-          <p className="max-w-[240px] text-center text-sm font-medium text-muted-foreground">
-            Отличный старт! Пройди базовую адаптацию и открой новые возможности.
-          </p>
-        </motion.div>
+            <motion.div variants={cardIn}>
+              <MysteryCard mystery={dash.mystery} />
+            </motion.div>
+          </>
+        )}
       </motion.main>
 
       <BottomNavigation />
     </div>
+  );
+}
+
+/* --------------------------------- cards --------------------------------- */
+
+function PlanCard({ plan, onOpen }: { plan: HomeDashboardDTO["plan"]; onOpen: () => void }) {
+  const ratio = plan.total ? plan.completed / plan.total : 0;
+  return (
+    <GlassCard variant="solid" pad="lg" animateIn={false}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="flex size-9 items-center justify-center rounded-2xl bg-brand/12">
+            <ListChecks className="size-5 text-brand" />
+          </span>
+          <p className="font-bold">План на сегодня</p>
+        </div>
+        <span className="text-sm font-semibold text-muted-foreground">
+          {plan.completed} из {plan.total}
+        </span>
+      </div>
+      <div className="mt-3"><XPProgress value={ratio} size="md" /></div>
+
+      {plan.total === 0 ? (
+        <p className="mt-3 text-sm text-muted-foreground">На сегодня задач нет</p>
+      ) : (
+        <ul className="mt-4 space-y-2">
+          {plan.tasks.map((t) => <PlanTaskRow key={t.id} task={t} />)}
+        </ul>
+      )}
+
+      <Button className="mt-4" variant="secondary" block onClick={onOpen}>
+        Открыть план
+      </Button>
+    </GlassCard>
+  );
+}
+
+function PlanTaskRow({ task }: { task: DailyTaskDTO }) {
+  const done = task.status === "COMPLETED";
+  const skipped = task.status === "SKIPPED";
+  return (
+    <li className="flex items-center gap-2.5 text-[15px]">
+      {done ? (
+        <CheckCircle2 className="size-4.5 shrink-0 text-success" />
+      ) : task.mode === "blocked" ? (
+        <Lock className="size-4 shrink-0 text-muted-foreground" />
+      ) : (
+        <Circle className="size-4.5 shrink-0 text-muted-foreground" />
+      )}
+      <span className={cn("truncate", (done || skipped) && "text-muted-foreground line-through")}>{task.title}</span>
+    </li>
+  );
+}
+
+function XpCard({ total, today }: { total: number; today: number }) {
+  return (
+    <GlassCard variant="brand" pad="lg" animateIn={false}>
+      <div className="flex items-center gap-2">
+        <Sparkles className="size-5 text-brand-foreground" />
+        <p className="font-bold text-brand-foreground">Твой опыт</p>
+      </div>
+      <p className="mt-2 text-3xl font-extrabold text-brand-foreground">{formatNumber(total)} XP</p>
+      <p className="mt-1 text-sm text-brand-foreground/80">
+        {today > 0 ? `Сегодня: +${today} XP` : "Сегодня пока без новых XP"}
+      </p>
+    </GlassCard>
+  );
+}
+
+function DeltaBadge({ delta }: { delta: number | null | undefined }) {
+  if (delta == null || delta === 0) return null;
+  const up = delta > 0;
+  return (
+    <span className={cn("inline-flex items-center gap-0.5 text-xs font-semibold", up ? "text-success" : "text-red-500")}>
+      {up ? <ArrowUp className="size-3" /> : <ArrowDown className="size-3" />}
+      {Math.abs(delta)}
+    </span>
+  );
+}
+
+function RatingCard({ rating, onOpen }: { rating: RatingSummaryDTO; onOpen: () => void }) {
+  return (
+    <GlassCard variant="solid" pad="lg" animateIn={false} interactive onClick={onOpen}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="flex size-9 items-center justify-center rounded-2xl bg-brand/12">
+            <Trophy className="size-5 text-brand" />
+          </span>
+          <p className="font-bold">Рейтинг</p>
+        </div>
+        <ChevronRight className="size-5 text-muted-foreground" />
+      </div>
+      {!rating.hasData ? (
+        <div className="mt-2">
+          <p className="text-sm font-semibold">Рейтинг пока не сформирован</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Здесь появятся результаты после публикации первого рейтинга.
+          </p>
+        </div>
+      ) : rating.rank == null ? (
+        <p className="mt-2 text-sm text-muted-foreground">
+          {rating.periodLabel} · ты пока не в опубликованном рейтинге
+        </p>
+      ) : (
+        <div className="mt-2 flex items-end justify-between">
+          <div>
+            <p className="text-xs text-muted-foreground">{rating.periodLabel}</p>
+            <p className="text-2xl font-extrabold">{rating.rank} место</p>
+          </div>
+          <div className="text-right">
+            <p className="text-lg font-bold">{rating.finalScore?.toFixed(1)}</p>
+            <DeltaBadge delta={rating.delta} />
+          </div>
+        </div>
+      )}
+    </GlassCard>
+  );
+}
+
+function MysteryCard({ mystery }: { mystery: MysterySummaryDTO }) {
+  return (
+    <GlassCard variant="solid" pad="lg" animateIn={false}>
+      <div className="flex items-center gap-2">
+        <span className="flex size-9 items-center justify-center rounded-2xl bg-brand/12">
+          <Eye className="size-5 text-brand" />
+        </span>
+        <p className="font-bold">Тайный покупатель</p>
+      </div>
+      {!mystery.hasData ? (
+        <div className="mt-2">
+          <p className="text-sm font-semibold">Результат появится после первой проверки</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Здесь ты увидишь итоговый балл и обратную связь.
+          </p>
+        </div>
+      ) : (
+        <div className="mt-2">
+          <div className="flex items-end justify-between">
+            <p className="text-xs text-muted-foreground">{mystery.periodLabel}</p>
+            <p className="text-3xl font-extrabold text-foreground">{mystery.score}</p>
+          </div>
+          {mystery.comment && <p className="mt-2 text-sm text-muted-foreground">{mystery.comment}</p>}
+        </div>
+      )}
+    </GlassCard>
   );
 }

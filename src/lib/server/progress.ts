@@ -4,6 +4,8 @@ import { prisma } from "./db";
 import { AuthError } from "./authz";
 import { gradeQuiz, isPerfect } from "./quiz";
 import { resolveLessonAccess, programIdForLesson } from "./gating";
+import { appDay } from "./time";
+import { evaluateAchievements } from "./achievements";
 import type {
   LessonCompleteResultDTO,
   QuizSubmitResultDTO,
@@ -103,6 +105,9 @@ export async function completeLesson(
     });
   });
 
+  // Idempotent achievement re-evaluation from real progress (FIRST_LESSON, …).
+  await evaluateAchievements(userId);
+
   const programId = await programIdForLesson(lessonId);
   const { next } = await resolveLessonAccess(userId, lessonId, programId!);
   return { lessonCompleted: true, xpAwarded, next };
@@ -194,6 +199,9 @@ export async function submitQuiz(
     return { attemptNumber, xpAwarded, lessonCompleted };
   });
 
+  // Idempotent achievement re-evaluation (PERFECT_QUIZ, FIRST_LESSON on pass, …).
+  await evaluateAchievements(userId);
+
   return {
     attemptNumber: result.attemptNumber,
     scorePercent: graded.scorePercent,
@@ -205,8 +213,13 @@ export async function submitQuiz(
 }
 
 export async function getXpBalance(userId: string): Promise<XPBalanceDTO> {
-  const [agg, recent] = await Promise.all([
+  const dayStart = appDay(); // app-timezone midnight
+  const [agg, todayAgg, recent] = await Promise.all([
     prisma.xPTransaction.aggregate({ where: { userId }, _sum: { amount: true } }),
+    prisma.xPTransaction.aggregate({
+      where: { userId, createdAt: { gte: dayStart } },
+      _sum: { amount: true },
+    }),
     prisma.xPTransaction.findMany({
       where: { userId },
       orderBy: { createdAt: "desc" },
@@ -215,6 +228,7 @@ export async function getXpBalance(userId: string): Promise<XPBalanceDTO> {
   ]);
   return {
     total: agg._sum.amount ?? 0,
+    today: todayAgg._sum.amount ?? 0,
     recent: recent.map((t) => ({
       amount: t.amount,
       reason: t.reason,

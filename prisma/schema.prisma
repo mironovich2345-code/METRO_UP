@@ -59,6 +59,10 @@ model User {
   lessonProgress  LessonProgress[]
   quizAttempts    QuizAttempt[]
   xpTransactions  XPTransaction[]
+  dailyTasks      DailyTask[]
+  mysteryResults  MysteryShopperResult[]
+  monthlyRatings  MonthlyRating[]
+  achievements    UserAchievement[]
 
   @@index([telegramId])
   @@map("users")
@@ -411,4 +415,170 @@ model ContentAuditLog {
   @@index([entityType, entityId])
   @@index([actorUserId])
   @@map("content_audit_logs")
+}
+
+// -------------------- Production Home / Rating foundation -----------------
+// Daily plan, mystery shopper, monthly rating, and achievements. New tables
+// only — existing users/profiles/content/progress/xp are untouched.
+
+enum DailyTaskCategory {
+  LEARNING
+  SALES
+  CLIENTS
+  SERVICE
+  SHIFT
+}
+
+enum DailyTaskStatus {
+  TODO
+  COMPLETED
+  SKIPPED
+}
+
+enum DailyTaskSource {
+  SYSTEM
+  ADMIN
+  FUTURE_INTEGRATION
+}
+
+enum MysteryStatus {
+  DRAFT
+  PUBLISHED
+}
+
+enum RatingStatus {
+  DRAFT
+  READY
+  PUBLISHED
+}
+
+model DailyTaskTemplate {
+  id           String            @id @default(uuid()) @db.Uuid
+  code         String            @unique
+  title        String
+  description  String?
+  category     DailyTaskCategory
+  position     EmployeePosition?
+  isActive     Boolean           @default(true)
+  defaultOrder Int               @default(0)
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  @@map("daily_task_templates")
+}
+
+model DailyTask {
+  id          String            @id @default(uuid()) @db.Uuid
+  userId      String            @db.Uuid
+  date        DateTime          @db.Date
+  templateId  String?           @db.Uuid
+  title       String
+  description String?
+  category    DailyTaskCategory
+  status      DailyTaskStatus   @default(TODO)
+  order       Int               @default(0)
+  source      DailyTaskSource   @default(SYSTEM)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  completedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // one system task per (user, day, template); manual tasks (templateId NULL)
+  // are not constrained (Postgres treats NULLs as distinct).
+  @@unique([userId, date, templateId])
+  @@index([userId, date])
+  @@map("daily_tasks")
+}
+
+model MysteryShopperResult {
+  id              String        @id @default(uuid()) @db.Uuid
+  employeeUserId  String        @db.Uuid
+  periodMonth     Int
+  periodYear      Int
+  score           Int
+  comment         String?
+  status          MysteryStatus @default(DRAFT)
+  checkedAt       DateTime?
+  createdByUserId String        @db.Uuid
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  publishedAt     DateTime?
+
+  employee User @relation(fields: [employeeUserId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeUserId, periodMonth, periodYear])
+  @@index([employeeUserId, status])
+  @@map("mystery_shopper_results")
+}
+
+model MonthlySalesInput {
+  id             String   @id @default(uuid()) @db.Uuid
+  employeeUserId String   @db.Uuid
+  month          Int
+  year           Int
+  personalPlan   Int
+  personalFact   Int
+  salesScore     Float?
+  enteredByUserId String  @db.Uuid
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([employeeUserId, month, year])
+  @@index([year, month])
+  @@map("monthly_sales_inputs")
+}
+
+model MonthlyRating {
+  id                  String       @id @default(uuid()) @db.Uuid
+  employeeUserId      String       @db.Uuid
+  month               Int
+  year                Int
+  salesScore          Float
+  mysteryShopperScore Float
+  finalScore          Float
+  rank                Int
+  previousRank        Int?
+  status              RatingStatus @default(DRAFT)
+  publishedAt         DateTime?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  employee User @relation(fields: [employeeUserId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeUserId, month, year])
+  @@index([status, year, month])
+  @@map("monthly_ratings")
+}
+
+model AchievementDefinition {
+  id          String   @id @default(uuid()) @db.Uuid
+  code        String   @unique
+  title       String
+  description String
+  category    String
+  icon        String
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  userAchievements UserAchievement[]
+
+  @@map("achievement_definitions")
+}
+
+model UserAchievement {
+  id            String   @id @default(uuid()) @db.Uuid
+  userId        String   @db.Uuid
+  achievementId String   @db.Uuid
+  awardedAt     DateTime @default(now())
+  sourceType    String
+  sourceId      String?
+
+  user        User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievement AchievementDefinition @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, achievementId])
+  @@index([userId])
+  @@map("user_achievements")
 }

@@ -18,7 +18,7 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
-    "test": "node --import tsx --test tests/foundation.test.ts tests/content-platform.test.ts"
+    "test": "node --import tsx --test tests/foundation.test.ts tests/content-platform.test.ts tests/production-home.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
