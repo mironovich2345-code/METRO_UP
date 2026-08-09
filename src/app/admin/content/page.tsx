@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Archive, CalendarDays, ChevronRight, FolderTree } from "lucide-react";
 import { adminApi, type AdminDashboard, type AdminProgramTree } from "@/lib/api/content-client";
-import { InlineCreate, StatusBadge } from "@/components/admin/ui";
+import { InlineCreate, StatusBadge, fieldCls } from "@/components/admin/ui";
 
 export default function ContentPage() {
   const [tree, setTree] = useState<AdminProgramTree[]>([]);
@@ -120,7 +120,24 @@ function ProgramCard({ program, onChanged }: { program: AdminProgramTree; onChan
       <div className="mt-5 space-y-4">
         {program.courses.map((course) => (
           <div key={course.id} className="rounded-2xl border border-border bg-background p-4">
-            <p className="font-semibold">{course.title}</p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="font-semibold">{course.title}</p>
+              {/* Attach the course to a training day so its lessons appear under
+                  the day in Academy (day-less lessons show in a "Уроки" bucket). */}
+              <select
+                className={fieldCls + " w-auto text-xs"}
+                value={course.trainingDayId ?? ""}
+                onChange={async (e) => {
+                  await adminApi.updateCourse(course.id, { trainingDayId: e.target.value || null });
+                  await onChanged();
+                }}
+              >
+                <option value="">Без дня</option>
+                {program.days.map((d) => (
+                  <option key={d.id} value={d.id}>День {d.dayNumber}: {d.title}</option>
+                ))}
+              </select>
+            </div>
             <div className="mt-3 space-y-1.5">
               {course.lessons.map((lesson) => (
                 <Link
