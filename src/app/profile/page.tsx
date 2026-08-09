@@ -3,15 +3,17 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Building2, Check, MapPin, Briefcase } from "lucide-react";
+import { Building2, Check, MapPin, Briefcase, LayoutDashboard } from "lucide-react";
 import { BottomNavigation } from "@/components/bottom-navigation";
 import { AppHeader } from "@/components/app-header";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { ThemeSegmented } from "@/components/ui/theme-switcher";
 import { SectionHeader } from "@/components/ui/section-header";
 import { useApp } from "@/providers/app-provider";
+import { useAppUser } from "@/providers/AppUserProvider";
 import { getCityById, getClubById, getPositionById } from "@/content";
 import { RANKS } from "@/lib/ranks";
 import type { AccessStatus, CareerLevel } from "@/lib/profile";
@@ -35,6 +37,9 @@ const ACCESS_LABELS: Record<AccessStatus, string> = {
 
 export default function ProfileScreen() {
   const { profile, isOnboarded, hydrated, telegramUser } = useApp();
+  // Role comes ONLY from the server-backed session user — never from localStorage.
+  const { user: serverUser } = useAppUser();
+  const isAdmin = serverUser?.role === "ADMIN";
   const router = useRouter();
 
   useEffect(() => {
@@ -119,6 +124,33 @@ export default function ProfileScreen() {
             })}
           </GlassCard>
         </motion.div>
+
+        {/* Admin CMS entry — ONLY for server role ADMIN (never EMPLOYEE/SPM/CLUB_MANAGER). */}
+        {isAdmin && (
+          <motion.div variants={cardIn}>
+            <GlassCard variant="solid" pad="md" animateIn={false}>
+              <div className="flex items-center gap-3">
+                <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-brand/12">
+                  <LayoutDashboard className="size-5 text-brand" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-bold text-foreground">Панель управления</p>
+                  <p className="text-sm text-muted-foreground">
+                    Управление обучением и материалами
+                  </p>
+                </div>
+              </div>
+              <Button
+                block
+                variant="secondary"
+                className="mt-3"
+                onClick={() => router.push("/admin")}
+              >
+                Открыть
+              </Button>
+            </GlassCard>
+          </motion.div>
+        )}
 
         {/* Career ladder */}
         <motion.div variants={cardIn} className="flex flex-col gap-3">
