@@ -56,6 +56,9 @@ model User {
   lastLoginAt       DateTime?
 
   employeeProfile EmployeeProfile?
+  lessonProgress  LessonProgress[]
+  quizAttempts    QuizAttempt[]
+  xpTransactions  XPTransaction[]
 
   @@index([telegramId])
   @@map("users")
@@ -110,4 +113,302 @@ model Club {
 
   @@index([cityId])
   @@map("clubs")
+}
+
+// ----------------------- Content platform (LMS) --------------------
+// Learning content authored in the ADMIN CMS and consumed by employees.
+// New tables only — existing User/Profile/City/Club data is untouched.
+
+enum ContentStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum BlockType {
+  VIDEO
+  TEXT
+  IMAGE
+  INFO_CARD
+  CHECKLIST
+  SUMMARY
+  EQUIPMENT_CARD
+  GROUP_CLASS_CARD
+}
+
+enum MediaKind {
+  VIDEO
+  IMAGE
+  DOCUMENT
+}
+
+enum MediaStatus {
+  UPLOADING
+  READY
+  FAILED
+  DELETED
+}
+
+enum QuestionType {
+  SINGLE_CHOICE
+  MULTIPLE_CHOICE
+  TRUE_FALSE
+}
+
+enum ProgressStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum XPReason {
+  LESSON_COMPLETED
+  QUIZ_COMPLETED
+  PERFECT_QUIZ
+  SPECIAL_EVENT
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  PUBLISH
+  UNPUBLISH
+  ARCHIVE
+  MEDIA_UPLOAD
+}
+
+model TrainingProgram {
+  id          String        @id @default(uuid()) @db.Uuid
+  title       String
+  description String?
+  status      ContentStatus @default(DRAFT)
+  order       Int           @default(0)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  publishedAt DateTime?
+  createdById String        @db.Uuid
+  updatedById String        @db.Uuid
+
+  days    TrainingDay[]
+  courses Course[]
+
+  @@index([status])
+  @@map("training_programs")
+}
+
+model TrainingDay {
+  id          String        @id @default(uuid()) @db.Uuid
+  programId   String        @db.Uuid
+  title       String
+  description String?
+  dayNumber   Int
+  order       Int           @default(0)
+  status      ContentStatus @default(DRAFT)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  program TrainingProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
+  courses Course[]
+
+  @@unique([programId, dayNumber])
+  @@index([programId])
+  @@map("training_days")
+}
+
+model Course {
+  id               String        @id @default(uuid()) @db.Uuid
+  programId        String        @db.Uuid
+  trainingDayId    String?       @db.Uuid
+  title            String
+  shortDescription String?
+  order            Int           @default(0)
+  status           ContentStatus @default(DRAFT)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  program     TrainingProgram @relation(fields: [programId], references: [id], onDelete: Cascade)
+  trainingDay TrainingDay?    @relation(fields: [trainingDayId], references: [id], onDelete: SetNull)
+  lessons     Lesson[]
+
+  @@index([programId])
+  @@index([trainingDayId])
+  @@map("courses")
+}
+
+model Lesson {
+  id               String        @id @default(uuid()) @db.Uuid
+  courseId         String        @db.Uuid
+  title            String
+  slug             String        @unique
+  shortDescription String?
+  durationMinutes  Int           @default(0)
+  xpReward         Int           @default(0)
+  isRequired       Boolean       @default(true)
+  order            Int           @default(0)
+  status           ContentStatus @default(DRAFT)
+  publishedAt      DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  course   Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  blocks   LessonBlock[]
+  quiz     Quiz?
+  progress LessonProgress[]
+
+  @@index([courseId])
+  @@index([status])
+  @@map("lessons")
+}
+
+model LessonBlock {
+  id        String    @id @default(uuid()) @db.Uuid
+  lessonId  String    @db.Uuid
+  type      BlockType
+  order     Int       @default(0)
+  data      Json
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  lesson Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@index([lessonId])
+  @@map("lesson_blocks")
+}
+
+model MediaAsset {
+  id               String      @id @default(uuid()) @db.Uuid
+  kind             MediaKind
+  status           MediaStatus @default(UPLOADING)
+  storageProvider  String
+  storageKey       String      @unique
+  mimeType         String
+  sizeBytes        Int         @default(0)
+  originalFilename String
+  width            Int?
+  height           Int?
+  durationSeconds  Int?
+  createdById      String      @db.Uuid
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  @@index([status])
+  @@index([kind])
+  @@map("media_assets")
+}
+
+model Quiz {
+  id             String        @id @default(uuid()) @db.Uuid
+  lessonId       String        @unique @db.Uuid
+  title          String
+  description    String?
+  passingPercent Int           @default(70)
+  maxAttempts    Int?
+  xpReward       Int           @default(0)
+  status         ContentStatus @default(DRAFT)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  lesson    Lesson         @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  questions QuizQuestion[]
+  attempts  QuizAttempt[]
+
+  @@map("quizzes")
+}
+
+model QuizQuestion {
+  id          String       @id @default(uuid()) @db.Uuid
+  quizId      String       @db.Uuid
+  text        String
+  type        QuestionType
+  order       Int          @default(0)
+  explanation String?
+
+  quiz    Quiz         @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  options QuizOption[]
+
+  @@index([quizId])
+  @@map("quiz_questions")
+}
+
+model QuizOption {
+  id         String  @id @default(uuid()) @db.Uuid
+  questionId String  @db.Uuid
+  text       String
+  isCorrect  Boolean @default(false)
+  order      Int     @default(0)
+
+  question QuizQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([questionId])
+  @@map("quiz_options")
+}
+
+model LessonProgress {
+  id          String         @id @default(uuid()) @db.Uuid
+  userId      String         @db.Uuid
+  lessonId    String         @db.Uuid
+  status      ProgressStatus @default(NOT_STARTED)
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lessonId])
+  @@index([userId])
+  @@index([lessonId])
+  @@map("lesson_progress")
+}
+
+model QuizAttempt {
+  id            String    @id @default(uuid()) @db.Uuid
+  userId        String    @db.Uuid
+  quizId        String    @db.Uuid
+  attemptNumber Int
+  scorePercent  Int
+  passed        Boolean
+  startedAt     DateTime  @default(now())
+  completedAt   DateTime?
+  answers       Json
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quiz Quiz @relation(fields: [quizId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, quizId, attemptNumber])
+  @@index([userId])
+  @@index([quizId])
+  @@map("quiz_attempts")
+}
+
+model XPTransaction {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  reason     XPReason
+  amount     Int
+  sourceType String
+  sourceId   String?
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // One XP grant per (user, reason, source) — makes completion idempotent.
+  @@unique([userId, reason, sourceType, sourceId])
+  @@index([userId])
+  @@map("xp_transactions")
+}
+
+model ContentAuditLog {
+  id          String      @id @default(uuid()) @db.Uuid
+  actorUserId String      @db.Uuid
+  entityType  String
+  entityId    String
+  action      AuditAction
+  metadata    Json?
+  createdAt   DateTime    @default(now())
+
+  @@index([entityType, entityId])
+  @@index([actorUserId])
+  @@map("content_audit_logs")
 }

@@ -12,6 +12,7 @@ import { CareerCard } from "@/components/home/career-card";
 import { XPCard } from "@/components/home/xp-card";
 import { FirstRunWelcome } from "@/components/home/first-run-welcome";
 import { LessonCard } from "@/components/lesson-card";
+import { ContinueLearningCard } from "@/components/home/ContinueLearningCard";
 import { RatingPlaceCard } from "@/components/home/rating-place-card";
 import { TaskCard } from "@/components/task-card";
 import { NewsCard } from "@/components/news-card";
@@ -191,11 +192,15 @@ export default function HomeScreen() {
             title="Продолжить обучение"
             action={{ label: "Все курсы", href: "/academy" }}
           />
-          <LessonCard
-            courseTitle={CONTINUE_COURSE.courseTitle}
-            lessonTitle={CONTINUE_COURSE.lessonTitle}
-            icon={CONTINUE_COURSE.icon}
-            progress={continueRatio}
+          <ContinueLearningCard
+            fallback={
+              <LessonCard
+                courseTitle={CONTINUE_COURSE.courseTitle}
+                lessonTitle={CONTINUE_COURSE.lessonTitle}
+                icon={CONTINUE_COURSE.icon}
+                progress={continueRatio}
+              />
+            }
           />
         </Section>
 
