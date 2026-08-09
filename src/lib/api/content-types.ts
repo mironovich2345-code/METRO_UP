@@ -88,6 +88,7 @@ export interface LessonCompleteResultDTO {
 
 export interface XPBalanceDTO {
   total: number;
+  today: number;
   recent: { amount: number; reason: string; createdAt: string }[];
 }
 
