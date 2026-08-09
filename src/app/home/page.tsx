@@ -11,7 +11,6 @@ import { SectionHeader } from "@/components/ui/section-header";
 import { CareerCard } from "@/components/home/career-card";
 import { XPCard } from "@/components/home/xp-card";
 import { FirstRunWelcome } from "@/components/home/first-run-welcome";
-import { LessonCard } from "@/components/lesson-card";
 import { ContinueLearningCard } from "@/components/home/ContinueLearningCard";
 import { RatingPlaceCard } from "@/components/home/rating-place-card";
 import { TaskCard } from "@/components/task-card";
@@ -29,8 +28,6 @@ import {
 import { CURRENT_EMPLOYEE_ID } from "@/domain/rating";
 import {
   ACHIEVEMENTS,
-  CONTINUE_COURSE,
-  COURSES,
   DAILY_TASKS,
   MYSTERY_SHOPPER,
   NEWS,
@@ -99,10 +96,6 @@ export default function HomeScreen() {
     .filter(Boolean)
     .join(" · ");
   const adaptation = programProgress(ADAPTATION_PROGRAM);
-  const continueCourse = COURSES.find((c) => c.id === CONTINUE_COURSE.courseId);
-  const continueRatio = continueCourse
-    ? continueCourse.completedLessons / continueCourse.totalLessons
-    : 0;
   const doneToday = DAILY_TASKS.filter((t) => t.done).length;
 
   return (
@@ -192,16 +185,7 @@ export default function HomeScreen() {
             title="Продолжить обучение"
             action={{ label: "Все курсы", href: "/academy" }}
           />
-          <ContinueLearningCard
-            fallback={
-              <LessonCard
-                courseTitle={CONTINUE_COURSE.courseTitle}
-                lessonTitle={CONTINUE_COURSE.lessonTitle}
-                icon={CONTINUE_COURSE.icon}
-                progress={continueRatio}
-              />
-            }
-          />
+          <ContinueLearningCard />
         </Section>
 
         {/* Monthly rating — place last month */}

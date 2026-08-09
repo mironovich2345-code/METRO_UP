@@ -1,6 +1,8 @@
 import { ApiError } from "./client";
 import type {
   AcademyStateDTO,
+  AcademyOverviewDTO,
+  AcademyDayDetailDTO,
   LessonCompleteResultDTO,
   LessonDetailDTO,
   QuizSubmitResultDTO,
@@ -51,6 +53,15 @@ export function submitQuizApi(
 }
 export function fetchAcademyState() {
   return request<AcademyStateDTO>("/api/academy/state");
+}
+export function fetchAcademyOverview() {
+  return request<AcademyOverviewDTO>("/api/academy/overview");
+}
+export async function fetchAcademyDay(dayId: string) {
+  const { day } = await request<{ day: AcademyDayDetailDTO }>(
+    `/api/academy/days/${encodeURIComponent(dayId)}`,
+  );
+  return day;
 }
 export function fetchXp() {
   return request<XPBalanceDTO>("/api/xp");
