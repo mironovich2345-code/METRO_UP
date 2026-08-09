@@ -29,6 +29,7 @@ export async function getProgramSequence(programId: string): Promise<SequenceLes
       dayNumber: l.course.trainingDay?.dayNumber ?? 9999,
       courseOrder: l.course.order,
       lessonOrder: l.order,
+      durationMinutes: l.durationMinutes,
     }))
     .sort(
       (a, b) =>

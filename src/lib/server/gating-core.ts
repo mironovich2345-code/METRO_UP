@@ -11,6 +11,7 @@ export interface SequenceLesson {
   dayNumber: number;
   courseOrder: number;
   lessonOrder: number;
+  durationMinutes?: number;
 }
 
 export interface Access {

@@ -2,20 +2,32 @@ import "server-only";
 import { prisma } from "./db";
 import { accessAt, getProgramSequence, getCompletedLessonIds } from "./gating";
 import { getXpBalance } from "./progress";
-import type { AcademyStateDTO, AcademyLessonStateDTO } from "@/lib/api/content-types";
+import type {
+  AcademyStateDTO,
+  AcademyLessonStateDTO,
+  AcademyOverviewDTO,
+  AcademyDayDetailDTO,
+} from "@/lib/api/content-types";
 
 /**
- * DB-backed Academy state: per-lesson status + lock, the next available lesson,
- * and XP total. Drives the employee Academy/Home once real content exists; the
- * UI keeps its legacy mock as a fallback when this returns no lessons.
+ * DB-backed Academy. PostgreSQL/CMS is the source of truth — only PUBLISHED
+ * lessons are ever exposed, gating/progress are resolved server-side, and no
+ * mock lesson data is used. Visibility keys on the LESSON status, so publishing
+ * a lesson makes it appear even if its program/day are still DRAFT.
  */
-export async function getAcademyState(userId: string): Promise<AcademyStateDTO> {
-  const programs = await prisma.trainingProgram.findMany({
-    where: { status: "PUBLISHED", courses: { some: { lessons: { some: { status: "PUBLISHED" } } } } },
-    orderBy: { order: "asc" },
-    select: { id: true },
-  });
 
+/** Program ids that currently have at least one PUBLISHED lesson. */
+async function programIdsWithPublishedLessons(): Promise<string[]> {
+  const rows = await prisma.lesson.findMany({
+    where: { status: "PUBLISHED" },
+    select: { course: { select: { programId: true } } },
+  });
+  return [...new Set(rows.map((r) => r.course.programId))];
+}
+
+/** Flat per-lesson state + next lesson + XP (used by Home "continue" card). */
+export async function getAcademyState(userId: string): Promise<AcademyStateDTO> {
+  const programIds = await programIdsWithPublishedLessons();
   const [completed, balance, progressRows] = await Promise.all([
     getCompletedLessonIds(userId),
     getXpBalance(userId),
@@ -26,8 +38,8 @@ export async function getAcademyState(userId: string): Promise<AcademyStateDTO> 
   const lessons: AcademyLessonStateDTO[] = [];
   let nextLesson: AcademyStateDTO["nextLesson"] = null;
 
-  for (const program of programs) {
-    const sequence = await getProgramSequence(program.id);
+  for (const programId of programIds) {
+    const sequence = await getProgramSequence(programId);
     sequence.forEach((l, i) => {
       const access = accessAt(sequence, i, completed);
       const isDone = completed.has(l.id);
@@ -42,6 +54,156 @@ export async function getAcademyState(userId: string): Promise<AcademyStateDTO> 
       }
     });
   }
-
   return { lessons, nextLesson, xpTotal: balance.total };
+}
+
+/**
+ * Structured Academy overview: Program → Day cards with published-lesson counts,
+ * completion, duration, and lock state. Overall progress counts only PUBLISHED
+ * REQUIRED lessons.
+ */
+export async function getAcademyOverview(userId: string): Promise<AcademyOverviewDTO> {
+  const programIds = await programIdsWithPublishedLessons();
+  const balance = await getXpBalance(userId);
+
+  if (programIds.length === 0) {
+    const anyProgram = await prisma.trainingProgram.findFirst({ select: { id: true } });
+    return {
+      hasContent: false,
+      programExists: Boolean(anyProgram),
+      programs: [],
+      overall: { completed: 0, total: 0, ratio: 0 },
+      nextLesson: null,
+      xpTotal: balance.total,
+    };
+  }
+
+  const [programs, completed] = await Promise.all([
+    prisma.trainingProgram.findMany({
+      where: { id: { in: programIds } },
+      orderBy: { order: "asc" },
+      include: { days: { orderBy: { dayNumber: "asc" } } },
+    }),
+    getCompletedLessonIds(userId),
+  ]);
+
+  let overallTotal = 0;
+  let overallCompleted = 0;
+  let nextLesson: AcademyOverviewDTO["nextLesson"] = null;
+  const outPrograms: AcademyOverviewDTO["programs"] = [];
+
+  for (const program of programs) {
+    const sequence = await getProgramSequence(program.id);
+
+    // overall required-lesson progress
+    for (const l of sequence) {
+      if (l.isRequired) {
+        overallTotal += 1;
+        if (completed.has(l.id)) overallCompleted += 1;
+      }
+    }
+    // next available, not-completed lesson
+    if (!nextLesson) {
+      for (let i = 0; i < sequence.length; i++) {
+        const l = sequence[i];
+        if (!accessAt(sequence, i, completed).locked && !completed.has(l.id)) {
+          nextLesson = { slug: l.slug, title: l.title };
+          break;
+        }
+      }
+    }
+
+    const days = program.days.map((day) => {
+      const dayLessons = sequence.filter((l) => l.dayNumber === day.dayNumber);
+      const completedCount = dayLessons.filter((l) => completed.has(l.id)).length;
+      const durationMinutes = dayLessons.reduce((s, l) => s + (l.durationMinutes ?? 0), 0);
+      // A day unlocks only when every REQUIRED lesson in a PRIOR day is done.
+      const locked = sequence.some(
+        (l) => l.dayNumber < day.dayNumber && l.isRequired && !completed.has(l.id),
+      );
+      return {
+        id: day.id,
+        title: day.title,
+        dayNumber: day.dayNumber,
+        lessonCount: dayLessons.length,
+        completedCount,
+        ratio: dayLessons.length ? completedCount / dayLessons.length : 0,
+        durationMinutes,
+        locked,
+      };
+    });
+
+    outPrograms.push({ id: program.id, title: program.title, days });
+  }
+
+  return {
+    hasContent: true,
+    programExists: true,
+    programs: outPrograms,
+    overall: {
+      completed: overallCompleted,
+      total: overallTotal,
+      ratio: overallTotal ? overallCompleted / overallTotal : 0,
+    },
+    nextLesson,
+    xpTotal: balance.total,
+  };
+}
+
+/** One training day with its courses + PUBLISHED lessons, gated for the user. */
+export async function getAcademyDayDetail(
+  userId: string,
+  dayId: string,
+): Promise<AcademyDayDetailDTO | null> {
+  const day = await prisma.trainingDay.findUnique({
+    where: { id: dayId },
+    include: {
+      program: { select: { title: true } },
+      courses: {
+        orderBy: { order: "asc" },
+        include: {
+          lessons: { where: { status: "PUBLISHED" }, orderBy: { order: "asc" } },
+        },
+      },
+    },
+  });
+  if (!day) return null;
+
+  const [sequence, completed] = await Promise.all([
+    getProgramSequence(day.programId),
+    getCompletedLessonIds(userId),
+  ]);
+  const indexById = new Map(sequence.map((l, i) => [l.id, i]));
+
+  const courses = day.courses
+    .map((c) => ({
+      id: c.id,
+      title: c.title,
+      shortDescription: c.shortDescription,
+      lessons: c.lessons.map((l) => {
+        const i = indexById.get(l.id);
+        const locked = i == null ? true : accessAt(sequence, i, completed).locked;
+        return {
+          id: l.id,
+          slug: l.slug,
+          title: l.title,
+          shortDescription: l.shortDescription,
+          durationMinutes: l.durationMinutes,
+          xpReward: l.xpReward,
+          isRequired: l.isRequired,
+          completed: completed.has(l.id),
+          locked,
+        };
+      }),
+    }))
+    .filter((c) => c.lessons.length > 0);
+
+  return {
+    id: day.id,
+    title: day.title,
+    description: day.description,
+    dayNumber: day.dayNumber,
+    programTitle: day.program.title,
+    courses,
+  };
 }

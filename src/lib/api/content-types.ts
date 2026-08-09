@@ -104,3 +104,55 @@ export interface AcademyStateDTO {
   nextLesson: { slug: string; title: string } | null;
   xpTotal: number;
 }
+
+/* ---------------------- structured Academy (DB-driven) ------------------- */
+
+export interface AcademyDayCardDTO {
+  id: string;
+  title: string;
+  dayNumber: number;
+  lessonCount: number;
+  completedCount: number;
+  ratio: number;
+  durationMinutes: number;
+  locked: boolean;
+}
+export interface AcademyProgramDTO {
+  id: string;
+  title: string;
+  days: AcademyDayCardDTO[];
+}
+export interface AcademyOverviewDTO {
+  hasContent: boolean;
+  programExists: boolean;
+  programs: AcademyProgramDTO[];
+  overall: { completed: number; total: number; ratio: number };
+  nextLesson: { slug: string; title: string } | null;
+  xpTotal: number;
+}
+
+export interface AcademyLessonRowDTO {
+  id: string;
+  slug: string;
+  title: string;
+  shortDescription: string | null;
+  durationMinutes: number;
+  xpReward: number;
+  isRequired: boolean;
+  completed: boolean;
+  locked: boolean;
+}
+export interface AcademyCourseDTO {
+  id: string;
+  title: string;
+  shortDescription: string | null;
+  lessons: AcademyLessonRowDTO[];
+}
+export interface AcademyDayDetailDTO {
+  id: string;
+  title: string;
+  description: string | null;
+  dayNumber: number;
+  programTitle: string;
+  courses: AcademyCourseDTO[];
+}
