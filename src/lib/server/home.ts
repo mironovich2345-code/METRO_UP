@@ -4,7 +4,7 @@ import { getPlanToday } from "./daily-plan";
 import { getXpBalance } from "./progress";
 import { getRatingSummary } from "./rating";
 import { getMysterySummary } from "./mystery";
-import { countUserAchievements } from "./achievements";
+import { countUserAchievements, getLastAchievement } from "./achievements";
 import { getPositionById } from "@/content/positions";
 import { getClubById, getCityById } from "@/content/cities";
 import type { HomeDashboardDTO } from "@/lib/api/home-types";
@@ -15,12 +15,13 @@ import type { HomeDashboardDTO } from "@/lib/api/home-types";
  * missing data surfaces as honest empty states in each card.
  */
 export async function getHomeDashboard(user: CurrentUser): Promise<HomeDashboardDTO> {
-  const [plan, xp, rating, mystery, achievementsCount] = await Promise.all([
+  const [plan, xp, rating, mystery, achievementsCount, lastAchievement] = await Promise.all([
     getPlanToday(user),
     getXpBalance(user.id),
     getRatingSummary(user.id),
     getMysterySummary(user.id),
     countUserAchievements(user.id),
+    getLastAchievement(user.id),
   ]);
 
   const p = user.employeeProfile;
@@ -38,5 +39,6 @@ export async function getHomeDashboard(user: CurrentUser): Promise<HomeDashboard
     rating,
     mystery,
     achievementsCount,
+    lastAchievement,
   };
 }

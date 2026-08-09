@@ -23,6 +23,27 @@ export function round1(n: number): number {
 }
 
 /**
+ * Deterministic ranking comparator (tie-breaker): finalScore desc → mysteryScore
+ * desc → salesScore desc → createdAt asc → userId asc. Never random.
+ */
+export interface RankRow {
+  finalScore: number;
+  mysteryScore: number;
+  salesScore: number;
+  createdAt: number; // ms epoch
+  userId: string;
+}
+export function compareRankRows(a: RankRow, b: RankRow): number {
+  return (
+    b.finalScore - a.finalScore ||
+    b.mysteryScore - a.mysteryScore ||
+    b.salesScore - a.salesScore ||
+    a.createdAt - b.createdAt ||
+    a.userId.localeCompare(b.userId)
+  );
+}
+
+/**
  * Positions included in the sales ranking for v1: CLIENT_MANAGER and
  * NIGHT_MANAGER. ADMINISTRATOR is excluded — administrators are not a sales role,
  * so including them in a sales-weighted ranking is not product-defined yet.

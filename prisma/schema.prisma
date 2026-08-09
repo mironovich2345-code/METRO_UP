@@ -582,3 +582,68 @@ model UserAchievement {
   @@index([userId])
   @@map("user_achievements")
 }
+
+// -------------------------- SPM rating workflow ---------------------------
+// Period lifecycle, per-employee eligibility, and an audit trail for SPM
+// actions. Reuses MonthlySalesInput / MysteryShopperResult / MonthlyRating.
+
+enum RatingAuditAction {
+  SALES_CREATE
+  SALES_UPDATE
+  MYSTERY_CREATE
+  MYSTERY_UPDATE
+  MYSTERY_PUBLISH
+  ELIGIBILITY_CHANGE
+  RATING_CALCULATE
+  RATING_PUBLISH
+  RATING_REOPEN
+}
+
+model RatingPeriod {
+  id                String       @id @default(uuid()) @db.Uuid
+  month             Int
+  year              Int
+  status            RatingStatus @default(DRAFT)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  calculatedAt      DateTime?
+  publishedAt       DateTime?
+  publishedByUserId String?      @db.Uuid
+
+  @@unique([month, year])
+  @@index([status])
+  @@map("rating_periods")
+}
+
+model RatingEligibility {
+  id              String   @id @default(uuid()) @db.Uuid
+  employeeUserId  String   @db.Uuid
+  month           Int
+  year            Int
+  isEligible      Boolean  @default(true)
+  reason          String?
+  updatedByUserId String   @db.Uuid
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([employeeUserId, month, year])
+  @@index([month, year])
+  @@map("rating_eligibility")
+}
+
+model RatingAuditLog {
+  id          String            @id @default(uuid()) @db.Uuid
+  actorUserId String            @db.Uuid
+  action      RatingAuditAction
+  entityType  String
+  entityId    String
+  month       Int?
+  year        Int?
+  before      Json?
+  after       Json?
+  createdAt   DateTime          @default(now())
+
+  @@index([month, year])
+  @@index([actorUserId])
+  @@map("rating_audit_logs")
+}
