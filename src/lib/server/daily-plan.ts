@@ -2,7 +2,8 @@ import "server-only";
 import type { DailyTask } from "@prisma/client";
 import { prisma } from "./db";
 import { AuthError } from "./authz";
-import { appDay } from "./time";
+import { appDay, appMonthYear } from "./time";
+import { computeSalesScore } from "./rating-formula";
 import { getAcademyState } from "./academy";
 import { DAILY_TEMPLATES, taskMode, templatesForPosition } from "./daily-plan-catalog";
 import type { CurrentUser } from "./session";
@@ -77,10 +78,16 @@ export async function getPlanToday(user: CurrentUser): Promise<DailyPlanDTO> {
   const date = appDay();
   await ensureTodayTasks(user, date);
 
-  const [tasks, academy, learnedToday] = await Promise.all([
+  // Daily plan shows the CURRENT month's sales (rating is built for the prior
+  // month — periods are intentionally not mixed).
+  const cur = appMonthYear();
+  const [tasks, academy, learnedToday, salesNow] = await Promise.all([
     prisma.dailyTask.findMany({ where: { userId: user.id, date }, orderBy: { order: "asc" } }),
     getAcademyState(user.id),
     completedLessonToday(user.id, date),
+    prisma.monthlySalesInput.findUnique({
+      where: { employeeUserId_month_year: { employeeUserId: user.id, month: cur.month, year: cur.year } },
+    }),
   ]);
 
   const nextSlug = academy.nextLesson?.slug ?? null;
@@ -89,7 +96,13 @@ export async function getPlanToday(user: CurrentUser): Promise<DailyPlanDTO> {
 
   const dtos: DailyTaskDTO[] = [];
   for (const task of tasks) {
-    if (task.category === "LEARNING") {
+    if (task.category === "SALES" && salesNow && salesNow.personalPlan > 0) {
+      // Actionable: show real current-month plan/fact/completion (stays server-owned).
+      const score = computeSalesScore(salesNow.personalPlan, salesNow.personalFact);
+      const dto = toDTO(task, null);
+      dto.description = `План ${salesNow.personalPlan.toLocaleString("ru-RU")} ₽ · Факт ${salesNow.personalFact.toLocaleString("ru-RU")} ₽ · Выполнение ${score != null ? score.toFixed(1) : "—"}%`;
+      dtos.push(dto);
+    } else if (task.category === "LEARNING") {
       // Auto-complete from real progress (persist), never manually.
       if (learningDone && task.status === "TODO") {
         await prisma.dailyTask.update({

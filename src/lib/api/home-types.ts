@@ -54,6 +54,7 @@ export interface HomeDashboardDTO {
   rating: RatingSummaryDTO;
   mystery: MysterySummaryDTO;
   achievementsCount: number;
+  lastAchievement: { title: string; awardedAt: string } | null;
 }
 
 export interface RatingBoardRowDTO {

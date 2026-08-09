@@ -56,6 +56,20 @@ export async function countUserAchievements(userId: string): Promise<number> {
   return prisma.userAchievement.count({ where: { userId } });
 }
 
+/** The most recently awarded achievement (title + date), or null. */
+export async function getLastAchievement(
+  userId: string,
+): Promise<{ title: string; awardedAt: string } | null> {
+  const row = await prisma.userAchievement.findFirst({
+    where: { userId },
+    orderBy: { awardedAt: "desc" },
+    include: { achievement: { select: { code: true } } },
+  });
+  if (!row) return null;
+  const def = ACHIEVEMENT_BY_CODE.get(row.achievement.code);
+  return { title: def?.title ?? row.achievement.code, awardedAt: row.awardedAt.toISOString() };
+}
+
 /** Full catalog with awarded flags for the current user. */
 export async function getUserAchievements(userId: string): Promise<AchievementDTO[]> {
   const awarded = await prisma.userAchievement.findMany({

@@ -90,6 +90,14 @@ export default function RankingScreen() {
                 <RatingRowItem row={board.currentUser} />
               </motion.div>
             )}
+
+            {!board.currentUserInTop && !board.currentUser && (
+              <motion.div variants={cardIn} className="mt-4">
+                <GlassCard variant="outline" pad="md" animateIn={false} className="text-center text-sm text-muted-foreground">
+                  В этом рейтинге у тебя пока нет результата.
+                </GlassCard>
+              </motion.div>
+            )}
           </>
         )}
       </motion.main>

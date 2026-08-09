@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import {
   ArrowDown,
   ArrowUp,
+  Award,
   CheckCircle2,
   ChevronRight,
   Circle,
@@ -164,6 +165,23 @@ export default function HomeScreen() {
             <motion.div variants={cardIn}>
               <XpCard total={dash.xp.total} today={dash.xp.today} />
             </motion.div>
+
+            {dash.lastAchievement && (
+              <motion.div variants={cardIn}>
+                <GlassCard variant="solid" pad="md" animateIn={false} interactive onClick={() => router.push("/achievements")}>
+                  <div className="flex items-center gap-3">
+                    <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-brand/12">
+                      <Award className="size-5 text-brand" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium text-muted-foreground">Последнее достижение</p>
+                      <p className="truncate font-semibold">{dash.lastAchievement.title}</p>
+                    </div>
+                    <span className="text-xs font-semibold text-brand">Все</span>
+                  </div>
+                </GlassCard>
+              </motion.div>
+            )}
 
             <motion.div variants={cardIn}>
               <RatingCard rating={dash.rating} onOpen={() => router.push("/ranking")} />
