@@ -9,6 +9,7 @@ import { XPProgress } from "@/components/ui/xp-progress";
 import { SectionHeader } from "@/components/ui/section-header";
 import { DayCard } from "@/components/day-card";
 import { LockedCourseCard } from "@/components/locked-course-card";
+import { DbLessonsSection } from "@/components/academy/DbLessonsSection";
 import {
   ADAPTATION_PROGRAM,
   ADVANCED_COURSES,
@@ -60,6 +61,10 @@ export default function AcademyScreen() {
             </div>
           </GlassCard>
         </motion.div>
+
+        {/* DB-backed real lessons (guarded: renders only when published content
+            exists for this user; otherwise the mock below is the fallback). */}
+        <DbLessonsSection />
 
         {/* Base adaptation — three days */}
         <motion.div variants={cardIn} className="mt-6">

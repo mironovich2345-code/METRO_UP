@@ -11,10 +11,13 @@ import { getCurrentUser, type CurrentUser } from "./session";
 export class AuthError extends Error {
   status: number;
   code: string;
-  constructor(status: number, code: string, message?: string) {
+  /** Optional structured, client-safe details (e.g. publish validation errors). */
+  details?: unknown;
+  constructor(status: number, code: string, message?: string, details?: unknown) {
     super(message ?? code);
     this.status = status;
     this.code = code;
+    this.details = details;
   }
 }
 

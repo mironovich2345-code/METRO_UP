@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import Script from "next/script";
 import "./globals.css";
 import { Providers } from "./providers";
+import { AppShellFrame } from "@/components/app-shell-frame";
 
 export const metadata: Metadata = {
   title: "Metro — Академия",
@@ -37,7 +38,7 @@ export default function RootLayout({
       </head>
       <body>
         <Providers>
-          <div className="app-shell">{children}</div>
+          <AppShellFrame>{children}</AppShellFrame>
         </Providers>
       </body>
     </html>
