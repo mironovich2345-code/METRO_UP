@@ -42,15 +42,32 @@ export const richNodeSchema = z.discriminatedUnion("type", [
   }),
 ]);
 
-export const richDocSchema = z.array(richNodeSchema).max(200);
+export const richDocSchema = z.array(richNodeSchema).max(400);
 export type RichDoc = z.infer<typeof richDocSchema>;
+
+/** True when a rich-text doc contains at least one non-empty span of text. */
+export function richDocHasText(doc: RichDoc): boolean {
+  return doc.some((n) => {
+    if ("spans" in n) return n.spans.some((s) => s.text.trim().length > 0);
+    if ("items" in n) return n.items.some((it) => it.spans.some((s) => s.text.trim().length > 0));
+    return false;
+  });
+}
+
+/** A rich-text doc that must contain real content (used by COLLAPSIBLE_TEXT). */
+const nonEmptyRichDoc = richDocSchema.refine(richDocHasText, {
+  message: "Текст не может быть пустым",
+});
 
 /* ---------------------------- block data (per type) ---------------------- */
 
 export const INFO_CARD_VARIANTS = ["DEFAULT", "TIP", "IMPORTANT", "WARNING"] as const;
+export const TAKEAWAY_VARIANTS = ["DEFAULT", "IMPORTANT", "TIP"] as const;
 
 export const BLOCK_TYPES = [
   "VIDEO",
+  "COLLAPSIBLE_TEXT",
+  "KEY_TAKEAWAYS",
   "TEXT",
   "IMAGE",
   "INFO_CARD",
@@ -67,6 +84,29 @@ export const blockDataSchemas = {
     caption: z.string().max(300).optional().nullable(),
   }),
   TEXT: z.object({ doc: richDocSchema }),
+  // Full text version of the lesson, shown in an accordion under the video.
+  COLLAPSIBLE_TEXT: z.object({
+    title: z.string().trim().min(1).max(160).default("Текстовая версия урока"),
+    content: nonEmptyRichDoc,
+    defaultExpanded: z.boolean().default(false),
+  }),
+  // Compact "key takeaways" summary cards.
+  KEY_TAKEAWAYS: z.object({
+    title: z.string().trim().min(1).max(160).default("Главное из урока"),
+    items: z
+      .array(
+        z.object({
+          id: z.string().min(1).max(64),
+          title: z.string().trim().min(1).max(160),
+          text: z.string().trim().min(1).max(600),
+          icon: z.string().max(40).optional().nullable(),
+          variant: z.enum(TAKEAWAY_VARIANTS).default("DEFAULT"),
+          order: z.number().int().min(0).default(0),
+        }),
+      )
+      .min(1, "Добавьте хотя бы одну карточку")
+      .max(20),
+  }),
   IMAGE: z.object({
     mediaAssetId: z.string().uuid().optional().nullable(),
     alt: z.string().max(300).optional().nullable(),

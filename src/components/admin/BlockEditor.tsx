@@ -7,9 +7,11 @@ import { plainToRichDoc, richDocToPlain } from "@/lib/rich-text";
 import type { RichDoc } from "@/lib/server/content-schemas";
 import { Field, TextArea, TextInput, fieldCls } from "./ui";
 import { MediaUploadField } from "./MediaUploadField";
+import { TakeawaysEditor, type TakeawayItem } from "./TakeawaysEditor";
 
 const TYPE_LABEL: Record<string, string> = {
   VIDEO: "Видео", TEXT: "Текст", IMAGE: "Изображение",
+  COLLAPSIBLE_TEXT: "Текстовая версия", KEY_TAKEAWAYS: "Главное из урока",
   INFO_CARD: "Инфо-карточка", CHECKLIST: "Чек-лист", SUMMARY: "Итоги",
 };
 
@@ -82,6 +84,39 @@ export function BlockEditor({
               rows={8}
             />
           </Field>
+        )}
+
+        {block.type === "COLLAPSIBLE_TEXT" && (
+          <>
+            <Field label="Заголовок аккордеона">
+              <TextInput value={(data.title as string) ?? ""} placeholder="Текстовая версия урока" onChange={(e) => set({ title: e.target.value })} />
+            </Field>
+            <Field label="Текст урока" hint="# заголовок · - список · > цитата · **жирный** · *курсив*">
+              <TextArea
+                defaultValue={richDocToPlain((data.content as RichDoc) ?? [])}
+                onChange={(e) => set({ content: plainToRichDoc(e.target.value) })}
+                rows={12}
+              />
+            </Field>
+            <Field label="По умолчанию">
+              <select className={fieldCls} value={data.defaultExpanded ? "1" : "0"} onChange={(e) => set({ defaultExpanded: e.target.value === "1" })}>
+                <option value="0">Свёрнут</option>
+                <option value="1">Открыт по умолчанию</option>
+              </select>
+            </Field>
+          </>
+        )}
+
+        {block.type === "KEY_TAKEAWAYS" && (
+          <>
+            <Field label="Заголовок блока">
+              <TextInput value={(data.title as string) ?? ""} placeholder="Главное из урока" onChange={(e) => set({ title: e.target.value })} />
+            </Field>
+            <TakeawaysEditor
+              items={(data.items as TakeawayItem[]) ?? []}
+              onChange={(items) => set({ items })}
+            />
+          </>
         )}
 
         {block.type === "INFO_CARD" && (

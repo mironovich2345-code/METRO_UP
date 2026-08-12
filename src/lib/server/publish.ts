@@ -4,7 +4,7 @@ import { AuthError } from "./authz";
 import { writeAudit } from "./audit";
 import { validateQuizStructure } from "./quiz";
 import { isMeaningfulBlock } from "./content";
-import type { QuizUpsertInput } from "./content-schemas";
+import { richDocHasText, type QuizUpsertInput, type RichDoc } from "./content-schemas";
 
 /**
  * Publish validation + status transitions. A Lesson is published only when it
@@ -70,6 +70,20 @@ export async function validateLessonForPublish(lessonId: string): Promise<Publis
       errors.push({ field: "video", code: "MEDIA_NOT_READY", message: "Видео ещё не готово (media не READY)" });
   }
 
+  // New content blocks: if present, they must not be empty (§9).
+  for (const b of lesson.blocks) {
+    if (b.type === "COLLAPSIBLE_TEXT") {
+      const doc = ((b.data as { content?: RichDoc } | null)?.content ?? []) as RichDoc;
+      if (!richDocHasText(doc))
+        errors.push({ field: "collapsible_text", code: "EMPTY_CONTENT", message: "Текстовая версия не может быть пустой" });
+    }
+    if (b.type === "KEY_TAKEAWAYS") {
+      const items = ((b.data as { items?: Array<{ title?: string; text?: string }> } | null)?.items ?? []);
+      const ok = items.some((it) => (it.title ?? "").trim() && (it.text ?? "").trim());
+      if (!ok) errors.push({ field: "key_takeaways", code: "EMPTY", message: "Добавьте хотя бы одну заполненную карточку" });
+    }
+  }
+
   // Quiz (if present) must be structurally valid.
   if (lesson.quiz) {
     const asInput: QuizUpsertInput = {
@@ -92,6 +106,30 @@ export async function validateLessonForPublish(lessonId: string): Promise<Publis
   }
 
   return errors;
+}
+
+export interface PublishWarning {
+  code: string;
+  message: string;
+}
+
+/**
+ * Non-blocking publish warnings (best-practice nudges, never block publishing so
+ * short video-only lessons stay valid): missing text version / missing takeaways.
+ */
+export async function getLessonPublishWarnings(lessonId: string): Promise<PublishWarning[]> {
+  const lesson = await prisma.lesson.findUnique({
+    where: { id: lessonId },
+    include: { blocks: { select: { type: true } } },
+  });
+  if (!lesson) return [];
+  const types = new Set(lesson.blocks.map((b) => b.type));
+  const warnings: PublishWarning[] = [];
+  if (types.has("VIDEO") && !types.has("COLLAPSIBLE_TEXT"))
+    warnings.push({ code: "NO_TEXT", message: "У урока нет текстовой версии." });
+  if (!types.has("KEY_TAKEAWAYS"))
+    warnings.push({ code: "NO_TAKEAWAYS", message: "Не добавлены ключевые выводы." });
+  return warnings;
 }
 
 export async function publishLesson(actorUserId: string, lessonId: string) {

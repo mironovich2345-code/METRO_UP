@@ -98,3 +98,32 @@ Then open the app once via Telegram to (re)issue the session cookie, and visit
 program/day/course/lesson (info-cards + a draft quiz, **no video**) for a quick
 smoke test. It requires an existing ADMIN user and is idempotent. Video is always
 uploaded by a human through the CMS — never seeded.
+
+## Lesson content blocks: COLLAPSIBLE_TEXT & KEY_TAKEAWAYS
+
+Two production block types complete the standard lesson shape
+(VIDEO → COLLAPSIBLE_TEXT → KEY_TAKEAWAYS → QUIZ → SUMMARY). Both are authored
+in the CMS (`/admin/content/lessons/[id]`); nothing is hardcoded.
+
+- **COLLAPSIBLE_TEXT** — the full text version of the lesson, shown under the
+  video as an accessible accordion (real `<button>` + `aria-expanded`/
+  `aria-controls`; expansion state is local, never persisted). Data:
+  `{ title, content: RichText, defaultExpanded }` (defaults: "Текстовая версия
+  урока", collapsed). Rich text is structured JSON (heading/paragraph/bold/
+  italic/bullet/numbered/quote) — never raw HTML. If the block exists, `content`
+  must be non-empty.
+- **KEY_TAKEAWAYS** — compact summary cards ("Главное из урока"). Data:
+  `{ title, items: [{ id, title, text, icon?, variant, order }] }`, variant
+  DEFAULT/IMPORTANT/TIP (distinct but not warning/error styling). If the block
+  exists, ≥1 filled card is required; CMS recommends ≤6 (soft warning, not
+  blocking).
+
+Migration `20260812120000_lesson_content_block_types` only adds the two enum
+values to `BlockType` (LessonBlock.data is Json — no new tables; existing blocks
+untouched). Legacy TEXT/INFO_CARD/CHECKLIST/SUMMARY remain supported.
+
+**Publish** stays lenient for short video lessons: missing text version or
+missing takeaways produce **non-blocking warnings**, not errors. The one existing
+lesson ("Как устроено обучение в Metro UP") can be upgraded entirely through the
+CMS — add a "Текстовая версия", add "Главное из урока" cards, Preview, Publish —
+with no React/TypeScript changes.

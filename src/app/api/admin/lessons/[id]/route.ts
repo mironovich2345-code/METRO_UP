@@ -4,7 +4,7 @@ import { requireAdmin } from "@/lib/server/authz";
 import { jsonOk, jsonError, handleError, readJson } from "@/lib/server/http";
 import { lessonUpdateSchema } from "@/lib/server/content-schemas";
 import { updateLesson } from "@/lib/server/content-admin";
-import { validateLessonForPublish } from "@/lib/server/publish";
+import { validateLessonForPublish, getLessonPublishWarnings } from "@/lib/server/publish";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,8 +25,11 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
       },
     });
     if (!lesson) return jsonError(404, "lesson_not_found");
-    const publishErrors = await validateLessonForPublish(id);
-    return jsonOk({ lesson, publishErrors });
+    const [publishErrors, publishWarnings] = await Promise.all([
+      validateLessonForPublish(id),
+      getLessonPublishWarnings(id),
+    ]);
+    return jsonOk({ lesson, publishErrors, publishWarnings });
   } catch (e) {
     return handleError(e);
   }

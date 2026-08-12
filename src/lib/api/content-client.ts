@@ -115,7 +115,7 @@ export const adminApi = {
   updateCourse: (id: string, body: Record<string, unknown>) => request(`/api/admin/courses/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
 
   createLesson: (body: Record<string, unknown>) => request<{ lesson: { id: string } }>("/api/admin/lessons", { method: "POST", body: JSON.stringify(body) }),
-  getLesson: (id: string) => request<{ lesson: AdminLessonDetail; publishErrors: { field: string; code: string; message: string }[] }>(`/api/admin/lessons/${id}`),
+  getLesson: (id: string) => request<{ lesson: AdminLessonDetail; publishErrors: { field: string; code: string; message: string }[]; publishWarnings: { code: string; message: string }[] }>(`/api/admin/lessons/${id}`),
   updateLesson: (id: string, body: Record<string, unknown>) => request(`/api/admin/lessons/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
 
   createBlock: (lessonId: string, type: string, data: unknown, order?: number) =>
