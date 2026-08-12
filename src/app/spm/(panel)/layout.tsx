@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ShieldAlert } from "lucide-react";
 import { getCurrentUser } from "@/lib/server/session";
+import { canAccessSpm } from "@/lib/roles";
 import { SpmSidebar } from "@/components/spm/SpmSidebar";
 
 export const metadata: Metadata = { title: "Metro SPM" };
@@ -14,7 +15,7 @@ export const dynamic = "force-dynamic";
  */
 export default async function SpmPanelLayout({ children }: { children: React.ReactNode }) {
   const user = await getCurrentUser();
-  const allowed = user && (user.role === "SPM" || user.role === "ADMIN");
+  const allowed = user && canAccessSpm(user.role);
 
   if (!allowed) {
     return (
@@ -40,7 +41,7 @@ export default async function SpmPanelLayout({ children }: { children: React.Rea
 
   return (
     <div className="flex min-h-[100dvh] bg-background text-foreground">
-      <SpmSidebar displayName={user!.displayName} readonly={user!.role === "ADMIN"} />
+      <SpmSidebar displayName={user!.displayName} isAdmin={user!.role === "ADMIN"} />
       <main className="min-w-0 flex-1">
         <div className="mx-auto max-w-6xl px-6 py-8">{children}</div>
       </main>

@@ -44,5 +44,8 @@ export async function requireEmployeeProfile(): Promise<CurrentUser> {
 }
 
 export const requireClubManager = () => requireRole("CLUB_MANAGER", "ADMIN");
-export const requireSPM = () => requireRole("SPM", "ADMIN");
+/** Strict SPM only. Prefer requireSPMAccess() for the SPM panel/APIs. */
+export const requireSPM = () => requireRole("SPM");
+/** SPM panel + write actions: SPM or ADMIN (ADMIN keeps its real identity). */
+export const requireSPMAccess = () => requireRole("SPM", "ADMIN");
 export const requireAdmin = () => requireRole("ADMIN");

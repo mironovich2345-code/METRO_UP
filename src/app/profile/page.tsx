@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Building2, Check, MapPin, Briefcase, LayoutDashboard } from "lucide-react";
+import { Building2, Check, MapPin, Briefcase, LayoutDashboard, Trophy } from "lucide-react";
 import { BottomNavigation } from "@/components/bottom-navigation";
 import { AppHeader } from "@/components/app-header";
 import { GlassCard } from "@/components/ui/glass-card";
@@ -15,6 +15,7 @@ import { SectionHeader } from "@/components/ui/section-header";
 import { useApp } from "@/providers/app-provider";
 import { useAppUser } from "@/providers/AppUserProvider";
 import { getCityById, getClubById, getPositionById } from "@/content";
+import { canAccessSpm } from "@/lib/roles";
 import { RANKS } from "@/lib/ranks";
 import type { AccessStatus, CareerLevel } from "@/lib/profile";
 import { cardIn, staggerStack } from "@/lib/motion";
@@ -40,6 +41,7 @@ export default function ProfileScreen() {
   // Role comes ONLY from the server-backed session user — never from localStorage.
   const { user: serverUser } = useAppUser();
   const isAdmin = serverUser?.role === "ADMIN";
+  const canSpm = serverUser ? canAccessSpm(serverUser.role) : false; // SPM or ADMIN
   const router = useRouter();
 
   useEffect(() => {
@@ -145,6 +147,33 @@ export default function ProfileScreen() {
                 variant="secondary"
                 className="mt-3"
                 onClick={() => router.push("/admin")}
+              >
+                Открыть
+              </Button>
+            </GlassCard>
+          </motion.div>
+        )}
+
+        {/* SPM panel entry — for server role SPM or ADMIN (never EMPLOYEE/CLUB_MANAGER). */}
+        {canSpm && (
+          <motion.div variants={cardIn}>
+            <GlassCard variant="solid" pad="md" animateIn={false}>
+              <div className="flex items-center gap-3">
+                <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-brand/12">
+                  <Trophy className="size-5 text-brand" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-bold text-foreground">Панель СПМ</p>
+                  <p className="text-sm text-muted-foreground">
+                    Продажи, тайный покупатель и рейтинг
+                  </p>
+                </div>
+              </div>
+              <Button
+                block
+                variant="secondary"
+                className="mt-3"
+                onClick={() => router.push("/spm")}
               >
                 Открыть
               </Button>
