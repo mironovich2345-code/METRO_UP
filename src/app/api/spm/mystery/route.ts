@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { requireSPM } from "@/lib/server/authz";
+import { requireSPMAccess } from "@/lib/server/authz";
 import { jsonOk, handleError, readJson } from "@/lib/server/http";
 import { getMysteryRows, upsertMystery } from "@/lib/server/spm-mystery";
 import { defaultWorkingPeriod } from "@/lib/server/spm-overview";
@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
-    await requireSPM();
+    await requireSPMAccess();
     const { month, year } = parsePeriodQuery(req.nextUrl, defaultWorkingPeriod());
     const sp = req.nextUrl.searchParams;
     const rows = await getMysteryRows(month, year, {
@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
 /** POST — upsert a DRAFT mystery result (score 0–100 validated server-side). */
 export async function POST(req: NextRequest) {
   try {
-    const spm = await requireSPM();
+    const spm = await requireSPMAccess();
     const input = mysteryUpsertSchema.parse(await readJson(req));
     const row = await upsertMystery(spm.id, input);
     return jsonOk({ row });

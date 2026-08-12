@@ -27,6 +27,23 @@ an SPM can open the Mini App in Telegram to establish the session, then visit
 Role assignment: SPM is granted by an **ADMIN in the DB** (no self-registration).
 `UPDATE users SET role='SPM' WHERE "telegramUsername"='...';`
 
+### Access rules (single-role model)
+
+Prisma `AppRole` is unchanged — no multi-role/permissions tables. Access is
+centralized in `src/lib/roles.ts`:
+
+| Role | /admin | /spm + SPM writes |
+|---|---|---|
+| ADMIN | ✅ `requireAdmin` | ✅ `requireSPMAccess` (full, for testing/admin/emergency) |
+| SPM | ❌ | ✅ `requireSPMAccess` |
+| CLUB_MANAGER | ❌ | ❌ |
+| EMPLOYEE | ❌ | ❌ |
+
+`requireSPM()` is **strict SPM**; every `/api/spm/*` route uses
+**`requireSPMAccess()`** (SPM or ADMIN). ADMIN is never masked as SPM — audit
+(`RatingAuditLog.actorUserId`, `enteredByUserId`, `createdByUserId`,
+`publishedByUserId`) always stores the real acting user (role ADMIN kept as-is).
+
 ## Money & formula
 
 Sales money (`personalPlan`, `personalFact`) is stored as **integer whole rubles**

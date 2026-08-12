@@ -12,7 +12,7 @@ const NAV = [
   { href: "/spm/rating", label: "Рейтинг", icon: Trophy, exact: false },
 ];
 
-export function SpmSidebar({ displayName, readonly }: { displayName: string; readonly: boolean }) {
+export function SpmSidebar({ displayName, isAdmin }: { displayName: string; isAdmin: boolean }) {
   const pathname = usePathname();
   return (
     <aside className="sticky top-0 hidden h-[100dvh] w-60 shrink-0 flex-col border-r border-border bg-card px-4 py-6 md:flex">
@@ -45,7 +45,7 @@ export function SpmSidebar({ displayName, readonly }: { displayName: string; rea
       </nav>
 
       <div className="mt-auto rounded-2xl bg-muted px-3 py-2.5 text-xs text-muted-foreground">
-        {readonly && <span className="mb-1 block font-semibold text-foreground">Режим только чтение (ADMIN)</span>}
+        {isAdmin && <span className="mb-1 block font-semibold text-brand">Режим администратора</span>}
         Вошли как <span className="font-semibold text-foreground">{displayName}</span>
       </div>
     </aside>

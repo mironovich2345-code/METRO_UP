@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { requireSPM } from "@/lib/server/authz";
+import { requireSPMAccess } from "@/lib/server/authz";
 import { jsonOk, handleError, readJson } from "@/lib/server/http";
 import { getSalesRows, upsertSales } from "@/lib/server/spm-sales";
 import { defaultWorkingPeriod } from "@/lib/server/spm-overview";
@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 /** GET — sales rows for a period with optional city/club/search filters. */
 export async function GET(req: NextRequest) {
   try {
-    await requireSPM();
+    await requireSPMAccess();
     const { month, year } = parsePeriodQuery(req.nextUrl, defaultWorkingPeriod());
     const sp = req.nextUrl.searchParams;
     const rows = await getSalesRows(month, year, {
@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
 /** POST — upsert one employee's plan/fact; salesScore is computed server-side. */
 export async function POST(req: NextRequest) {
   try {
-    const spm = await requireSPM();
+    const spm = await requireSPMAccess();
     const input = salesUpsertSchema.parse(await readJson(req));
     const row = await upsertSales(spm.id, input);
     return jsonOk({ row });
