@@ -6,6 +6,7 @@
 import type { RichDoc } from "@/lib/server/content-schemas";
 
 export type InfoCardVariant = "DEFAULT" | "TIP" | "IMPORTANT" | "WARNING";
+export type TakeawayVariant = "DEFAULT" | "IMPORTANT" | "TIP";
 export type ContentStatusDTO = "DRAFT" | "PUBLISHED" | "ARCHIVED";
 export type ProgressStatusDTO = "NOT_STARTED" | "IN_PROGRESS" | "COMPLETED";
 export type QuestionTypeDTO = "SINGLE_CHOICE" | "MULTIPLE_CHOICE" | "TRUE_FALSE";
@@ -15,9 +16,19 @@ export type LessonBlockDTO =
   | { id: string; type: "VIDEO"; order: number; url: string | null; posterUrl: string | null; caption: string | null }
   | { id: string; type: "IMAGE"; order: number; url: string | null; alt: string | null; caption: string | null }
   | { id: string; type: "TEXT"; order: number; doc: RichDoc }
+  | { id: string; type: "COLLAPSIBLE_TEXT"; order: number; title: string; doc: RichDoc; defaultExpanded: boolean }
+  | { id: string; type: "KEY_TAKEAWAYS"; order: number; title: string; items: TakeawayItemDTO[] }
   | { id: string; type: "INFO_CARD"; order: number; title: string; text: string; variant: InfoCardVariant }
   | { id: string; type: "CHECKLIST"; order: number; title: string | null; items: { text: string }[] }
   | { id: string; type: "SUMMARY"; order: number; title: string | null; points: string[] };
+
+export interface TakeawayItemDTO {
+  id: string;
+  title: string;
+  text: string;
+  icon: string | null;
+  variant: TakeawayVariant;
+}
 
 export interface PublicQuizOptionDTO {
   id: string;

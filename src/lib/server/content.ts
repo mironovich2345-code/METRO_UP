@@ -99,6 +99,30 @@ export async function toLessonBlockDTOs(blocks: LessonBlock[]): Promise<LessonBl
       case "TEXT":
         out.push({ id: b.id, type: "TEXT", order: b.order, doc: d.doc as RichDoc });
         break;
+      case "COLLAPSIBLE_TEXT":
+        out.push({
+          id: b.id, type: "COLLAPSIBLE_TEXT", order: b.order,
+          title: (d.title as string) ?? "Текстовая версия урока",
+          doc: (d.content as RichDoc) ?? [],
+          defaultExpanded: Boolean(d.defaultExpanded),
+        });
+        break;
+      case "KEY_TAKEAWAYS":
+        out.push({
+          id: b.id, type: "KEY_TAKEAWAYS", order: b.order,
+          title: (d.title as string) ?? "Главное из урока",
+          items: ((d.items as Array<Record<string, unknown>>) ?? [])
+            .slice()
+            .sort((a, z) => Number(a.order ?? 0) - Number(z.order ?? 0))
+            .map((it) => ({
+              id: String(it.id),
+              title: it.title as string,
+              text: it.text as string,
+              icon: (it.icon as string) ?? null,
+              variant: (it.variant as "DEFAULT" | "IMPORTANT" | "TIP") ?? "DEFAULT",
+            })),
+        });
+        break;
       case "INFO_CARD":
         out.push({
           id: b.id, type: "INFO_CARD", order: b.order,
@@ -129,5 +153,5 @@ export async function toLessonBlockDTOs(blocks: LessonBlock[]): Promise<LessonBl
 
 /** A block counts as "meaningful" for publish if it renders real content. */
 export function isMeaningfulBlock(type: string): boolean {
-  return ["VIDEO", "TEXT", "IMAGE", "INFO_CARD", "CHECKLIST", "SUMMARY"].includes(type);
+  return ["VIDEO", "TEXT", "COLLAPSIBLE_TEXT", "KEY_TAKEAWAYS", "IMAGE", "INFO_CARD", "CHECKLIST", "SUMMARY"].includes(type);
 }

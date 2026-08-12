@@ -12,21 +12,25 @@ import { QuizBuilder } from "@/components/admin/QuizBuilder";
 
 const BLOCK_DEFAULTS: Record<string, unknown> = {
   VIDEO: {},
+  COLLAPSIBLE_TEXT: { title: "Текстовая версия урока", content: [{ type: "paragraph", spans: [{ text: "Текст урока" }] }], defaultExpanded: false },
+  KEY_TAKEAWAYS: { title: "Главное из урока", items: [{ id: "1", title: "Заголовок", text: "Описание", variant: "DEFAULT", order: 1 }] },
   IMAGE: {},
   TEXT: { doc: [] },
   INFO_CARD: { title: "Заголовок", text: "Описание", variant: "DEFAULT" },
   CHECKLIST: { items: [{ text: "Пункт" }] },
   SUMMARY: { points: ["Итог"] },
 };
-const ADD_TYPES = ["VIDEO", "TEXT", "IMAGE", "INFO_CARD", "CHECKLIST", "SUMMARY"] as const;
+const ADD_TYPES = ["VIDEO", "COLLAPSIBLE_TEXT", "KEY_TAKEAWAYS", "TEXT", "IMAGE", "INFO_CARD", "CHECKLIST", "SUMMARY"] as const;
 const TYPE_LABEL: Record<string, string> = {
-  VIDEO: "Видео", TEXT: "Текст", IMAGE: "Изображение", INFO_CARD: "Инфо-карточка", CHECKLIST: "Чек-лист", SUMMARY: "Итоги",
+  VIDEO: "Видео", COLLAPSIBLE_TEXT: "Текстовая версия", KEY_TAKEAWAYS: "Главное из урока",
+  TEXT: "Текст", IMAGE: "Изображение", INFO_CARD: "Инфо-карточка", CHECKLIST: "Чек-лист", SUMMARY: "Итоги",
 };
 
 export default function LessonEditorPage() {
   const { id } = useParams<{ id: string }>();
   const [lesson, setLesson] = useState<AdminLessonDetail | null>(null);
   const [publishErrors, setPublishErrors] = useState<{ field: string; message: string }[]>([]);
+  const [publishWarnings, setPublishWarnings] = useState<{ code: string; message: string }[]>([]);
   const [msg, setMsg] = useState<string | null>(null);
   const [addType, setAddType] = useState<string>("TEXT");
 
@@ -34,9 +38,10 @@ export default function LessonEditorPage() {
   const [form, setForm] = useState({ title: "", slug: "", shortDescription: "", durationMinutes: 0, xpReward: 0, isRequired: true });
 
   const load = useCallback(async () => {
-    const { lesson, publishErrors } = await adminApi.getLesson(id);
+    const { lesson, publishErrors, publishWarnings } = await adminApi.getLesson(id);
     setLesson(lesson);
     setPublishErrors(publishErrors);
+    setPublishWarnings(publishWarnings ?? []);
     setForm({
       title: lesson.title,
       slug: lesson.slug,
@@ -151,6 +156,15 @@ export default function LessonEditorPage() {
           <p className="font-semibold text-red-500">Перед публикацией:</p>
           <ul className="mt-1 list-disc pl-5 text-muted-foreground">
             {publishErrors.map((e, i) => <li key={i}>{e.message}</li>)}
+          </ul>
+        </div>
+      )}
+
+      {!published && publishErrors.length === 0 && publishWarnings.length > 0 && (
+        <div className="mt-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm">
+          <p className="font-semibold text-amber-600 dark:text-amber-500">Рекомендации (не блокируют публикацию):</p>
+          <ul className="mt-1 list-disc pl-5 text-muted-foreground">
+            {publishWarnings.map((w, i) => <li key={i}>{w.message}</li>)}
           </ul>
         </div>
       )}

@@ -1,10 +1,18 @@
 import Image from "next/image";
-import { CheckCircle2, Info, Lightbulb, ListChecks, TriangleAlert } from "lucide-react";
+import { CheckCircle2, Info, Lightbulb, ListChecks, Sparkles, Star, TriangleAlert } from "lucide-react";
 import { GlassCard } from "@/components/ui/glass-card";
 import { cn } from "@/lib/utils";
-import type { InfoCardVariant, LessonBlockDTO } from "@/lib/api/content-types";
+import { resolveIcon } from "@/lib/icons";
+import type { InfoCardVariant, LessonBlockDTO, TakeawayVariant } from "@/lib/api/content-types";
 import { VideoLessonPlayer } from "./VideoLessonPlayer";
 import { RichText } from "./RichText";
+import { CollapsibleText } from "./CollapsibleText";
+
+const TAKEAWAY_STYLES: Record<TakeawayVariant, { box: string; iconWrap: string; fallback: typeof Star }> = {
+  DEFAULT: { box: "border-border bg-card", iconWrap: "bg-brand/15 text-brand", fallback: Star },
+  IMPORTANT: { box: "border-brand/40 bg-brand/8", iconWrap: "bg-brand text-brand-foreground", fallback: Sparkles },
+  TIP: { box: "border-border bg-brand-soft", iconWrap: "bg-brand text-brand-foreground", fallback: Lightbulb },
+};
 
 const INFO_STYLES: Record<InfoCardVariant, { icon: typeof Info; box: string; iconWrap: string }> = {
   DEFAULT: { icon: Info, box: "bg-muted", iconWrap: "bg-foreground/10 text-foreground" },
@@ -46,6 +54,35 @@ export function LessonBlockRenderer({ block }: { block: LessonBlockDTO }) {
 
     case "TEXT":
       return <RichText doc={block.doc} />;
+
+    case "COLLAPSIBLE_TEXT":
+      return <CollapsibleText title={block.title} doc={block.doc} defaultExpanded={block.defaultExpanded} />;
+
+    case "KEY_TAKEAWAYS":
+      return (
+        <section aria-label={block.title}>
+          <p className="mb-3 flex items-center gap-2 text-lg font-bold">
+            <Sparkles className="size-5 text-brand" /> {block.title}
+          </p>
+          <div className="grid gap-2.5">
+            {block.items.map((it) => {
+              const s = TAKEAWAY_STYLES[it.variant] ?? TAKEAWAY_STYLES.DEFAULT;
+              const Icon = it.icon ? resolveIcon(it.icon) : s.fallback;
+              return (
+                <div key={it.id} className={cn("flex gap-3 rounded-2xl border p-3.5", s.box)}>
+                  <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-xl", s.iconWrap)}>
+                    <Icon className="size-5" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="font-bold leading-snug text-foreground">{it.title}</p>
+                    <p className="mt-0.5 text-sm leading-relaxed text-muted-foreground">{it.text}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      );
 
     case "INFO_CARD": {
       const s = INFO_STYLES[block.variant] ?? INFO_STYLES.DEFAULT;
