@@ -1,19 +1,32 @@
 import "server-only";
-import type { EmployeePosition } from "@prisma/client";
+import type { DailyTaskPriority, EmployeePosition } from "@prisma/client";
 import { prisma } from "./db";
 import { AuthError } from "./authz";
 import { appDay } from "./time";
 import { materializeDailyPlan } from "./daily-plan";
+import { templatesForPosition } from "./daily-plan-catalog";
+import { normalizeChecklist, type ChecklistInput } from "./club-plan-schemas";
 import type { CurrentUser } from "./session";
 import { getPositionById } from "@/content/positions";
 import { getClubById } from "@/content/cities";
 import type {
+  ChecklistItemDefDTO,
   ClubPlanDTO,
   ClubPlanEmployeeDTO,
   ClubTaskTarget,
   ClubTaskTemplateDTO,
   ClubTeamDTO,
 } from "@/lib/api/club-plan-types";
+
+/** Read a template's stored checklist JSON into typed items (definition only). */
+function readTemplateChecklist(json: unknown): ChecklistItemDefDTO[] {
+  if (!Array.isArray(json)) return [];
+  return json
+    .filter((x): x is Record<string, unknown> => !!x && typeof x === "object")
+    .filter((x) => typeof x.id === "string" && typeof x.text === "string")
+    .map((x) => ({ id: x.id as string, text: x.text as string, required: x.required !== false, order: typeof x.order === "number" ? x.order : 0 }))
+    .sort((a, b) => a.order - b.order);
+}
 
 /**
  * CLUB_MANAGER daily-plan control. Every operation is scoped to the actor's OWN
@@ -54,15 +67,27 @@ export async function getClubTemplates(clubId: string): Promise<ClubTaskTemplate
     description: t.description,
     targetPosition: t.targetPosition,
     required: t.required,
+    priority: t.priority,
+    timeHint: t.timeHint,
+    checklist: readTemplateChecklist(t.checklist),
     defaultOrder: t.defaultOrder,
     isActive: t.isActive,
+    isDefault: t.code != null,
   }));
 }
 
-export async function createClubTemplate(
-  actor: CurrentUser,
-  input: { title: string; description?: string | null; targetPosition?: EmployeePosition | null; required?: boolean; defaultOrder?: number },
-) {
+interface TemplateInput {
+  title: string;
+  description?: string | null;
+  targetPosition?: EmployeePosition | null;
+  required?: boolean;
+  priority?: DailyTaskPriority;
+  timeHint?: string | null;
+  checklist?: ChecklistInput;
+  defaultOrder?: number;
+}
+
+export async function createClubTemplate(actor: CurrentUser, input: TemplateInput) {
   const clubId = requireClubId(actor);
   const max = await prisma.clubTaskTemplate.aggregate({ where: { clubId }, _max: { defaultOrder: true } });
   return prisma.clubTaskTemplate.create({
@@ -72,6 +97,9 @@ export async function createClubTemplate(
       description: input.description ?? null,
       targetPosition: input.targetPosition ?? null,
       required: input.required ?? false,
+      priority: input.priority ?? "NORMAL",
+      timeHint: input.timeHint ?? null,
+      checklist: normalizeChecklist(input.checklist) as object,
       defaultOrder: input.defaultOrder ?? (max._max.defaultOrder ?? 0) + 1,
       createdByUserId: actor.id,
     },
@@ -89,7 +117,7 @@ async function assertOwnTemplate(actor: CurrentUser, id: string): Promise<string
 export async function updateClubTemplate(
   actor: CurrentUser,
   id: string,
-  input: { title?: string; description?: string | null; targetPosition?: EmployeePosition | null; required?: boolean; isActive?: boolean; defaultOrder?: number },
+  input: Partial<TemplateInput> & { isActive?: boolean },
 ) {
   await assertOwnTemplate(actor, id);
   return prisma.clubTaskTemplate.update({
@@ -99,6 +127,9 @@ export async function updateClubTemplate(
       description: input.description === undefined ? undefined : input.description,
       targetPosition: input.targetPosition === undefined ? undefined : input.targetPosition,
       required: input.required,
+      priority: input.priority,
+      timeHint: input.timeHint === undefined ? undefined : input.timeHint,
+      checklist: input.checklist === undefined ? undefined : (normalizeChecklist(input.checklist) as object),
       isActive: input.isActive,
       defaultOrder: input.defaultOrder,
     },
@@ -120,7 +151,16 @@ export async function reorderClubTemplates(actor: CurrentUser, ids: string[]) {
 
 export async function createManagerTask(
   actor: CurrentUser,
-  input: { title: string; description?: string | null; date: string; required?: boolean; target: ClubTaskTarget },
+  input: {
+    title: string;
+    description?: string | null;
+    date: string;
+    required?: boolean;
+    priority?: DailyTaskPriority;
+    timeHint?: string | null;
+    checklist?: ChecklistInput;
+    target: ClubTaskTarget;
+  },
 ) {
   const clubId = requireClubId(actor);
   const date = new Date(`${input.date}T00:00:00.000Z`);
@@ -152,7 +192,8 @@ export async function createManagerTask(
   }
 
   if (userIds.length === 0) return { count: 0 };
-  await prisma.dailyTask.createMany({
+  const checklist = normalizeChecklist(input.checklist);
+  const created = await prisma.dailyTask.createManyAndReturn({
     data: userIds.map((uid) => ({
       userId: uid,
       date,
@@ -160,11 +201,21 @@ export async function createManagerTask(
       description: input.description ?? null,
       category: "MANAGER" as const,
       required: input.required ?? false,
+      priority: input.priority ?? "NORMAL",
+      timeHint: input.timeHint ?? null,
       order: 200,
       source: "MANAGER" as const,
       createdByUserId: actor.id,
     })),
+    select: { id: true },
   });
+  if (checklist.length > 0) {
+    await prisma.dailyTaskChecklistItem.createMany({
+      data: created.flatMap((task) =>
+        checklist.map((it) => ({ dailyTaskId: task.id, itemId: it.id, text: it.text, required: it.required, order: it.order })),
+      ),
+    });
+  }
   return { count: userIds.length };
 }
 
@@ -187,8 +238,13 @@ export async function deleteManagerTask(actor: CurrentUser, taskId: string) {
 
 const EMPTY_PLAN = (date: string): ClubPlanDTO => ({
   date, clubId: null, clubName: null, totalEmployees: 0, employeesCompleted: 0,
-  tasksTotal: 0, tasksCompleted: 0, employees: [], templates: [],
+  tasksTotal: 0, tasksCompleted: 0, employees: [], templates: [], systemTasks: [],
 });
+
+/** Read-only SYSTEM tasks shown for context in the CLIENT_MANAGER standard plan. */
+function clientManagerSystemTasks(): { title: string }[] {
+  return templatesForPosition("CLIENT_MANAGER").map((t) => ({ title: t.title }));
+}
 
 export async function getClubPlan(user: CurrentUser, dateStr?: string): Promise<ClubPlanDTO> {
   const date = dateStr ? new Date(`${dateStr}T00:00:00.000Z`) : appDay();
@@ -206,7 +262,8 @@ export async function getClubPlan(user: CurrentUser, dateStr?: string): Promise<
 
   const tasks = await prisma.dailyTask.findMany({
     where: { userId: { in: employees.map((e) => e.id) }, date },
-    orderBy: { order: "asc" },
+    orderBy: [{ priority: "desc" }, { order: "asc" }],
+    include: { checklistItems: { orderBy: { order: "asc" } } },
   });
   const byUser = new Map<string, typeof tasks>();
   for (const t of tasks) {
@@ -230,12 +287,16 @@ export async function getClubPlan(user: CurrentUser, dateStr?: string): Promise<
       positionTitle: e.employeeProfile ? getPositionById(e.employeeProfile.positionId)?.title ?? null : null,
       completed,
       total: t.length,
+      hasHighUnfinished: t.some((x) => x.priority === "HIGH" && x.status !== "COMPLETED"),
       tasks: t.map((x) => ({
         id: x.id,
         title: x.title,
         description: x.description,
         status: x.status,
         required: x.required,
+        priority: x.priority,
+        timeHint: x.timeHint,
+        checklist: x.checklistItems.map((c) => ({ id: c.itemId, text: c.text, required: c.required, done: c.done, order: c.order })),
         isManager: x.source === "MANAGER",
         canDelete: x.source === "MANAGER" && x.clubTaskTemplateId == null && x.status !== "COMPLETED",
       })),
@@ -252,6 +313,7 @@ export async function getClubPlan(user: CurrentUser, dateStr?: string): Promise<
     tasksCompleted,
     employees: employeeDTOs,
     templates: await getClubTemplates(clubId),
+    systemTasks: clientManagerSystemTasks(),
   };
 }
 

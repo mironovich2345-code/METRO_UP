@@ -446,6 +446,11 @@ enum DailyTaskSource {
   MANAGER
 }
 
+enum DailyTaskPriority {
+  NORMAL
+  HIGH
+}
+
 enum MysteryStatus {
   DRAFT
   PUBLISHED
@@ -484,14 +489,17 @@ model DailyTask {
   category           DailyTaskCategory
   status             DailyTaskStatus   @default(TODO)
   required           Boolean           @default(false)
+  priority           DailyTaskPriority @default(NORMAL)
+  timeHint           String?
   order              Int               @default(0)
   source             DailyTaskSource   @default(SYSTEM)
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
   completedAt        DateTime?
 
-  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  clubTaskTemplate ClubTaskTemplate? @relation(fields: [clubTaskTemplateId], references: [id], onDelete: SetNull)
+  user             User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clubTaskTemplate ClubTaskTemplate?        @relation(fields: [clubTaskTemplateId], references: [id], onDelete: SetNull)
+  checklistItems   DailyTaskChecklistItem[]
 
   // one row per (user, day, system-template) and per (user, day, club-template);
   // one-off manager tasks (both template ids NULL) are not constrained.
@@ -504,21 +512,49 @@ model DailyTask {
 model ClubTaskTemplate {
   id              String            @id @default(uuid()) @db.Uuid
   clubId          String
+  code            String?
   title           String
   description     String?
   targetPosition  EmployeePosition?
   required        Boolean           @default(false)
+  priority        DailyTaskPriority @default(NORMAL)
+  timeHint        String?
+  checklist       Json?
   defaultOrder    Int               @default(0)
   isActive        Boolean           @default(true)
-  createdByUserId String            @db.Uuid
+  createdByUserId String?           @db.Uuid
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
   club       Club        @relation(fields: [clubId], references: [id], onDelete: Cascade)
   dailyTasks DailyTask[]
 
+  // Stable code identifies a provisioned production default (null = manager-made).
+  // Provisioning inserts a code only if absent — it never overwrites customizations.
+  @@unique([clubId, code])
   @@index([clubId, isActive])
   @@map("club_task_templates")
+}
+
+model DailyTaskChecklistItem {
+  id          String   @id @default(uuid()) @db.Uuid
+  dailyTaskId String   @db.Uuid
+  itemId      String
+  text        String
+  required    Boolean  @default(true)
+  order       Int      @default(0)
+  done        Boolean  @default(false)
+  doneAt      DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  dailyTask DailyTask @relation(fields: [dailyTaskId], references: [id], onDelete: Cascade)
+
+  // Snapshot per DailyTask; itemId is stable (copied from the template), never
+  // the text. Unique makes checklist materialization idempotent.
+  @@unique([dailyTaskId, itemId])
+  @@index([dailyTaskId])
+  @@map("daily_task_checklist_items")
 }
 
 model MysteryShopperResult {

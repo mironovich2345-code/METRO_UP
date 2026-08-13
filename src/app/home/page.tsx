@@ -236,6 +236,7 @@ function PlanCard({ plan, onOpen }: { plan: HomeDashboardDTO["plan"]; onOpen: ()
 function PlanTaskRow({ task }: { task: DailyTaskDTO }) {
   const done = task.status === "COMPLETED";
   const skipped = task.status === "SKIPPED";
+  const checkDone = task.checklist.filter((c) => c.done).length;
   return (
     <li className="flex items-center gap-2.5 text-[15px]">
       {done ? (
@@ -245,7 +246,10 @@ function PlanTaskRow({ task }: { task: DailyTaskDTO }) {
       ) : (
         <Circle className="size-4.5 shrink-0 text-muted-foreground" />
       )}
-      <span className={cn("truncate", (done || skipped) && "text-muted-foreground line-through")}>{task.title}</span>
+      <span className={cn("min-w-0 flex-1 truncate", (done || skipped) && "text-muted-foreground line-through")}>{task.title}</span>
+      {task.priority === "HIGH" && !done && <span className="shrink-0 rounded-full bg-brand/12 px-1.5 py-0.5 text-[10px] font-bold text-brand">Приоритет</span>}
+      {task.timeHint && !done && <span className="shrink-0 text-[11px] text-muted-foreground">{task.timeHint}</span>}
+      {task.checklist.length > 0 && !done && <span className="shrink-0 text-[11px] font-semibold text-muted-foreground">{checkDone}/{task.checklist.length}</span>}
     </li>
   );
 }

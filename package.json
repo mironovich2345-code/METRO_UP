@@ -18,7 +18,7 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
-    "test": "node --import tsx --test tests/foundation.test.ts tests/content-platform.test.ts tests/production-home.test.ts tests/spm.test.ts tests/admin-spm-access.test.ts tests/lesson-content.test.ts tests/web-control.test.ts tests/club-manager.test.ts"
+    "test": "node --import tsx --test tests/foundation.test.ts tests/content-platform.test.ts tests/production-home.test.ts tests/spm.test.ts tests/admin-spm-access.test.ts tests/lesson-content.test.ts tests/web-control.test.ts tests/club-manager.test.ts tests/daily-plan-v3.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

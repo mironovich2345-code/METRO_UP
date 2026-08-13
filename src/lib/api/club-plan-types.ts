@@ -3,6 +3,17 @@
 
 export type EmployeePositionDTO = "CLIENT_MANAGER" | "NIGHT_MANAGER" | "ADMINISTRATOR";
 export type ClubTaskStatusDTO = "TODO" | "COMPLETED" | "SKIPPED";
+export type TaskPriorityDTO = "NORMAL" | "HIGH";
+
+export interface ChecklistItemDefDTO {
+  id: string;
+  text: string;
+  required: boolean;
+  order: number;
+}
+export interface ChecklistItemStateDTO extends ChecklistItemDefDTO {
+  done: boolean;
+}
 
 /** One-off assignment target chosen by the manager. */
 export type ClubTaskTarget =
@@ -16,8 +27,13 @@ export interface ClubTaskTemplateDTO {
   description: string | null;
   targetPosition: EmployeePositionDTO | null; // null = all managers
   required: boolean;
+  priority: TaskPriorityDTO;
+  timeHint: string | null;
+  checklist: ChecklistItemDefDTO[];
   defaultOrder: number;
   isActive: boolean;
+  /** True for a provisioned production default (has a stable code). */
+  isDefault: boolean;
 }
 
 export interface ClubPlanTaskDTO {
@@ -26,6 +42,9 @@ export interface ClubPlanTaskDTO {
   description: string | null;
   status: ClubTaskStatusDTO;
   required: boolean;
+  priority: TaskPriorityDTO;
+  timeHint: string | null;
+  checklist: ChecklistItemStateDTO[];
   /** True for manager-created tasks (one-off/template); system tasks are false. */
   isManager: boolean;
   /** True only for one-off manager tasks the manager may delete. */
@@ -38,6 +57,7 @@ export interface ClubPlanEmployeeDTO {
   positionTitle: string | null;
   completed: number;
   total: number;
+  hasHighUnfinished: boolean;
   tasks: ClubPlanTaskDTO[];
 }
 
@@ -51,6 +71,8 @@ export interface ClubPlanDTO {
   tasksCompleted: number;
   employees: ClubPlanEmployeeDTO[];
   templates: ClubTaskTemplateDTO[];
+  /** Read-only SYSTEM tasks (managed by METRO UP) for the CLIENT_MANAGER plan. */
+  systemTasks: { title: string }[];
 }
 
 export interface TeamMemberDTO {
