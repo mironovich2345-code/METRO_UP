@@ -57,14 +57,14 @@ test("G: task completion policy (LEARNING auto, SALES blocked, else manual)", ()
 
 /* ----------------- §5 / §8 — plan composition by position ---------------- */
 
-test("plan: CLIENT_MANAGER gets the full 5-task plan", () => {
+test("plan: CLIENT_MANAGER SYSTEM tasks are learning + sales (operational plan is the club standard plan)", () => {
   const t = templatesForPosition("CLIENT_MANAGER");
-  assert.equal(t.length, 5);
   const cats = t.map((x) => x.category);
   assert.ok(cats.includes("LEARNING"));
   assert.ok(cats.includes("SALES"));
-  assert.ok(cats.includes("CLIENTS"));
-  assert.ok(cats.filter((c) => c === "SHIFT").length >= 2);
+  // operational CLIENTS/SHIFT tasks moved to the STANDARD CLUB PLAN (Daily Plan v3)
+  assert.equal(cats.includes("CLIENTS"), false);
+  assert.equal(cats.includes("SHIFT"), false);
 });
 
 test("plan: NIGHT_MANAGER / ADMINISTRATOR fall back to the general minimal plan", () => {

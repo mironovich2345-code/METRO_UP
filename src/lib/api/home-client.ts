@@ -32,6 +32,12 @@ export function completePlanTask(id: string) {
 export function skipPlanTask(id: string) {
   return request<{ task: DailyTaskDTO }>(`/api/plan/tasks/${id}/skip`, { method: "POST" });
 }
+export function toggleChecklistItem(taskId: string, itemId: string, done: boolean) {
+  return request<{ task: DailyTaskDTO }>(`/api/plan/tasks/${taskId}/checklist`, {
+    method: "POST",
+    body: JSON.stringify({ itemId, done }),
+  });
+}
 export function fetchRatingBoard() {
   return request<RatingBoardDTO>("/api/rating");
 }

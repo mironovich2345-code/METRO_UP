@@ -6,6 +6,16 @@ export type DailyTaskStatusDTO = "TODO" | "COMPLETED" | "SKIPPED";
 /** auto = server-completed only; manual = user can complete/skip; blocked = pending external data. */
 export type DailyTaskMode = "auto" | "manual" | "blocked";
 
+export type DailyTaskPriorityDTO = "NORMAL" | "HIGH";
+
+export interface ChecklistItemDTO {
+  id: string;
+  text: string;
+  required: boolean;
+  done: boolean;
+  order: number;
+}
+
 export interface DailyTaskDTO {
   id: string;
   title: string;
@@ -14,6 +24,9 @@ export interface DailyTaskDTO {
   status: DailyTaskStatusDTO;
   mode: DailyTaskMode;
   required: boolean;
+  priority: DailyTaskPriorityDTO;
+  timeHint: string | null;
+  checklist: ChecklistItemDTO[];
   order: number;
   /** For LEARNING tasks — the lesson slug to open (null when nothing pending). */
   actionSlug: string | null;

@@ -1,9 +1,11 @@
 import type { DailyTaskCategory, EmployeePosition } from "@prisma/client";
 
 /**
- * System daily-task templates (v1). CLIENT_MANAGER gets the full 5-task plan;
- * NIGHT_MANAGER / ADMINISTRATOR fall back to a minimal general plan (position:
- * null) — documented placeholder until their real plans are defined.
+ * SYSTEM daily-task templates. These are the METRO-UP-owned tasks only:
+ * LEARNING (auto) and SALES (blocked). The operational CLIENT_MANAGER work day
+ * lives in the STANDARD CLUB PLAN (ClubTaskTemplate defaults, manager-editable) —
+ * not here. NIGHT_MANAGER / ADMINISTRATOR keep a minimal general plan (no
+ * production-default operational plan is defined for them yet).
  */
 export interface DailyTemplateDef {
   code: string;
@@ -15,12 +17,9 @@ export interface DailyTemplateDef {
 }
 
 export const DAILY_TEMPLATES: DailyTemplateDef[] = [
-  // CLIENT_MANAGER — full plan
+  // CLIENT_MANAGER — system-owned tasks only (operational tasks are the club plan).
   { code: "CM_LEARNING", title: "Пройти обучение", description: null, category: "LEARNING", position: "CLIENT_MANAGER", defaultOrder: 1 },
   { code: "CM_SALES_PLAN", title: "Проверить план на текущий месяц", description: "Личный план появится после внесения данных СПМ", category: "SALES", position: "CLIENT_MANAGER", defaultOrder: 2 },
-  { code: "CM_CLIENTS", title: "Работа с клиентами", description: "Проверь активных клиентов и незавершённые договорённости на сегодня.", category: "CLIENTS", position: "CLIENT_MANAGER", defaultOrder: 3 },
-  { code: "CM_SHIFT_CHECK", title: "Проверить незавершённые задачи перед окончанием смены", description: null, category: "SHIFT", position: "CLIENT_MANAGER", defaultOrder: 4 },
-  { code: "CM_SHIFT_CLOSE", title: "Закрыть рабочий день", description: null, category: "SHIFT", position: "CLIENT_MANAGER", defaultOrder: 5 },
 
   // General minimal plan (NIGHT_MANAGER / ADMINISTRATOR)
   { code: "GEN_LEARNING", title: "Пройти обучение", description: null, category: "LEARNING", position: null, defaultOrder: 1 },
