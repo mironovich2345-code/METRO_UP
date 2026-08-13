@@ -58,7 +58,7 @@ export function ControlShell({
 
   return (
     <div className="flex min-h-[100dvh] bg-background text-foreground">
-      <aside className="sticky top-0 hidden h-[100dvh] w-60 shrink-0 flex-col border-r border-border bg-card px-4 py-6 md:flex">
+      <aside className="sticky top-0 hidden h-[100dvh] w-64 shrink-0 grow-0 basis-64 flex-col border-r border-border bg-card px-4 py-6 md:flex">
         <Link href="/control" className="flex items-center gap-2 px-2">
           <span className="flex size-9 items-center justify-center rounded-xl bg-brand text-brand-foreground font-black">M</span>
           <div className="leading-tight">
@@ -102,7 +102,7 @@ export function ControlShell({
       </aside>
 
       <main className="min-w-0 flex-1">
-        <div className="mx-auto max-w-6xl px-6 py-8">{children}</div>
+        <div className="mx-auto w-full max-w-[1440px] px-5 py-6 sm:px-6 lg:px-8 lg:py-8">{children}</div>
       </main>
     </div>
   );

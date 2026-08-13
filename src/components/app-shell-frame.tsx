@@ -3,11 +3,12 @@
 import { usePathname } from "next/navigation";
 
 /**
- * Wraps employee routes in the mobile `.app-shell` (max-width 480px column) but
- * lets the ADMIN CMS (`/admin`) render full-width as a desktop-first web app.
- * Keeps all existing employee routes and URLs unchanged.
+ * Wraps employee (Telegram Mini App) routes in the mobile `.app-shell`
+ * (max-width 480px column) but lets the desktop web control portal render
+ * full-width. `/control`, `/admin/*`, `/spm/*` are the desktop-first control
+ * area; everything else stays mobile-first. Keeps all URLs unchanged.
  */
-const FULL_WIDTH_PREFIXES = ["/admin", "/spm"];
+const FULL_WIDTH_PREFIXES = ["/control", "/admin", "/spm"];
 
 export function AppShellFrame({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
