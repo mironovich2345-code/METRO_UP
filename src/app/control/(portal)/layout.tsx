@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/server/session";
-import { canAccessSpm } from "@/lib/roles";
+import { canAccessControl } from "@/lib/roles";
 import { ControlShell } from "@/components/control/ControlShell";
 import { AccessDenied } from "@/components/control/AccessDenied";
 
@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 export default async function ControlPortalLayout({ children }: { children: React.ReactNode }) {
   const user = await getCurrentUser();
   if (!user) redirect("/control/login"); // unauthenticated → login
-  if (!canAccessSpm(user.role)) {
+  if (!canAccessControl(user.role)) {
     return <AccessDenied message="У вас нет доступа к панели управления." />;
   }
   return (

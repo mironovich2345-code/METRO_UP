@@ -114,6 +114,7 @@ model Club {
 
   city             City              @relation(fields: [cityId], references: [id], onDelete: Cascade)
   employeeProfiles EmployeeProfile[]
+  taskTemplates    ClubTaskTemplate[]
 
   @@index([cityId])
   @@map("clubs")
@@ -429,6 +430,7 @@ enum DailyTaskCategory {
   CLIENTS
   SERVICE
   SHIFT
+  MANAGER
 }
 
 enum DailyTaskStatus {
@@ -441,6 +443,7 @@ enum DailyTaskSource {
   SYSTEM
   ADMIN
   FUTURE_INTEGRATION
+  MANAGER
 }
 
 enum MysteryStatus {
@@ -470,27 +473,52 @@ model DailyTaskTemplate {
 }
 
 model DailyTask {
-  id          String            @id @default(uuid()) @db.Uuid
-  userId      String            @db.Uuid
-  date        DateTime          @db.Date
-  templateId  String?           @db.Uuid
-  title       String
-  description String?
-  category    DailyTaskCategory
-  status      DailyTaskStatus   @default(TODO)
-  order       Int               @default(0)
-  source      DailyTaskSource   @default(SYSTEM)
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
-  completedAt DateTime?
+  id                 String            @id @default(uuid()) @db.Uuid
+  userId             String            @db.Uuid
+  date               DateTime          @db.Date
+  templateId         String?           @db.Uuid
+  clubTaskTemplateId String?           @db.Uuid
+  createdByUserId    String?           @db.Uuid
+  title              String
+  description        String?
+  category           DailyTaskCategory
+  status             DailyTaskStatus   @default(TODO)
+  required           Boolean           @default(false)
+  order              Int               @default(0)
+  source             DailyTaskSource   @default(SYSTEM)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  completedAt        DateTime?
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clubTaskTemplate ClubTaskTemplate? @relation(fields: [clubTaskTemplateId], references: [id], onDelete: SetNull)
 
-  // one system task per (user, day, template); manual tasks (templateId NULL)
-  // are not constrained (Postgres treats NULLs as distinct).
+  // one row per (user, day, system-template) and per (user, day, club-template);
+  // one-off manager tasks (both template ids NULL) are not constrained.
   @@unique([userId, date, templateId])
+  @@unique([userId, date, clubTaskTemplateId])
   @@index([userId, date])
   @@map("daily_tasks")
+}
+
+model ClubTaskTemplate {
+  id              String            @id @default(uuid()) @db.Uuid
+  clubId          String
+  title           String
+  description     String?
+  targetPosition  EmployeePosition?
+  required        Boolean           @default(false)
+  defaultOrder    Int               @default(0)
+  isActive        Boolean           @default(true)
+  createdByUserId String            @db.Uuid
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  club       Club        @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  dailyTasks DailyTask[]
+
+  @@index([clubId, isActive])
+  @@map("club_task_templates")
 }
 
 model MysteryShopperResult {
