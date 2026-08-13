@@ -42,7 +42,7 @@ export function ControlDashboard({ displayName, role }: { displayName: string; r
         Управление обучением и результатами команды · {displayName} ({role === "ADMIN" ? "Администратор" : "СПМ"})
       </p>
 
-      <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 xl:[grid-template-columns:repeat(auto-fit,minmax(300px,1fr))]">
         {cards.map((c) => {
           const Icon = c.icon;
           return (
