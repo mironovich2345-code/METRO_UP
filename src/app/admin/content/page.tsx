@@ -2,14 +2,16 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Archive, CalendarDays, ChevronRight, FolderTree } from "lucide-react";
+import { Archive, CalendarDays, ChevronRight, FolderTree, Plus } from "lucide-react";
 import { adminApi, type AdminDashboard, type AdminProgramTree } from "@/lib/api/content-client";
 import { InlineCreate, StatusBadge, fieldCls } from "@/components/admin/ui";
+import { CreateLessonFlow } from "@/components/admin/CreateLessonFlow";
 
 export default function ContentPage() {
   const [tree, setTree] = useState<AdminProgramTree[]>([]);
   const [totals, setTotals] = useState<AdminDashboard["totals"] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -33,14 +35,24 @@ export default function ContentPage() {
           <h1 className="text-2xl font-bold">Обучение</h1>
           <p className="mt-1 text-sm text-muted-foreground">Программы, курсы, уроки и медиа</p>
         </div>
-        {totals && (
-          <div className="flex gap-4 text-sm">
-            <span><b>{totals.programs}</b> программ</span>
-            <span><b>{totals.lessonsPublished}</b> опубликовано</span>
-            <span><b>{totals.lessonsDraft}</b> черновиков</span>
-          </div>
-        )}
+        <div className="flex items-center gap-4">
+          {totals && (
+            <div className="hidden gap-4 text-sm sm:flex">
+              <span><b>{totals.programs}</b> программ</span>
+              <span><b>{totals.lessonsPublished}</b> опубликовано</span>
+              <span><b>{totals.lessonsDraft}</b> черновиков</span>
+            </div>
+          )}
+          <button
+            onClick={() => setShowCreate(true)}
+            className="flex items-center gap-1.5 rounded-2xl bg-brand px-4 py-2.5 text-sm font-semibold text-brand-foreground"
+          >
+            <Plus className="size-4" /> Создать урок
+          </button>
+        </div>
       </div>
+
+      {showCreate && <CreateLessonFlow tree={tree} onClose={() => setShowCreate(false)} />}
 
       {error && <p className="mt-6 text-sm text-red-500">{error}</p>}
 

@@ -143,6 +143,24 @@ export default function LessonEditorPage() {
       <h1 className="mt-4 text-2xl font-bold">{lesson.title}</h1>
       <p className="text-sm text-muted-foreground">{lesson.course.program.title} · {lesson.course.title}</p>
 
+      {/* Informational structure checklist (does not change publish rules). */}
+      <div className="mt-3 flex flex-wrap gap-2">
+        {[
+          { label: "Видео", ok: lesson.blocks.some((b) => b.type === "VIDEO") },
+          { label: "Текст", ok: lesson.blocks.some((b) => b.type === "COLLAPSIBLE_TEXT") },
+          { label: "Главное", ok: lesson.blocks.some((b) => b.type === "KEY_TAKEAWAYS") },
+          { label: "Тест", ok: Boolean(lesson.quiz) },
+        ].map((s) => (
+          <span
+            key={s.label}
+            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${s.ok ? "bg-success-soft text-success" : "bg-muted text-muted-foreground"}`}
+          >
+            {s.ok ? <CheckCircle2 className="size-3.5" /> : <span className="size-1.5 rounded-full bg-muted-foreground/50" />}
+            {s.label}
+          </span>
+        ))}
+      </div>
+
       {msg && <div className="mt-3 rounded-2xl bg-brand/12 px-4 py-2 text-sm text-foreground">{msg}</div>}
 
       {published && (
