@@ -1,5 +1,5 @@
 import "server-only";
-import type { DailyTask } from "@prisma/client";
+import type { DailyTask, EmployeePosition } from "@prisma/client";
 import { prisma } from "./db";
 import { AuthError } from "./authz";
 import { appDay, appMonthYear } from "./time";
@@ -33,14 +33,24 @@ async function ensureTemplates(): Promise<Map<string, string>> {
   return map;
 }
 
-/** Create today's system tasks for the user (idempotent). */
-async function ensureTodayTasks(user: CurrentUser, date: Date): Promise<void> {
-  const position = user.employeeProfile?.positionId ?? null;
-  const templates = templatesForPosition(position);
+export interface PlanTarget {
+  userId: string;
+  position: EmployeePosition | null;
+  clubId: string | null;
+}
+
+/**
+ * Idempotently materialize a user's plan for a date: SYSTEM templates (by
+ * position) + active CLUB manager templates (by club + target position). Safe to
+ * call repeatedly (createMany skipDuplicates on the two unique keys). Editing a
+ * template later never rewrites already-materialized rows (snapshot per day).
+ */
+export async function materializeDailyPlan(target: PlanTarget, date: Date): Promise<void> {
+  const templates = templatesForPosition(target.position);
   const ids = await ensureTemplates();
   await prisma.dailyTask.createMany({
     data: templates.map((t) => ({
-      userId: user.id,
+      userId: target.userId,
       date,
       templateId: ids.get(t.code)!,
       title: t.title,
@@ -51,6 +61,43 @@ async function ensureTodayTasks(user: CurrentUser, date: Date): Promise<void> {
     })),
     skipDuplicates: true, // unique(userId, date, templateId)
   });
+
+  if (!target.clubId) return;
+  const clubTemplates = await prisma.clubTaskTemplate.findMany({
+    where: {
+      clubId: target.clubId,
+      isActive: true,
+      OR: [{ targetPosition: null }, { targetPosition: target.position ?? undefined }],
+    },
+  });
+  if (clubTemplates.length === 0) return;
+  await prisma.dailyTask.createMany({
+    data: clubTemplates.map((t) => ({
+      userId: target.userId,
+      date,
+      clubTaskTemplateId: t.id,
+      title: t.title,
+      description: t.description,
+      category: "MANAGER" as const,
+      required: t.required,
+      order: 100 + t.defaultOrder, // manager tasks after the system plan
+      source: "MANAGER" as const,
+      createdByUserId: t.createdByUserId,
+    })),
+    skipDuplicates: true, // unique(userId, date, clubTaskTemplateId)
+  });
+}
+
+/** Create today's tasks for the current user (idempotent). */
+async function ensureTodayTasks(user: CurrentUser, date: Date): Promise<void> {
+  await materializeDailyPlan(
+    {
+      userId: user.id,
+      position: user.employeeProfile?.positionId ?? null,
+      clubId: user.employeeProfile?.clubId ?? null,
+    },
+    date,
+  );
 }
 
 async function completedLessonToday(userId: string, dayStart: Date): Promise<boolean> {
@@ -68,6 +115,7 @@ function toDTO(task: DailyTask, actionSlug: string | null): DailyTaskDTO {
     category: task.category,
     status: task.status,
     mode: taskMode(task.category),
+    required: task.required,
     order: task.order,
     actionSlug,
   };

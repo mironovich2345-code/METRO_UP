@@ -16,7 +16,7 @@ import { completePlanTask, fetchPlanToday, skipPlanTask } from "@/lib/api/home-c
 import type { DailyPlanDTO, DailyTaskDTO } from "@/lib/api/home-types";
 
 const CATEGORY_LABEL: Record<string, string> = {
-  LEARNING: "Обучение", SALES: "Продажи", CLIENTS: "Клиенты", SERVICE: "Сервис", SHIFT: "Смена",
+  LEARNING: "Обучение", SALES: "Продажи", CLIENTS: "Клиенты", SERVICE: "Сервис", SHIFT: "Смена", MANAGER: "Задача",
 };
 
 export default function PlanScreen() {
@@ -139,9 +139,10 @@ function TaskRow({ task, onChange }: { task: DailyTaskDTO; onChange: (t: DailyTa
           )}
         </span>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <p className={cn("font-semibold", (done || skipped) && "line-through text-muted-foreground")}>{task.title}</p>
             <Badge variant="neutral" size="sm">{CATEGORY_LABEL[task.category] ?? task.category}</Badge>
+            {task.required && <Badge variant="brand" size="sm">обязательно</Badge>}
           </div>
           {task.description && <p className="mt-1 text-sm text-muted-foreground">{task.description}</p>}
 

@@ -7,14 +7,16 @@ import {
   Eye,
   GraduationCap,
   Home,
+  ListChecks,
   LogOut,
   Trophy,
+  Users,
 } from "lucide-react";
 import type { AppRole } from "@prisma/client";
-import { canAccessAdmin } from "@/lib/roles";
+import { canAccessAdmin, canAccessSpm, canManageClub } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 
-const ROLE_LABEL: Record<string, string> = { ADMIN: "Администратор", SPM: "СПМ" };
+const ROLE_LABEL: Record<string, string> = { ADMIN: "Администратор", SPM: "СПМ", CLUB_MANAGER: "Управляющий" };
 
 /**
  * Single desktop web shell for the whole control portal (/control, /admin/*,
@@ -36,12 +38,20 @@ export function ControlShell({
 
   const nav = [
     { href: "/control", label: "Главная", icon: Home, exact: true },
-    ...(isAdmin
-      ? [{ href: "/admin/content", label: "Обучение", icon: GraduationCap, exact: false }]
+    ...(isAdmin ? [{ href: "/admin/content", label: "Обучение", icon: GraduationCap, exact: false }] : []),
+    ...(canManageClub(role)
+      ? [
+          { href: "/control/plan", label: "План дня", icon: ListChecks, exact: false },
+          { href: "/control/team", label: "Команда", icon: Users, exact: false },
+        ]
       : []),
-    { href: "/spm/sales", label: "Продажи", icon: BarChart3, exact: false },
-    { href: "/spm/mystery", label: "Тайный покупатель", icon: Eye, exact: false },
-    { href: "/spm/rating", label: "Рейтинг", icon: Trophy, exact: false },
+    ...(canAccessSpm(role)
+      ? [
+          { href: "/spm/sales", label: "Продажи", icon: BarChart3, exact: false },
+          { href: "/spm/mystery", label: "Тайный покупатель", icon: Eye, exact: false },
+          { href: "/spm/rating", label: "Рейтинг", icon: Trophy, exact: false },
+        ]
+      : []),
   ];
 
   const logout = async () => {

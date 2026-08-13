@@ -1,7 +1,7 @@
 /** Client-safe DTOs for the production Home dashboard, daily plan, rating,
  * mystery shopper and achievements. All values come from PostgreSQL — no mock. */
 
-export type DailyTaskCategoryDTO = "LEARNING" | "SALES" | "CLIENTS" | "SERVICE" | "SHIFT";
+export type DailyTaskCategoryDTO = "LEARNING" | "SALES" | "CLIENTS" | "SERVICE" | "SHIFT" | "MANAGER";
 export type DailyTaskStatusDTO = "TODO" | "COMPLETED" | "SKIPPED";
 /** auto = server-completed only; manual = user can complete/skip; blocked = pending external data. */
 export type DailyTaskMode = "auto" | "manual" | "blocked";
@@ -13,6 +13,7 @@ export interface DailyTaskDTO {
   category: DailyTaskCategoryDTO;
   status: DailyTaskStatusDTO;
   mode: DailyTaskMode;
+  required: boolean;
   order: number;
   /** For LEARNING tasks — the lesson slug to open (null when nothing pending). */
   actionSlug: string | null;
