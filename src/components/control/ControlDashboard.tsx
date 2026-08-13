@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, BarChart3, Eye, GraduationCap, Image as ImageIcon, Trophy } from "lucide-react";
+import { ArrowRight, BarChart3, Eye, GraduationCap, Trophy } from "lucide-react";
 import type { AppRole } from "@prisma/client";
 import { canAccessAdmin } from "@/lib/roles";
 import { adminApi, type AdminDashboard } from "@/lib/api/content-client";
@@ -22,7 +22,6 @@ const CARDS: CardDef[] = [
   { key: "sales", title: "Продажи", description: "Личные планы и фактические продажи менеджеров", href: "/spm/sales", cta: "Открыть продажи", icon: BarChart3 },
   { key: "mystery", title: "Тайный покупатель", description: "Результаты проверок и обратная связь", href: "/spm/mystery", cta: "Открыть проверки", icon: Eye },
   { key: "rating", title: "Рейтинг", description: "Расчёт и публикация месячного рейтинга", href: "/spm/rating", cta: "Открыть рейтинг", icon: Trophy },
-  { key: "media", title: "Медиа", description: "Видео и изображения учебной платформы", href: "/admin/media", cta: "Открыть медиа", icon: ImageIcon, adminOnly: true },
 ];
 
 export function ControlDashboard({ displayName, role }: { displayName: string; role: AppRole }) {

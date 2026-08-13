@@ -7,7 +7,6 @@ import {
   Eye,
   GraduationCap,
   Home,
-  Image as ImageIcon,
   LogOut,
   Trophy,
 } from "lucide-react";
@@ -38,10 +37,7 @@ export function ControlShell({
   const nav = [
     { href: "/control", label: "Главная", icon: Home, exact: true },
     ...(isAdmin
-      ? [
-          { href: "/admin/content", label: "Обучение", icon: GraduationCap, exact: false },
-          { href: "/admin/media", label: "Медиа", icon: ImageIcon, exact: false },
-        ]
+      ? [{ href: "/admin/content", label: "Обучение", icon: GraduationCap, exact: false }]
       : []),
     { href: "/spm/sales", label: "Продажи", icon: BarChart3, exact: false },
     { href: "/spm/mystery", label: "Тайный покупатель", icon: Eye, exact: false },

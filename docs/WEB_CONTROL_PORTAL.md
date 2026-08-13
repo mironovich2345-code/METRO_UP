@@ -72,7 +72,38 @@ Grant a role in the DB (no self-registration):
 `UPDATE users SET role='ADMIN'|'SPM' WHERE "telegramUsername"='...';` (the user
 must have signed in via Telegram at least once so a `users` row exists).
 
+## Desktop UI stabilization (fix/control-desktop-layout + stabilization)
+
+- **Root cause of narrow layout**: `/control` was missing from
+  `AppShellFrame.FULL_WIDTH_PREFIXES`, so it was wrapped in the mobile
+  `.app-shell` (480px). Fixed — the whole control area is desktop full-width;
+  `ControlShell` uses a fixed 256px sidebar + `flex-1 min-w-0` main capped at
+  `max-w-[1440px]`.
+- **Learning CMS (`/admin/content`)** reworked for clarity: the primary scenario
+  is the **Создать урок** flow (program → day → course → title → editor);
+  programs render as a readable **day → course → lesson** hierarchy; secondary
+  structure operations (create program/day/course, attach course to a day,
+  archive) are hidden behind a per-program **«Структура»** toggle + a separated
+  "Управление структурой" section. Inputs/buttons unified via `admin/ui`.
+- **Filter toolbar** (`SpmToolbar`) is the single reusable desktop filter used by
+  Sales / Mystery / Rating — consistent labels, control heights (`fieldCls`),
+  fixed widths, gaps and baseline. Filter logic unchanged.
+- **Modals** (mystery editor, create-lesson) get `max-h-[90vh] overflow-y-auto`
+  so they never overflow short viewports.
+
+### Media decision
+
+`/admin/media` is a static info page; there is **no** media-list API, and a real
+reusable library needs a new read endpoint **plus** usage cross-referencing
+across lesson-block JSON — a read model beyond a stabilization sprint's scope and
+prohibited by "no new business logic / API". Per the sprint's fallback, **Media
+was removed from the primary Control nav and dashboard**; uploads continue inside
+the lesson editor's VIDEO/IMAGE blocks (existing R2 pipeline, unchanged). The
+`/admin/media` route still exists (direct URL) as an informational page. A
+reusable media library remains a future functional sprint.
+
 ## What did NOT change
 
 rating formula, achievement logic, Academy employee UX, R2 storage backend,
-Telegram Mini App auth, XP logic, onboarding, Prisma role enum. No new fake data.
+Telegram Mini App auth, XP logic, onboarding, Prisma role enum, existing APIs,
+data models. No new fake data.
