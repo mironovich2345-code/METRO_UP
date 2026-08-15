@@ -15,6 +15,17 @@ export interface ChecklistItemStateDTO extends ChecklistItemDefDTO {
   done: boolean;
 }
 
+/**
+ * Club scope for the control panel. `canSwitch` is true only for ADMIN (who may
+ * pick any club); CLUB_MANAGER is locked to their own club and gets no list.
+ */
+export interface ManagerScopeDTO {
+  clubId: string | null;
+  clubName: string | null;
+  canSwitch: boolean;
+  clubs: { id: string; name: string; cityName: string | null }[];
+}
+
 /** One-off assignment target chosen by the manager. */
 export type ClubTaskTarget =
   | { type: "USER"; userId: string }
@@ -73,6 +84,8 @@ export interface ClubPlanDTO {
   templates: ClubTaskTemplateDTO[];
   /** Read-only SYSTEM tasks (managed by METRO UP) for the CLIENT_MANAGER plan. */
   systemTasks: { title: string }[];
+  /** Active club scope + (for ADMIN) the switchable club list. */
+  scope: ManagerScopeDTO;
 }
 
 export interface TeamMemberDTO {
@@ -87,4 +100,5 @@ export interface ClubTeamDTO {
   clubId: string | null;
   clubName: string | null;
   members: TeamMemberDTO[];
+  scope: ManagerScopeDTO;
 }

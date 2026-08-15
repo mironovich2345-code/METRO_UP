@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  ArrowLeft,
   BarChart3,
   BookOpen,
   Eye,
@@ -104,6 +105,12 @@ export function ControlShell({
         </nav>
 
         <div className="mt-auto">
+          <Link
+            href="/home"
+            className="mb-2 flex w-full items-center gap-2 rounded-2xl border border-border px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted"
+          >
+            <ArrowLeft className="size-4" /> Вернуться в METRO UP
+          </Link>
           <div className="rounded-2xl bg-muted px-3 py-2.5 text-xs">
             <p className="font-semibold text-foreground">{displayName}</p>
             <p className="text-muted-foreground">{ROLE_LABEL[role] ?? role}</p>
@@ -118,6 +125,37 @@ export function ControlShell({
       </aside>
 
       <main className="min-w-0 flex-1">
+        {/* Mobile top bar — the sidebar is desktop-only, so phones (incl. Telegram
+            WebView) need a visible return path + navigation here. */}
+        <div className="sticky top-0 z-30 border-b border-border bg-card/90 backdrop-blur md:hidden">
+          <div className="flex items-center justify-between gap-2 px-4 py-3">
+            <Link href="/home" className="flex items-center gap-1.5 rounded-2xl border border-border px-3 py-2 text-sm font-semibold">
+              <ArrowLeft className="size-4" /> METRO UP
+            </Link>
+            <span className="truncate text-xs font-medium text-muted-foreground">{ROLE_LABEL[role] ?? role}</span>
+            <button onClick={logout} aria-label="Выйти" className="flex size-9 items-center justify-center rounded-2xl border border-border text-muted-foreground">
+              <LogOut className="size-4" />
+            </button>
+          </div>
+          <nav className="flex gap-1 overflow-x-auto px-4 pb-2.5">
+            {nav.map((item) => {
+              const active = item.exact ? pathname === item.href : pathname?.startsWith(item.href);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={cn(
+                    "shrink-0 rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
+                    active ? "bg-brand/12 text-brand" : "text-muted-foreground hover:bg-muted",
+                  )}
+                >
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
+        </div>
+
         <div className="mx-auto w-full max-w-[1440px] px-5 py-6 sm:px-6 lg:px-8 lg:py-8">{children}</div>
       </main>
     </div>

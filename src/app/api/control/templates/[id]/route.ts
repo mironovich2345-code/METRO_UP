@@ -13,7 +13,8 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     const manager = await requireClubManager();
     const { id } = await ctx.params;
     const input = templateUpdateSchema.parse(await readJson(req));
-    const template = await updateClubTemplate(manager, id, input);
+    const clubId = req.nextUrl.searchParams.get("clubId");
+    const template = await updateClubTemplate(manager, id, input, clubId);
     return jsonOk({ template });
   } catch (e) {
     return handleError(e);

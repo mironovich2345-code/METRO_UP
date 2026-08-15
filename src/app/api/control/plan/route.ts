@@ -11,7 +11,8 @@ export async function GET(req: NextRequest) {
   try {
     const manager = await requireClubManager();
     const date = req.nextUrl.searchParams.get("date") ?? undefined;
-    return jsonOk(await getClubPlan(manager, date));
+    const clubId = req.nextUrl.searchParams.get("clubId");
+    return jsonOk(await getClubPlan(manager, date, clubId));
   } catch (e) {
     return handleError(e);
   }

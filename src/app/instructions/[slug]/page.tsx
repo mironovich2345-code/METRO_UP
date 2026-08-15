@@ -22,7 +22,7 @@ export default function InstructionDetailScreen({ params }: { params: Promise<{ 
 
   return (
     <div className="relative min-h-[100dvh] pb-32">
-      <AppHeader title="Инструкция" showBack sticky />
+      <AppHeader title="Инструкция" showBack backHref="/instructions" sticky />
       <main className="px-5 pt-2">
         {status === "loading" && <div className="space-y-3">{[0, 1, 2].map((i) => <div key={i} className="h-20 animate-pulse rounded-2xl bg-muted" />)}</div>}
         {status === "error" && <p className="mt-8 text-center text-sm text-muted-foreground">Инструкция не найдена.</p>}

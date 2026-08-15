@@ -11,7 +11,8 @@ export async function POST(req: NextRequest) {
   try {
     const manager = await requireClubManager();
     const { ids } = templateReorderSchema.parse(await readJson(req));
-    await reorderClubTemplates(manager, ids);
+    const clubId = req.nextUrl.searchParams.get("clubId");
+    await reorderClubTemplates(manager, ids, clubId);
     return jsonOk({ ok: true });
   } catch (e) {
     return handleError(e);

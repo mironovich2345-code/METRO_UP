@@ -12,7 +12,8 @@ export async function POST(req: NextRequest) {
   try {
     const manager = await requireClubManager();
     const input = templateCreateSchema.parse(await readJson(req));
-    const template = await createClubTemplate(manager, input);
+    const clubId = req.nextUrl.searchParams.get("clubId");
+    const template = await createClubTemplate(manager, input, clubId);
     return jsonOk({ template }, 201);
   } catch (e) {
     return handleError(e);

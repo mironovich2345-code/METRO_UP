@@ -7,6 +7,7 @@ import { materializeDailyPlan } from "./daily-plan";
 import { templatesForPosition } from "./daily-plan-catalog";
 import { normalizeChecklist, type ChecklistInput } from "./club-plan-schemas";
 import type { CurrentUser } from "./session";
+import { canSwitchClub, requestedClubForRole } from "@/lib/club-scope";
 import { getPositionById } from "@/content/positions";
 import { getClubById } from "@/content/cities";
 import type {
@@ -16,6 +17,7 @@ import type {
   ClubTaskTarget,
   ClubTaskTemplateDTO,
   ClubTeamDTO,
+  ManagerScopeDTO,
 } from "@/lib/api/club-plan-types";
 
 /** Read a template's stored checklist JSON into typed items (definition only). */
@@ -40,10 +42,61 @@ export function resolveClubContext(user: CurrentUser): { clubId: string | null; 
   return { clubId, clubName: clubId ? getClubById(clubId)?.name ?? null : null };
 }
 
-function requireClubId(user: CurrentUser): string {
-  const { clubId } = resolveClubContext(user);
-  if (!clubId) throw new AuthError(409, "no_club", "Ваша учётная запись не привязана к клубу");
-  return clubId;
+/**
+ * Club-scope resolution. Authorization stays server-side:
+ * - CLUB_MANAGER is ALWAYS locked to their own EmployeeProfile.clubId — a
+ *   requested clubId from the client is ignored entirely (never trusted).
+ * - ADMIN (superuser) may operate on any real active club: a requested clubId is
+ *   validated against the DB; otherwise their own club (if any) is the default.
+ * There is no client-only authorization — every switch is validated here.
+ */
+async function resolveScopedClubId(user: CurrentUser, requestedClubId?: string | null): Promise<string> {
+  const honored = requestedClubForRole(user.role, requestedClubId); // manager → null
+  if (honored) {
+    const club = await prisma.club.findFirst({ where: { id: honored, isActive: true }, select: { id: true } });
+    if (!club) throw new AuthError(400, "invalid_club", "Клуб не найден");
+    return club.id;
+  }
+  const own = user.employeeProfile?.clubId ?? null;
+  if (!own) {
+    // ADMIN without a club must pick one; a real manager simply has no club.
+    const isAdmin = canSwitchClub(user.role);
+    throw new AuthError(409, isAdmin ? "select_club" : "no_club", isAdmin ? "Выберите клуб" : "Ваша учётная запись не привязана к клубу");
+  }
+  return own;
+}
+
+/** Clubs an ADMIN may scope into (server-backed selector source). */
+async function listActiveClubs(): Promise<ManagerScopeDTO["clubs"]> {
+  const clubs = await prisma.club.findMany({
+    where: { isActive: true },
+    orderBy: [{ name: "asc" }],
+    include: { city: { select: { name: true } } },
+  });
+  return clubs.map((c) => ({ id: c.id, name: c.name, cityName: c.city?.name ?? null }));
+}
+
+/**
+ * Non-throwing scope for READ views. For ADMIN returns the switchable club list;
+ * an invalid requested club falls back to their own club (reads never error).
+ * For CLUB_MANAGER always returns their own club and an empty selector.
+ */
+export async function getManagerScope(user: CurrentUser, requestedClubId?: string | null): Promise<ManagerScopeDTO> {
+  const isAdmin = canSwitchClub(user.role);
+  const honored = requestedClubForRole(user.role, requestedClubId); // manager → null
+  let clubId: string | null;
+  if (honored) {
+    const club = await prisma.club.findFirst({ where: { id: honored, isActive: true }, select: { id: true } });
+    clubId = club ? club.id : user.employeeProfile?.clubId ?? null;
+  } else {
+    clubId = user.employeeProfile?.clubId ?? null;
+  }
+  return {
+    clubId,
+    clubName: clubId ? getClubById(clubId)?.name ?? null : null,
+    canSwitch: isAdmin,
+    clubs: isAdmin ? await listActiveClubs() : [],
+  };
 }
 
 async function getClubEmployees(clubId: string) {
@@ -87,8 +140,8 @@ interface TemplateInput {
   defaultOrder?: number;
 }
 
-export async function createClubTemplate(actor: CurrentUser, input: TemplateInput) {
-  const clubId = requireClubId(actor);
+export async function createClubTemplate(actor: CurrentUser, input: TemplateInput, scopeClubId?: string | null) {
+  const clubId = await resolveScopedClubId(actor, scopeClubId);
   const max = await prisma.clubTaskTemplate.aggregate({ where: { clubId }, _max: { defaultOrder: true } });
   return prisma.clubTaskTemplate.create({
     data: {
@@ -106,8 +159,8 @@ export async function createClubTemplate(actor: CurrentUser, input: TemplateInpu
   });
 }
 
-async function assertOwnTemplate(actor: CurrentUser, id: string): Promise<string> {
-  const clubId = requireClubId(actor);
+async function assertOwnTemplate(actor: CurrentUser, id: string, scopeClubId?: string | null): Promise<string> {
+  const clubId = await resolveScopedClubId(actor, scopeClubId);
   const t = await prisma.clubTaskTemplate.findUnique({ where: { id }, select: { clubId: true } });
   if (!t) throw new AuthError(404, "template_not_found");
   if (t.clubId !== clubId) throw new AuthError(403, "not_your_club", "Шаблон другого клуба");
@@ -118,8 +171,9 @@ export async function updateClubTemplate(
   actor: CurrentUser,
   id: string,
   input: Partial<TemplateInput> & { isActive?: boolean },
+  scopeClubId?: string | null,
 ) {
-  await assertOwnTemplate(actor, id);
+  await assertOwnTemplate(actor, id, scopeClubId);
   return prisma.clubTaskTemplate.update({
     where: { id },
     data: {
@@ -136,8 +190,8 @@ export async function updateClubTemplate(
   });
 }
 
-export async function reorderClubTemplates(actor: CurrentUser, ids: string[]) {
-  const clubId = requireClubId(actor);
+export async function reorderClubTemplates(actor: CurrentUser, ids: string[], scopeClubId?: string | null) {
+  const clubId = await resolveScopedClubId(actor, scopeClubId);
   const owned = await prisma.clubTaskTemplate.findMany({ where: { id: { in: ids }, clubId }, select: { id: true } });
   const ownedSet = new Set(owned.map((o) => o.id));
   await prisma.$transaction(
@@ -161,8 +215,9 @@ export async function createManagerTask(
     checklist?: ChecklistInput;
     target: ClubTaskTarget;
   },
+  scopeClubId?: string | null,
 ) {
-  const clubId = requireClubId(actor);
+  const clubId = await resolveScopedClubId(actor, scopeClubId);
   const date = new Date(`${input.date}T00:00:00.000Z`);
   if (Number.isNaN(date.getTime())) throw new AuthError(400, "invalid_date");
 
@@ -219,8 +274,8 @@ export async function createManagerTask(
   return { count: userIds.length };
 }
 
-export async function deleteManagerTask(actor: CurrentUser, taskId: string) {
-  const clubId = requireClubId(actor);
+export async function deleteManagerTask(actor: CurrentUser, taskId: string, scopeClubId?: string | null) {
+  const clubId = await resolveScopedClubId(actor, scopeClubId);
   const task = await prisma.dailyTask.findUnique({
     where: { id: taskId },
     include: { user: { include: { employeeProfile: true } } },
@@ -236,9 +291,9 @@ export async function deleteManagerTask(actor: CurrentUser, taskId: string) {
 
 /* --------------------------------- views --------------------------------- */
 
-const EMPTY_PLAN = (date: string): ClubPlanDTO => ({
-  date, clubId: null, clubName: null, totalEmployees: 0, employeesCompleted: 0,
-  tasksTotal: 0, tasksCompleted: 0, employees: [], templates: [], systemTasks: [],
+const EMPTY_PLAN = (date: string, scope: ManagerScopeDTO): ClubPlanDTO => ({
+  date, clubId: scope.clubId, clubName: scope.clubName, totalEmployees: 0, employeesCompleted: 0,
+  tasksTotal: 0, tasksCompleted: 0, employees: [], templates: [], systemTasks: [], scope,
 });
 
 /** Read-only SYSTEM tasks shown for context in the CLIENT_MANAGER standard plan. */
@@ -246,11 +301,12 @@ function clientManagerSystemTasks(): { title: string }[] {
   return templatesForPosition("CLIENT_MANAGER").map((t) => ({ title: t.title }));
 }
 
-export async function getClubPlan(user: CurrentUser, dateStr?: string): Promise<ClubPlanDTO> {
+export async function getClubPlan(user: CurrentUser, dateStr?: string, requestedClubId?: string | null): Promise<ClubPlanDTO> {
   const date = dateStr ? new Date(`${dateStr}T00:00:00.000Z`) : appDay();
   const iso = date.toISOString().slice(0, 10);
-  const { clubId, clubName } = resolveClubContext(user);
-  if (!clubId) return EMPTY_PLAN(iso);
+  const scope = await getManagerScope(user, requestedClubId);
+  const { clubId, clubName } = scope;
+  if (!clubId) return EMPTY_PLAN(iso, scope);
 
   const employees = await getClubEmployees(clubId);
   // Materialize each employee's plan (system + club templates) so counts are real.
@@ -314,12 +370,14 @@ export async function getClubPlan(user: CurrentUser, dateStr?: string): Promise<
     employees: employeeDTOs,
     templates: await getClubTemplates(clubId),
     systemTasks: clientManagerSystemTasks(),
+    scope,
   };
 }
 
-export async function getClubTeam(user: CurrentUser): Promise<ClubTeamDTO> {
-  const { clubId, clubName } = resolveClubContext(user);
-  if (!clubId) return { clubId: null, clubName: null, members: [] };
+export async function getClubTeam(user: CurrentUser, requestedClubId?: string | null): Promise<ClubTeamDTO> {
+  const scope = await getManagerScope(user, requestedClubId);
+  const { clubId, clubName } = scope;
+  if (!clubId) return { clubId: null, clubName: null, members: [], scope };
 
   const employees = await getClubEmployees(clubId);
   const date = appDay();
@@ -352,5 +410,6 @@ export async function getClubTeam(user: CurrentUser): Promise<ClubTeamDTO> {
       planTotal: total.get(e.id) ?? 0,
       lessonsCompleted: lessonsByUser.get(e.id) ?? 0,
     })),
+    scope,
   };
 }

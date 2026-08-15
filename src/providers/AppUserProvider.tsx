@@ -56,12 +56,17 @@ export function AppUserProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     try {
-      await authenticateTelegram(initData);
-      const me = await fetchMe();
-      setUser(me);
-      setStatus(me ? "authenticated" : "anonymous");
+      // The auth response IS the authoritative user (same meDTO as /api/auth/me,
+      // incl. onboardingCompleted + profile) and it opens the session. We use it
+      // directly — a second /api/auth/me round-trip here can transiently miss the
+      // just-set session cookie in some Telegram WebViews, which would misread an
+      // onboarded user as anonymous and wrongly force onboarding again.
+      const authed = await authenticateTelegram(initData);
+      setUser(authed);
+      setStatus("authenticated");
     } catch {
-      // No backend reachable — degrade to demo without breaking the app.
+      // No backend reachable — surface an error (retry UI); never fabricate a
+      // "needs onboarding" state from a failed bootstrap.
       setStatus("error");
       setUser(null);
     }

@@ -12,7 +12,8 @@ export async function POST(req: NextRequest) {
   try {
     const manager = await requireClubManager();
     const input = managerTaskSchema.parse(await readJson(req));
-    const result = await createManagerTask(manager, input);
+    const clubId = req.nextUrl.searchParams.get("clubId");
+    const result = await createManagerTask(manager, input, clubId);
     return jsonOk(result, 201);
   } catch (e) {
     return handleError(e);

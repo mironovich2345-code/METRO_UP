@@ -6,35 +6,36 @@ import { motion } from "framer-motion";
 import {
   GraduationCap,
   Home,
+  Library,
   Trophy,
   User,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { hapticSelection } from "@/lib/telegram";
+import { BOTTOM_NAV_ROUTES } from "@/lib/nav-items";
 
-interface NavItem {
-  href: string;
-  label: string;
-  icon: LucideIcon;
-}
+const ICONS: Record<string, LucideIcon> = {
+  "/home": Home,
+  "/academy": GraduationCap,
+  "/knowledge": Library,
+  "/ranking": Trophy,
+  "/profile": User,
+};
 
-const NAV_ITEMS: NavItem[] = [
-  { href: "/home", label: "Главная", icon: Home },
-  { href: "/academy", label: "Академия", icon: GraduationCap },
-  { href: "/ranking", label: "Рейтинг", icon: Trophy },
-  { href: "/profile", label: "Профиль", icon: User },
-];
+const NAV_ITEMS = BOTTOM_NAV_ROUTES.map((r) => ({ ...r, icon: ICONS[r.href] ?? Home }));
 
 export function BottomNavigation() {
   const pathname = usePathname();
 
   return (
     <nav className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center pb-[calc(env(safe-area-inset-bottom)+12px)]">
-      <div className="pointer-events-auto mx-4 flex w-full max-w-[440px] items-center justify-around rounded-[26px] border border-[var(--glass-border)] bg-[var(--glass-bg)] px-2 py-2 shadow-[var(--shadow-float)] backdrop-blur-2xl">
+      <div className="pointer-events-auto mx-3 flex w-full max-w-[460px] items-center justify-around rounded-[26px] border border-[var(--glass-border)] bg-[var(--glass-bg)] px-1.5 py-2 shadow-[var(--shadow-float)] backdrop-blur-2xl">
         {NAV_ITEMS.map((item) => {
           const active =
-            pathname === item.href || pathname.startsWith(`${item.href}/`);
+            pathname === item.href ||
+            pathname.startsWith(`${item.href}/`) ||
+            (item.match?.some((p) => pathname === p || pathname.startsWith(`${p}/`)) ?? false);
           const Icon = item.icon;
           return (
             <Link
@@ -66,7 +67,7 @@ export function BottomNavigation() {
               </motion.span>
               <span
                 className={cn(
-                  "text-[10px] font-semibold transition-colors",
+                  "whitespace-nowrap text-[10px] font-semibold leading-none transition-colors",
                   active ? "text-foreground" : "text-muted-foreground",
                 )}
               >
