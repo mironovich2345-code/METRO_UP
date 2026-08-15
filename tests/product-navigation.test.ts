@@ -71,12 +71,18 @@ test("J: CLUB_MANAGER cannot switch club — a requested clubId is ignored", () 
 
 /* --------------------------- bottom nav (L) ----------------------------- */
 
-test("L: bottom nav has exactly 5 entries incl. a single «База» → /knowledge", () => {
+test("L: bottom nav is Главная·Академия·Метрик·База·Рейтинг (Профиль removed)", () => {
   assert.equal(BOTTOM_NAV_ROUTES.length, 5);
-  assert.deepEqual(BOTTOM_NAV_ROUTES.map((r) => r.href), ["/home", "/academy", "/knowledge", "/ranking", "/profile"]);
+  assert.deepEqual(BOTTOM_NAV_ROUTES.map((r) => r.href), ["/home", "/academy", "/metric", "/knowledge", "/ranking"]);
+  // Profile is no longer a tab (reached from the Home header instead).
+  assert.equal(BOTTOM_NAV_ROUTES.some((r) => r.href === "/profile"), false);
+  // Метрик is the central raised action.
+  const metric = BOTTOM_NAV_ROUTES.find((r) => r.href === "/metric");
+  assert.equal(metric?.label, "Метрик");
+  assert.equal(metric?.central, true);
+  // «База» is the single Knowledge Hub entry; Scripts/Instructions keep it active.
   const baza = BOTTOM_NAV_ROUTES.find((r) => r.href === "/knowledge");
   assert.equal(baza?.label, "База");
-  // Scripts/Instructions are NOT their own tabs; they keep the «База» tab active.
   assert.deepEqual(baza?.match, ["/scripts", "/instructions"]);
   assert.equal(BOTTOM_NAV_ROUTES.some((r) => r.href === "/scripts" || r.href === "/instructions"), false);
 });
