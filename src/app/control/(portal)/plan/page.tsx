@@ -1,12 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, ChevronDown, Circle, Clock, Pencil, Plus, Power, Trash2, X } from "lucide-react";
 import { managerApi } from "@/lib/api/club-plan-client";
 import { ApiError } from "@/lib/api/client";
 import type { ClubPlanDTO, ClubPlanEmployeeDTO, ClubTaskTarget, ClubTaskTemplateDTO } from "@/lib/api/club-plan-types";
 import { Field, TextArea, TextInput, fieldCls } from "@/components/admin/ui";
 import { ChecklistEditor, type ChecklistDraftItem } from "@/components/control/ChecklistEditor";
+import { ClubScopePicker } from "@/components/control/ClubScopePicker";
+
+/** ADMIN-selected club scope; null → server uses the actor's own club. Ignored
+ * server-side for CLUB_MANAGER (always locked to their own club). */
+const ScopeContext = createContext<string | null>(null);
+const useScopeClubId = () => useContext(ScopeContext);
 
 const POSITION_LABEL: Record<string, string> = {
   CLIENT_MANAGER: "Менеджеры по работе с клиентами", NIGHT_MANAGER: "Ночные менеджеры", ADMINISTRATOR: "Администраторы",
@@ -19,6 +25,7 @@ function todayStr() {
 
 export default function ControlPlanPage() {
   const [date, setDate] = useState(todayStr());
+  const [clubId, setClubId] = useState<string | null>(null);
   const [plan, setPlan] = useState<ClubPlanDTO | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error" | "denied">("loading");
   const [showCreate, setShowCreate] = useState(false);
@@ -26,24 +33,29 @@ export default function ControlPlanPage() {
   const load = useCallback(async () => {
     setStatus("loading");
     try {
-      setPlan(await managerApi.plan(date));
+      setPlan(await managerApi.plan(date, clubId));
       setStatus("ready");
     } catch (e) {
       setStatus(e instanceof ApiError && (e.status === 403 || e.status === 401) ? "denied" : "error");
     }
-  }, [date]);
+  }, [date, clubId]);
   useEffect(() => { void load(); }, [load]);
 
   const empRatio = plan && plan.totalEmployees ? plan.employeesCompleted / plan.totalEmployees : 0;
+  const scope = plan?.scope;
 
   return (
+    <ScopeContext.Provider value={clubId}>
     <div>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">План дня</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{plan?.clubName ?? "Ваш клуб"}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{plan?.clubName ?? (scope?.canSwitch ? "Выберите клуб" : "Ваш клуб")}</p>
         </div>
-        <div className="flex items-end gap-3">
+        <div className="flex flex-wrap items-end gap-3">
+          {scope?.canSwitch && (
+            <ClubScopePicker scope={scope} value={clubId ?? scope.clubId} onChange={setClubId} />
+          )}
           <label className="flex flex-col">
             <span className="mb-1 text-xs font-medium text-muted-foreground">Дата</span>
             <input type="date" className={`${fieldCls} w-[170px]`} value={date} onChange={(e) => setDate(e.target.value)} />
@@ -59,8 +71,17 @@ export default function ControlPlanPage() {
 
       {status === "ready" && plan && !plan.clubId && (
         <div className="mt-6 rounded-3xl border border-dashed border-border bg-card/50 p-10 text-center">
-          <p className="font-semibold">Учётная запись не привязана к клубу</p>
-          <p className="mt-1 text-sm text-muted-foreground">Обратитесь к администратору, чтобы указать клуб в профиле.</p>
+          {scope?.canSwitch ? (
+            <>
+              <p className="font-semibold">Выберите клуб</p>
+              <p className="mt-1 text-sm text-muted-foreground">Как администратор выберите клуб выше, чтобы открыть его план дня.</p>
+            </>
+          ) : (
+            <>
+              <p className="font-semibold">Учётная запись не привязана к клубу</p>
+              <p className="mt-1 text-sm text-muted-foreground">Обратитесь к администратору, чтобы указать клуб в профиле.</p>
+            </>
+          )}
         </div>
       )}
 
@@ -85,6 +106,7 @@ export default function ControlPlanPage() {
         <CreateTaskModal date={date} employees={plan.employees} onClose={() => setShowCreate(false)} onCreated={async () => { setShowCreate(false); await load(); }} />
       )}
     </div>
+    </ScopeContext.Provider>
   );
 }
 
@@ -103,6 +125,7 @@ function SummaryCard({ label, value, ratio }: { label: string; value: string; ra
 }
 
 function EmployeeRow({ emp, onChanged }: { emp: ClubPlanEmployeeDTO; onChanged: () => Promise<void> }) {
+  const scopeClubId = useScopeClubId();
   const [open, setOpen] = useState(false);
   const done = emp.total > 0 && emp.completed === emp.total;
   return (
@@ -135,7 +158,7 @@ function EmployeeRow({ emp, onChanged }: { emp: ClubPlanEmployeeDTO; onChanged: 
                     {t.timeHint && <span className="shrink-0 text-[11px] text-muted-foreground">{t.timeHint}</span>}
                     {t.checklist.length > 0 && <span className="shrink-0 text-[11px] font-semibold text-muted-foreground">{cDone}/{t.checklist.length}</span>}
                     {t.canDelete && (
-                      <button onClick={async () => { if (confirm("Удалить задачу?")) { await managerApi.deleteTask(t.id); await onChanged(); } }} className="shrink-0 rounded-lg p-1 text-red-500 hover:bg-red-500/10">
+                      <button onClick={async () => { if (confirm("Удалить задачу?")) { await managerApi.deleteTask(t.id, scopeClubId); await onChanged(); } }} className="shrink-0 rounded-lg p-1 text-red-500 hover:bg-red-500/10">
                         <Trash2 className="size-3.5" />
                       </button>
                     )}
@@ -151,6 +174,7 @@ function EmployeeRow({ emp, onChanged }: { emp: ClubPlanEmployeeDTO; onChanged: 
 }
 
 function StandardPlan({ plan, onChanged }: { plan: ClubPlanDTO; onChanged: () => Promise<void> }) {
+  const scopeClubId = useScopeClubId();
   const [editing, setEditing] = useState<ClubTaskTemplateDTO | "new" | null>(null);
   return (
     <section className="mt-10 border-t border-border pt-6">
@@ -180,7 +204,7 @@ function StandardPlan({ plan, onChanged }: { plan: ClubPlanDTO; onChanged: () =>
                 {t.checklist.length > 0 ? ` · чек-лист ${t.checklist.length}` : ""}
               </p>
             </div>
-            <button onClick={() => managerApi.updateTemplate(t.id, { isActive: !t.isActive }).then(onChanged)} className={`flex h-8 items-center gap-1 rounded-xl px-2.5 text-xs font-semibold ${t.isActive ? "bg-success-soft text-success" : "bg-muted text-muted-foreground"}`}>
+            <button onClick={() => managerApi.updateTemplate(t.id, { isActive: !t.isActive }, scopeClubId).then(onChanged)} className={`flex h-8 items-center gap-1 rounded-xl px-2.5 text-xs font-semibold ${t.isActive ? "bg-success-soft text-success" : "bg-muted text-muted-foreground"}`}>
               <Power className="size-3.5" /> {t.isActive ? "Активна" : "Выкл"}
             </button>
             <button onClick={() => setEditing(t)} className="rounded-lg p-1.5 hover:bg-muted"><Pencil className="size-4" /></button>
@@ -206,6 +230,7 @@ function StandardPlan({ plan, onChanged }: { plan: ClubPlanDTO; onChanged: () =>
 }
 
 function TemplateEditorModal({ template, onClose, onSaved }: { template: ClubTaskTemplateDTO | null; onClose: () => void; onSaved: () => Promise<void> }) {
+  const scopeClubId = useScopeClubId();
   const [title, setTitle] = useState(template?.title ?? "");
   const [description, setDescription] = useState(template?.description ?? "");
   const [target, setTarget] = useState<string>(template?.targetPosition ?? "");
@@ -228,8 +253,8 @@ function TemplateEditorModal({ template, onClose, onSaved }: { template: ClubTas
       checklist: checklist.filter((c) => c.text.trim()).map((c) => ({ id: c.id, text: c.text.trim(), required: c.required })),
     };
     try {
-      if (template) await managerApi.updateTemplate(template.id, body);
-      else await managerApi.createTemplate(body);
+      if (template) await managerApi.updateTemplate(template.id, body, scopeClubId);
+      else await managerApi.createTemplate(body, scopeClubId);
       await onSaved();
     } catch (e) {
       setError(e instanceof ApiError ? "Не удалось сохранить" : "Ошибка");
@@ -281,6 +306,7 @@ function TemplateEditorModal({ template, onClose, onSaved }: { template: ClubTas
 }
 
 function CreateTaskModal({ date, employees, onClose, onCreated }: { date: string; employees: ClubPlanEmployeeDTO[]; onClose: () => void; onCreated: () => Promise<void> }) {
+  const scopeClubId = useScopeClubId();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [required, setRequired] = useState(false);
@@ -307,7 +333,7 @@ function CreateTaskModal({ date, employees, onClose, onCreated }: { date: string
         title: title.trim(), description: description || null, date, required, priority, timeHint: timeHint || null,
         checklist: checklist.filter((c) => c.text.trim()).map((c) => ({ text: c.text.trim(), required: c.required })),
         target,
-      });
+      }, scopeClubId);
       await onCreated();
     } catch (e) {
       setError(e instanceof ApiError ? "Не удалось создать задачу" : "Ошибка");

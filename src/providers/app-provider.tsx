@@ -22,6 +22,7 @@ import {
   type UserProfile,
 } from "@/lib/profile";
 import { trackEvent } from "@/lib/analytics";
+import { serverOnboardingComplete } from "@/lib/onboarding-state";
 import type { AppUserDTO } from "@/lib/api/types";
 import type { TelegramUser } from "@/lib/types";
 
@@ -68,7 +69,7 @@ function defaultDisplayName(user: TelegramUser): string {
 
 /** Map the server user DTO to the profile shape screens consume. */
 function serverToProfile(u: AppUserDTO | null): UserProfile | null {
-  if (!u || !u.onboardingCompleted || !u.profile) return null;
+  if (!serverOnboardingComplete(u) || !u || !u.profile) return null;
   return {
     version: PROFILE_VERSION,
     telegramId: null, // never exposed to the client

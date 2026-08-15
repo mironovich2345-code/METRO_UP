@@ -46,6 +46,7 @@ export default function DayScreen() {
         title={day ? `День ${day.dayNumber}` : "День"}
         subtitle={day?.title}
         showBack
+        backHref="/academy"
         showThemeSwitcher={false}
       />
 

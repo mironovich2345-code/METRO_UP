@@ -31,7 +31,7 @@ export default function AchievementsPage() {
 
   return (
     <div className="relative min-h-[100dvh] pb-24">
-      <AppHeader title="Достижения" subtitle={items ? `Получено ${earned.length} из ${items.length}` : undefined} showBack showThemeSwitcher={false} />
+      <AppHeader title="Достижения" subtitle={items ? `Получено ${earned.length} из ${items.length}` : undefined} showBack backHref="/home" showThemeSwitcher={false} />
 
       <motion.main variants={staggerStack} initial="hidden" animate="show" className="px-5">
         {status === "loading" && <div className="mt-4 grid grid-cols-2 gap-3">{[0, 1, 2, 3].map((i) => <div key={i} className="h-28 animate-pulse rounded-3xl bg-muted" />)}</div>}

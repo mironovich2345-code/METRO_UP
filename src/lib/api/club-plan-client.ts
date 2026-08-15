@@ -14,22 +14,38 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
+/** Append the ADMIN-selected club scope. Ignored server-side for CLUB_MANAGER. */
+function scopeQs(clubId?: string | null, extra?: Record<string, string>): string {
+  const sp = new URLSearchParams(extra);
+  if (clubId) sp.set("clubId", clubId);
+  const s = sp.toString();
+  return s ? `?${s}` : "";
+}
+
 export const managerApi = {
-  plan: (date?: string) => request<ClubPlanDTO>(`/api/control/plan${date ? `?date=${date}` : ""}`),
-  team: () => request<ClubTeamDTO>("/api/control/team"),
+  plan: (date?: string, clubId?: string | null) =>
+    request<ClubPlanDTO>(`/api/control/plan${scopeQs(clubId, date ? { date } : undefined)}`),
+  team: (clubId?: string | null) => request<ClubTeamDTO>(`/api/control/team${scopeQs(clubId)}`),
 
-  createTask: (body: {
-    title: string; description?: string | null; date: string; required?: boolean;
-    priority?: TaskPriorityDTO; timeHint?: string | null; checklist?: ChecklistItemInput[]; target: ClubTaskTarget;
-  }) => request<{ count: number }>("/api/control/plan/tasks", { method: "POST", body: JSON.stringify(body) }),
-  deleteTask: (id: string) => request<{ ok: true }>(`/api/control/plan/tasks/${id}`, { method: "DELETE" }),
+  createTask: (
+    body: {
+      title: string; description?: string | null; date: string; required?: boolean;
+      priority?: TaskPriorityDTO; timeHint?: string | null; checklist?: ChecklistItemInput[]; target: ClubTaskTarget;
+    },
+    clubId?: string | null,
+  ) => request<{ count: number }>(`/api/control/plan/tasks${scopeQs(clubId)}`, { method: "POST", body: JSON.stringify(body) }),
+  deleteTask: (id: string, clubId?: string | null) =>
+    request<{ ok: true }>(`/api/control/plan/tasks/${id}${scopeQs(clubId)}`, { method: "DELETE" }),
 
-  createTemplate: (body: {
-    title: string; description?: string | null; targetPosition?: EmployeePositionDTO | null;
-    required?: boolean; priority?: TaskPriorityDTO; timeHint?: string | null; checklist?: ChecklistItemInput[];
-  }) => request<{ template: unknown }>("/api/control/templates", { method: "POST", body: JSON.stringify(body) }),
-  updateTemplate: (id: string, body: Record<string, unknown>) =>
-    request<{ template: unknown }>(`/api/control/templates/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
-  reorderTemplates: (ids: string[]) =>
-    request<{ ok: true }>("/api/control/templates/reorder", { method: "POST", body: JSON.stringify({ ids }) }),
+  createTemplate: (
+    body: {
+      title: string; description?: string | null; targetPosition?: EmployeePositionDTO | null;
+      required?: boolean; priority?: TaskPriorityDTO; timeHint?: string | null; checklist?: ChecklistItemInput[];
+    },
+    clubId?: string | null,
+  ) => request<{ template: unknown }>(`/api/control/templates${scopeQs(clubId)}`, { method: "POST", body: JSON.stringify(body) }),
+  updateTemplate: (id: string, body: Record<string, unknown>, clubId?: string | null) =>
+    request<{ template: unknown }>(`/api/control/templates/${id}${scopeQs(clubId)}`, { method: "PATCH", body: JSON.stringify(body) }),
+  reorderTemplates: (ids: string[], clubId?: string | null) =>
+    request<{ ok: true }>(`/api/control/templates/reorder${scopeQs(clubId)}`, { method: "POST", body: JSON.stringify({ ids }) }),
 };

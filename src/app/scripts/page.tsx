@@ -42,7 +42,7 @@ export default function ScriptsScreen() {
 
   return (
     <div className="relative min-h-[100dvh] pb-32">
-      <AppHeader title="Скрипты" subtitle="Сценарии разговоров" showBack sticky />
+      <AppHeader title="Скрипты" subtitle="Сценарии разговоров" showBack backHref="/knowledge" sticky />
 
       <main className="px-5 pt-2">
         <div className="relative">

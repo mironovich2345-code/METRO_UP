@@ -23,7 +23,7 @@ export default function ScriptDetailScreen({ params }: { params: Promise<{ slug:
 
   return (
     <div className="relative min-h-[100dvh] pb-32">
-      <AppHeader title="Скрипт" showBack sticky />
+      <AppHeader title="Скрипт" showBack backHref="/scripts" sticky />
       <main className="px-5 pt-2">
         {status === "loading" && <div className="space-y-3">{[0, 1, 2].map((i) => <div key={i} className="h-20 animate-pulse rounded-2xl bg-muted" />)}</div>}
         {status === "denied" && <p className="mt-8 text-center text-sm text-muted-foreground">Скрипты доступны менеджерам продаж.</p>}

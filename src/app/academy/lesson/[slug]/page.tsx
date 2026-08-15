@@ -41,6 +41,7 @@ export default function LessonPage() {
         title={preview ? "Предпросмотр" : "Урок"}
         subtitle={lesson?.title}
         showBack
+        backHref={preview ? undefined : "/academy"}
         showThemeSwitcher={false}
       />
       <main className="px-5">

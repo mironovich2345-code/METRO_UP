@@ -40,7 +40,7 @@ export default function PlanScreen() {
 
   return (
     <div className="relative min-h-[100dvh] pb-24">
-      <AppHeader title="План на сегодня" subtitle={dateLabel} showBack showThemeSwitcher={false} />
+      <AppHeader title="План на сегодня" subtitle={dateLabel} showBack backHref="/home" showThemeSwitcher={false} />
 
       <motion.main variants={staggerStack} initial="hidden" animate="show" className="px-5">
         {status === "loading" && (

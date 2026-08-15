@@ -7,11 +7,12 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /** DELETE — remove a one-off (non-completed) manager task in the manager's club. */
-export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
     const manager = await requireClubManager();
     const { id } = await ctx.params;
-    await deleteManagerTask(manager, id);
+    const clubId = req.nextUrl.searchParams.get("clubId");
+    await deleteManagerTask(manager, id, clubId);
     return jsonOk({ ok: true });
   } catch (e) {
     return handleError(e);
