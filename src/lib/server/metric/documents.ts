@@ -123,6 +123,48 @@ export function buildInstructionDoc(w: InstructionDetailDTO, updatedAt: string):
 
 /* --------------------------------- lessons ------------------------------- */
 
+/* ---------------------------- corporate documents ------------------------ */
+
+const DOC_CATEGORY_RU: Record<string, string> = {
+  TRAINING_MANUAL: "Учебное пособие", CLUB_RULES: "Правила клуба", WORK_REGULATION: "Рабочий регламент",
+  CONTRACT_TEMPLATE: "Шаблон договора", SALES_MATERIAL: "Материал по продажам", FINANCE_CASH: "Финансы/касса",
+  REFUNDS: "Возвраты", HR: "Кадры", OTHER: "Прочее",
+};
+
+export interface DocumentDocInput {
+  id: string;
+  title: string;
+  description: string | null;
+  category: string;
+  extractedText: string;
+  positionScope: PositionScope;
+  versionLabel: string | null;
+  updatedAt: string;
+}
+
+/** Cap the indexed text so a huge manual is chunked by file_search, not dumped whole. */
+const DOC_TEXT_CAP = 200_000;
+
+export function buildDocumentDoc(d: DocumentDocInput): KnowledgeDoc {
+  const content = [
+    `ТИП: Корпоративный документ`,
+    `НАЗВАНИЕ: ${d.title}`,
+    `КАТЕГОРИЯ: ${DOC_CATEGORY_RU[d.category] ?? d.category}`,
+    d.versionLabel ? `ВЕРСИЯ: ${d.versionLabel}` : "",
+    section("ОПИСАНИЕ", d.description),
+    "",
+    d.extractedText.slice(0, DOC_TEXT_CAP),
+  ].join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return {
+    sourceType: "DOCUMENT",
+    sourceId: d.id,
+    filename: `document-${d.id}.txt`,
+    content,
+    positionScope: d.positionScope,
+    attributes: baseAttributes("DOCUMENT", d.id, d.title, d.id, d.updatedAt, d.positionScope),
+  };
+}
+
 export interface LessonDocInput {
   id: string;
   title: string;

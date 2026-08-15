@@ -36,6 +36,8 @@ export interface StorageProvider {
   /** True when credentials/bucket are configured; false → operations will throw. */
   readonly configured: boolean;
   createSignedUploadUrl(input: CreateSignedUploadInput): Promise<SignedUpload>;
+  /** Short-lived signed GET URL — used for private downloads (e.g. ADMIN docs). */
+  createSignedDownloadUrl(storageKey: string, expiresInSeconds?: number): Promise<string>;
   /** Public (or public-base) URL for delivery. Playback/delivery URL. */
   getObjectUrl(storageKey: string): string;
   headObject(storageKey: string): Promise<ObjectHead>;

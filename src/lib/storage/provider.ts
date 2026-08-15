@@ -41,6 +41,10 @@ class NullStorageProvider implements StorageProvider {
     void input;
     throw new StorageNotConfiguredError();
   }
+  async createSignedDownloadUrl(storageKey: string): Promise<string> {
+    void storageKey;
+    throw new StorageNotConfiguredError();
+  }
   getObjectUrl(storageKey: string): string {
     // Best-effort delivery URL even when upload isn't configured.
     const base = process.env.STORAGE_PUBLIC_BASE_URL?.replace(/\/+$/, "");

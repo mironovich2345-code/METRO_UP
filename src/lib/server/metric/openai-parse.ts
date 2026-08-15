@@ -8,11 +8,15 @@ export interface CreateResponseResult {
   responseId: string;
   citedFileIds: string[];
   usage: { inputTokens: number; outputTokens: number } | null;
+  /** True when OpenAI reports the answer was cut off by the output-token limit. */
+  truncated: boolean;
 }
 
 export function parseResponsePayload(data: unknown): CreateResponseResult {
   const d = data as {
     id?: string;
+    status?: string;
+    incomplete_details?: { reason?: string } | null;
     output_text?: string;
     output?: Array<{
       type?: string;
@@ -32,10 +36,12 @@ export function parseResponsePayload(data: unknown): CreateResponseResult {
     }
   }
   if (!text && typeof d.output_text === "string") text = d.output_text;
+  const truncated = d.status === "incomplete" && d.incomplete_details?.reason === "max_output_tokens";
   return {
     text: text.trim(),
     responseId: d.id ?? "",
     citedFileIds: [...cited],
     usage: d.usage ? { inputTokens: d.usage.input_tokens ?? 0, outputTokens: d.usage.output_tokens ?? 0 } : null,
+    truncated,
   };
 }

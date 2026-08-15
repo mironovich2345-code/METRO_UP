@@ -823,6 +823,7 @@ enum KnowledgeSourceType {
   ACADEMY
   SCRIPT
   INSTRUCTION
+  DOCUMENT
 }
 
 enum KnowledgeSyncStatus {
@@ -880,10 +881,53 @@ model MetricMessage {
   /// Structured source references shown as source cards (no secrets).
   sources          Json?
   openaiResponseId String?
+  /// True when OpenAI reported the answer was cut off by the output-token limit.
+  isTruncated      Boolean           @default(false)
   createdAt        DateTime          @default(now())
 
   conversation MetricConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@index([conversationId, createdAt])
   @@map("metric_messages")
+}
+
+/* Metric corporate documents — a fourth managed knowledge source (V1). */
+enum MetricDocCategory {
+  TRAINING_MANUAL
+  CLUB_RULES
+  WORK_REGULATION
+  CONTRACT_TEMPLATE
+  SALES_MATERIAL
+  FINANCE_CASH
+  REFUNDS
+  HR
+  OTHER
+}
+
+model MetricKnowledgeDocument {
+  id               String            @id @default(uuid()) @db.Uuid
+  title            String
+  description      String?
+  category         MetricDocCategory @default(OTHER)
+  status           ContentStatus     @default(DRAFT)
+  originalFileName String
+  mimeType         String
+  fileSize         Int               @default(0)
+  storageKey       String
+  /// Extracted plain text (used for indexing + the employee viewer). No binary in DB.
+  extractedText    String
+  /// "ALL" or "SALES" — mirrors the knowledge access scope.
+  positionScope    String            @default("ALL")
+  versionLabel     String?
+  effectiveFrom    DateTime?
+  effectiveTo      DateTime?
+  createdByUserId  String            @db.Uuid
+  updatedByUserId  String?           @db.Uuid
+  publishedAt      DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@index([status])
+  @@index([category])
+  @@map("metric_knowledge_documents")
 }

@@ -10,11 +10,20 @@ import type { ResponseFilter } from "./openai";
  * client — so Metric can never surface content the UI would hide.
  */
 export type PositionScope = "ALL" | "SALES";
-export type MetricSourceType = "ACADEMY" | "SCRIPT" | "INSTRUCTION";
+export type MetricSourceType = "ACADEMY" | "SCRIPT" | "INSTRUCTION" | "DOCUMENT";
 
-/** The access scope stored on each knowledge chunk. */
+/**
+ * The default access scope by source type. Scripts are sales-only; Academy and
+ * Instructions are ALL. Documents carry their own per-document positionScope
+ * (chosen by the ADMIN on upload), so their scope is not derived here.
+ */
 export function scopeForSource(sourceType: MetricSourceType): PositionScope {
   return sourceType === "SCRIPT" ? "SALES" : "ALL";
+}
+
+/** Normalize a stored/user-supplied scope string to a valid PositionScope. */
+export function normalizeScope(raw: string | null | undefined): PositionScope {
+  return raw === "SALES" ? "SALES" : "ALL";
 }
 
 /** Whether an employee position may see a given scope. */

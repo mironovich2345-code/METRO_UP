@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { AlertCircle, BookOpen, GraduationCap, RotateCcw, ScrollText, Send } from "lucide-react";
+import { AlertCircle, BookOpen, ChevronDown, FileText, GraduationCap, RotateCcw, ScrollText, Send } from "lucide-react";
 import { MetricCharacter } from "@/components/ui/metric-character";
 import { BottomNavigation } from "@/components/bottom-navigation";
 import { cardIn, staggerStack } from "@/lib/motion";
@@ -24,6 +24,7 @@ const SOURCE_META: Record<MetricSourceDTO["sourceType"], { label: string; icon: 
   ACADEMY: { label: "Академия", icon: GraduationCap },
   SCRIPT: { label: "Скрипт", icon: ScrollText },
   INSTRUCTION: { label: "Инструкция", icon: BookOpen },
+  DOCUMENT: { label: "Документ", icon: FileText },
 };
 
 export default function MetricScreen() {
@@ -53,7 +54,7 @@ export default function MetricScreen() {
     setSendError(null);
     setInput("");
     // Optimistic user bubble.
-    const optimistic: MetricMessageDTO = { id: `local-${Date.now()}`, role: "USER", content: text, sources: [], createdAt: new Date().toISOString() };
+    const optimistic: MetricMessageDTO = { id: `local-${Date.now()}`, role: "USER", content: text, sources: [], isTruncated: false, createdAt: new Date().toISOString() };
     setMessages((m) => [...m, optimistic]);
     setSending(true);
     try {
@@ -72,7 +73,23 @@ export default function MetricScreen() {
     }
   }, [sending, ready, conversationId]);
 
+  const onContinue = async () => {
+    if (sending || !conversationId) return;
+    setSendError(null);
+    setSending(true);
+    try {
+      const r = await metricApi.continue(conversationId);
+      setMessages((m) => m.map((x) => (x.id === r.message.id ? r.message : x)));
+    } catch {
+      setSendError("Не удалось продолжить ответ. Попробуй ещё раз.");
+    } finally {
+      setSending(false);
+    }
+  };
+
   const empty = messages.length === 0;
+  const last = messages[messages.length - 1];
+  const canContinue = !sending && last?.role === "ASSISTANT" && last.isTruncated;
 
   return (
     <div className="relative flex min-h-[100dvh] flex-col pb-[calc(env(safe-area-inset-bottom)+150px)]">
@@ -117,6 +134,13 @@ export default function MetricScreen() {
         {status === "ready" && !empty && (
           <div className="space-y-4">
             {messages.map((m) => <MessageBubble key={m.id} message={m} />)}
+            {canContinue && (
+              <div className="flex justify-start">
+                <button onClick={onContinue} className="flex items-center gap-1.5 rounded-2xl border border-brand/40 bg-brand/10 px-4 py-2 text-sm font-semibold text-brand">
+                  <ChevronDown className="size-4" /> Продолжить ответ
+                </button>
+              </div>
+            )}
             {sending && <TypingBubble />}
             {sendError && (
               <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card px-4 py-3">

@@ -32,13 +32,14 @@ export async function getRecentMessages(conversationId: string, limit = HISTORY_
 }
 
 export function toMessageDTO(m: {
-  id: string; role: "USER" | "ASSISTANT"; content: string; sources: unknown; createdAt: Date;
+  id: string; role: "USER" | "ASSISTANT"; content: string; sources: unknown; isTruncated: boolean; createdAt: Date;
 }): MetricMessageDTO {
   return {
     id: m.id,
     role: m.role,
     content: m.content,
     sources: Array.isArray(m.sources) ? (m.sources as MetricSourceDTO[]) : [],
+    isTruncated: m.isTruncated,
     createdAt: m.createdAt.toISOString(),
   };
 }
@@ -46,7 +47,7 @@ export function toMessageDTO(m: {
 export async function appendMessages(
   conversationId: string,
   userText: string,
-  assistant: { content: string; sources: MetricSourceDTO[]; openaiResponseId: string | null },
+  assistant: { content: string; sources: MetricSourceDTO[]; openaiResponseId: string | null; isTruncated: boolean },
 ): Promise<{ userMsg: MetricMessageDTO; assistantMsg: MetricMessageDTO }> {
   const [userMsg, assistantMsg] = await prisma.$transaction([
     prisma.metricMessage.create({ data: { conversationId, role: "USER", content: userText } }),
@@ -57,9 +58,35 @@ export async function appendMessages(
         content: assistant.content,
         sources: assistant.sources as unknown as Prisma.InputJsonValue,
         openaiResponseId: assistant.openaiResponseId,
+        isTruncated: assistant.isTruncated,
       },
     }),
   ]);
   await prisma.metricConversation.update({ where: { id: conversationId }, data: { updatedAt: new Date() } });
   return { userMsg: toMessageDTO(userMsg), assistantMsg: toMessageDTO(assistantMsg) };
+}
+
+/** Append continuation text to an existing assistant message (no duplicate turn). */
+export async function extendAssistantMessage(
+  messageId: string,
+  moreText: string,
+  isTruncated: boolean,
+  extraSources: MetricSourceDTO[],
+): Promise<MetricMessageDTO> {
+  const existing = await prisma.metricMessage.findUnique({ where: { id: messageId } });
+  if (!existing) throw new AuthError(404, "message_not_found");
+  const prevSources = Array.isArray(existing.sources) ? (existing.sources as unknown as MetricSourceDTO[]) : [];
+  const mergedSources = [...prevSources];
+  const seen = new Set(prevSources.map((s) => s.href));
+  for (const s of extraSources) if (!seen.has(s.href)) { seen.add(s.href); mergedSources.push(s); }
+  const updated = await prisma.metricMessage.update({
+    where: { id: messageId },
+    data: {
+      content: `${existing.content} ${moreText}`.trim(),
+      isTruncated,
+      sources: mergedSources as unknown as Prisma.InputJsonValue,
+    },
+  });
+  await prisma.metricConversation.update({ where: { id: existing.conversationId }, data: { updatedAt: new Date() } });
+  return toMessageDTO(updated);
 }
