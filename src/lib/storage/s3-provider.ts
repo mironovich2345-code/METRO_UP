@@ -158,6 +158,10 @@ export class S3StorageProvider implements StorageProvider {
     };
   }
 
+  async createSignedDownloadUrl(storageKey: string, expiresInSeconds = 300): Promise<string> {
+    return this.presign("GET", storageKey, expiresInSeconds);
+  }
+
   getObjectUrl(storageKey: string): string {
     const base = this.cfg.publicBaseUrl.replace(/\/+$/, "");
     return `${base}/${storageKey.split("/").map((s) => uriEncode(s)).join("/")}`;

@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, Loader2, RefreshCw, XCircle } from "lucide-react";
+import Link from "next/link";
+import { CheckCircle2, FileText, Loader2, RefreshCw, XCircle } from "lucide-react";
 import { ApiError } from "@/lib/api/client";
 import { metricApi } from "@/lib/api/metric-client";
 import type { MetricStatusDTO, MetricSourceTypeDTO } from "@/lib/api/metric-types";
 
 const SOURCE_LABEL: Record<MetricSourceTypeDTO, string> = {
-  ACADEMY: "Академия", SCRIPT: "Скрипты", INSTRUCTION: "Инструкции",
+  ACADEMY: "Академия", SCRIPT: "Скрипты", INSTRUCTION: "Инструкции", DOCUMENT: "Документы",
 };
 
 export function MetricStatusAdmin() {
@@ -39,8 +40,15 @@ export function MetricStatusAdmin() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold">Метрик — база знаний</h1>
-      <p className="mt-1 text-sm text-muted-foreground">Статус синхронизации опубликованных материалов с ИИ-помощником.</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">Метрик — база знаний</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Статус синхронизации опубликованных материалов с ИИ-помощником.</p>
+        </div>
+        <Link href="/control/metric/documents" className="flex items-center gap-1.5 rounded-2xl border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted">
+          <FileText className="size-4" /> Документы
+        </Link>
+      </div>
 
       {status === "loading" && <div className="mt-6 h-40 animate-pulse rounded-3xl bg-muted" />}
       {status === "error" && <p className="mt-6 text-sm text-red-500">Не удалось загрузить статус.</p>}

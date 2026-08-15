@@ -3,9 +3,9 @@ import { prisma } from "../db";
 import { toLessonBlockDTOs } from "../content";
 import { scriptContentSchema, instructionBlocksSchema, normalizeBlocks } from "../knowledge-schemas";
 import type { ScriptDetailDTO, InstructionDetailDTO, InstructionBlockDTO } from "@/lib/api/knowledge-types";
-import type { MetricSourceType } from "./access";
+import { normalizeScope, type MetricSourceType } from "./access";
 import type { MetricStatusDTO, MetricSyncCountsDTO, MetricSourceTypeDTO } from "@/lib/api/metric-types";
-import { buildScriptDoc, buildInstructionDoc, buildLessonDoc, type KnowledgeDoc } from "./documents";
+import { buildScriptDoc, buildInstructionDoc, buildLessonDoc, buildDocumentDoc, type KnowledgeDoc } from "./documents";
 import { httpTransport, type MetricTransport, MetricOpenAiError } from "./openai";
 import { getMetricEnv, isMetricReady } from "./env";
 
@@ -49,6 +49,18 @@ async function loadDoc(sourceType: MetricSourceType, sourceId: string): Promise<
       categoryId: w.categoryId, categoryTitle: w.category.title, blocks, updatedAt: w.updatedAt.toISOString(),
     };
     return { doc: buildInstructionDoc(dto, w.updatedAt.toISOString()), updatedAt: w.updatedAt };
+  }
+  if (sourceType === "DOCUMENT") {
+    const d = await prisma.metricKnowledgeDocument.findFirst({ where: { id: sourceId, status: "PUBLISHED" } });
+    if (!d) return null;
+    return {
+      doc: buildDocumentDoc({
+        id: d.id, title: d.title, description: d.description, category: d.category,
+        extractedText: d.extractedText, positionScope: normalizeScope(d.positionScope),
+        versionLabel: d.versionLabel, updatedAt: d.updatedAt.toISOString(),
+      }),
+      updatedAt: d.updatedAt,
+    };
   }
   // ACADEMY
   const l = await prisma.lesson.findFirst({ where: { id: sourceId, status: "PUBLISHED" }, include: { blocks: { orderBy: { order: "asc" } } } });
@@ -114,23 +126,27 @@ export async function removeSource(sourceType: MetricSourceType, sourceId: strin
 /* ------------------------------ full sync -------------------------------- */
 
 async function publishedIds(): Promise<Record<MetricSourceType, string[]>> {
-  const [scripts, instructions, lessons] = await Promise.all([
+  const [scripts, instructions, lessons, documents] = await Promise.all([
     prisma.script.findMany({ where: { status: "PUBLISHED", category: { isActive: true } }, select: { id: true } }),
     prisma.workInstruction.findMany({ where: { status: "PUBLISHED", category: { isActive: true } }, select: { id: true } }),
     prisma.lesson.findMany({ where: { status: "PUBLISHED" }, select: { id: true } }),
+    prisma.metricKnowledgeDocument.findMany({ where: { status: "PUBLISHED" }, select: { id: true } }),
   ]);
   return {
     SCRIPT: scripts.map((x) => x.id),
     INSTRUCTION: instructions.map((x) => x.id),
     ACADEMY: lessons.map((x) => x.id),
+    DOCUMENT: documents.map((x) => x.id),
   };
 }
+
+const SOURCE_TYPES: MetricSourceType[] = ["SCRIPT", "INSTRUCTION", "ACADEMY", "DOCUMENT"];
 
 export async function fullSync(deps: SyncDeps): Promise<{ synced: number; removed: number }> {
   const ids = await publishedIds();
   let synced = 0;
   let removed = 0;
-  for (const sourceType of ["SCRIPT", "INSTRUCTION", "ACADEMY"] as MetricSourceType[]) {
+  for (const sourceType of SOURCE_TYPES) {
     for (const id of ids[sourceType]) {
       await syncSource(sourceType, id, deps);
       synced += 1;
@@ -139,7 +155,7 @@ export async function fullSync(deps: SyncDeps): Promise<{ synced: number; remove
   // Remove records whose source is no longer published.
   const records = await prisma.knowledgeSyncRecord.findMany({ select: { sourceType: true, sourceId: true } });
   const publishedSet = new Set(
-    (["SCRIPT", "INSTRUCTION", "ACADEMY"] as MetricSourceType[]).flatMap((t) => ids[t].map((id) => `${t}:${id}`)),
+    SOURCE_TYPES.flatMap((t) => ids[t].map((id) => `${t}:${id}`)),
   );
   for (const r of records) {
     if (!publishedSet.has(`${r.sourceType as MetricSourceType}:${r.sourceId}`)) {
@@ -166,7 +182,7 @@ export async function getMetricStatus(): Promise<MetricStatusDTO> {
   const env = getMetricEnv();
   const grouped = await prisma.knowledgeSyncRecord.groupBy({ by: ["sourceType", "status"], _count: { _all: true } });
   const bySource: Record<MetricSourceTypeDTO, MetricSyncCountsDTO> = {
-    ACADEMY: { ...EMPTY }, SCRIPT: { ...EMPTY }, INSTRUCTION: { ...EMPTY },
+    ACADEMY: { ...EMPTY }, SCRIPT: { ...EMPTY }, INSTRUCTION: { ...EMPTY }, DOCUMENT: { ...EMPTY },
   };
   const totals: MetricSyncCountsDTO = { ...EMPTY };
   for (const g of grouped) {

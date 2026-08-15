@@ -15,7 +15,10 @@ export interface MetricEnv {
 
 /** Sensible current default compatible with the Responses API + file_search. */
 export const DEFAULT_MODEL = "gpt-4o-mini";
-const DEFAULT_MAX_OUTPUT = 1200;
+// Compact answers are enforced by the prompt; a modest default headroom (not the
+// ceiling) keeps normal answers complete without inflating cost. Truncation is
+// still detected and offered as «Продолжить», so this need not be huge.
+const DEFAULT_MAX_OUTPUT = 1500;
 const MAX_OUTPUT_CEILING = 4000;
 
 function readInt(raw: string | undefined, fallback: number, ceiling: number): number {
