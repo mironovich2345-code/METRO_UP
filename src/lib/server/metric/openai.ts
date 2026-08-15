@@ -8,6 +8,7 @@ import "server-only";
  */
 
 import { parseResponsePayload, type CreateResponseResult } from "./openai-parse";
+import { parseSSEBlock, splitSSE } from "./stream-parse";
 export { parseResponsePayload };
 export type { CreateResponseResult };
 
@@ -34,10 +35,13 @@ export interface CreateResponseInput {
   filters?: ResponseFilter;
   maxOutputTokens: number;
   maxNumResults?: number;
+  /** When false, the file_search tool is omitted (no retrieval this turn). */
+  useFileSearch?: boolean;
 }
 
 export interface MetricTransport {
   createResponse(input: CreateResponseInput, signal?: AbortSignal): Promise<CreateResponseResult>;
+  streamResponse(input: CreateResponseInput, onDelta: (text: string) => void, signal?: AbortSignal): Promise<CreateResponseResult>;
   uploadKnowledgeFile(filename: string, content: string): Promise<{ fileId: string }>;
   attachToVectorStore(vectorStoreId: string, fileId: string, attributes: KnowledgeAttributes): Promise<{ vectorStoreFileId: string }>;
   removeFromVectorStore(vectorStoreId: string, fileId: string): Promise<void>;
@@ -68,6 +72,27 @@ async function withTimeout<T>(ms: number, run: (signal: AbortSignal) => Promise<
   }
 }
 
+/** Build the Responses API request body (shared by streaming + non-streaming). */
+function buildResponseBody(input: CreateResponseInput, stream: boolean): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    model: input.model,
+    instructions: input.instructions,
+    input: input.messages.map((m) => ({ role: m.role, content: m.content })),
+    max_output_tokens: input.maxOutputTokens,
+  };
+  if (input.useFileSearch !== false) {
+    const tool: Record<string, unknown> = {
+      type: "file_search",
+      vector_store_ids: [input.vectorStoreId],
+      max_num_results: input.maxNumResults ?? 6,
+    };
+    if (input.filters) tool.filters = input.filters;
+    body.tools = [tool];
+  }
+  if (stream) body.stream = true;
+  return body;
+}
+
 export function httpTransport(apiKey: string, timeoutMs = DEFAULT_TIMEOUT_MS): MetricTransport {
   const authHeaders = { Authorization: `Bearer ${apiKey}` };
 
@@ -88,20 +113,40 @@ export function httpTransport(apiKey: string, timeoutMs = DEFAULT_TIMEOUT_MS): M
 
   return {
     async createResponse(input, signal) {
-      const tool: Record<string, unknown> = {
-        type: "file_search",
-        vector_store_ids: [input.vectorStoreId],
-        max_num_results: input.maxNumResults ?? 6,
-      };
-      if (input.filters) tool.filters = input.filters;
-      const data = await jsonRequest("/responses", {
-        model: input.model,
-        instructions: input.instructions,
-        input: input.messages.map((m) => ({ role: m.role, content: m.content })),
-        tools: [tool],
-        max_output_tokens: input.maxOutputTokens,
-      }, signal);
+      const data = await jsonRequest("/responses", buildResponseBody(input, false), signal);
       return parseResponsePayload(data);
+    },
+
+    async streamResponse(input, onDelta, signal) {
+      const res = await fetch(`${OPENAI_BASE}/responses`, {
+        method: "POST",
+        headers: { ...authHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify(buildResponseBody(input, true)),
+        signal,
+      });
+      if (!res.ok || !res.body) throw new MetricOpenAiError(res.status, `openai_${res.status}`);
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      let finalResponse: unknown = null;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const { blocks, rest } = splitSSE(buf);
+        buf = rest;
+        for (const block of blocks) {
+          const evt = parseSSEBlock(block);
+          if (!evt) continue;
+          if (evt.kind === "delta") onDelta(evt.text);
+          else if (evt.kind === "final") finalResponse = evt.response;
+          else if (evt.kind === "error") throw new MetricOpenAiError(500, "openai_stream_error");
+        }
+      }
+      const tail = parseSSEBlock(buf);
+      if (tail?.kind === "final") finalResponse = tail.response;
+      if (!finalResponse) throw new MetricOpenAiError(502, "openai_no_final");
+      return parseResponsePayload(finalResponse);
     },
 
     async uploadKnowledgeFile(filename, content) {

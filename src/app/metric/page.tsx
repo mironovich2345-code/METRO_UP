@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { AlertCircle, BookOpen, ChevronDown, FileText, GraduationCap, RotateCcw, ScrollText, Send } from "lucide-react";
+import { AlertCircle, BookOpen, ChevronDown, Drama, FileText, GraduationCap, RotateCcw, ScrollText, Send } from "lucide-react";
 import { MetricCharacter } from "@/components/ui/metric-character";
 import { BottomNavigation } from "@/components/bottom-navigation";
 import { cardIn, staggerStack } from "@/lib/motion";
@@ -12,6 +12,8 @@ import { useApp } from "@/providers/app-provider";
 import { ApiError } from "@/lib/api/client";
 import { metricApi } from "@/lib/api/metric-client";
 import { isClickableSource } from "@/lib/metric-source";
+import { metricMarkdownToRichDoc } from "@/lib/metric-markdown";
+import { RichText } from "@/components/academy/lesson/RichText";
 import type { MetricMessageDTO, MetricSourceDTO } from "@/lib/api/metric-types";
 
 const SUGGESTIONS = [
@@ -37,12 +39,14 @@ export default function MetricScreen() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [streamingId, setStreamingId] = useState<string | null>(null);
+  const [rolePlayActive, setRolePlayActive] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     metricApi.conversation()
-      .then((c) => { setMessages(c.messages); setConversationId(c.conversationId); setReady(c.ready); setStatus("ready"); })
+      .then((c) => { setMessages(c.messages); setConversationId(c.conversationId); setReady(c.ready); setRolePlayActive(c.rolePlayActive); setStatus("ready"); })
       .catch(() => setStatus("error"));
   }, []);
 
@@ -54,24 +58,38 @@ export default function MetricScreen() {
     hapticSelection();
     setSendError(null);
     setInput("");
-    // Optimistic user bubble.
-    const optimistic: MetricMessageDTO = { id: `local-${Date.now()}`, role: "USER", content: text, sources: [], isTruncated: false, createdAt: new Date().toISOString() };
-    setMessages((m) => [...m, optimistic]);
+    // Optimistic user bubble + one empty assistant bubble that fills as deltas arrive.
+    const now = Date.now();
+    const userMsg: MetricMessageDTO = { id: `local-${now}`, role: "USER", content: text, sources: [], isTruncated: false, createdAt: new Date().toISOString() };
+    const streamId = `stream-${now}`;
+    const assistantMsg: MetricMessageDTO = { id: streamId, role: "ASSISTANT", content: "", sources: [], isTruncated: false, createdAt: new Date().toISOString() };
+    setMessages((m) => [...m, userMsg, assistantMsg]);
     setSending(true);
-    try {
-      const r = await metricApi.chat(text, conversationId ?? undefined);
-      setConversationId(r.conversationId);
-      // Replace optimistic with the real pair by refetching would be heavy; just append the assistant.
-      setMessages((m) => [...m, r.message]);
-    } catch (e) {
-      setMessages((m) => m.filter((x) => x.id !== optimistic.id));
-      setInput(text);
-      if (e instanceof ApiError && e.status === 429) setSendError("Слишком много сообщений подряд. Подожди немного.");
-      else if (e instanceof ApiError && e.status === 503) { setReady(false); setSendError(null); }
-      else setSendError("Не удалось получить ответ. Попробуй ещё раз.");
-    } finally {
-      setSending(false);
-    }
+    setStreamingId(streamId);
+
+    await metricApi.chatStream(text, conversationId ?? undefined, {
+      onDelta: (chunk) => {
+        setMessages((m) => m.map((x) => (x.id === streamId ? { ...x, content: x.content + chunk } : x)));
+      },
+      onDone: (r) => {
+        setConversationId(r.conversationId);
+        setRolePlayActive(r.rolePlayActive);
+        // Replace the streaming placeholder with the persisted message (real id, sources, isTruncated).
+        setMessages((m) => m.map((x) => (x.id === streamId ? r.message : x)));
+        setStreamingId(null);
+        setSending(false);
+      },
+      onError: (e) => {
+        // Drop the optimistic pair, restore the input, surface a friendly error.
+        setMessages((m) => m.filter((x) => x.id !== streamId && x.id !== userMsg.id));
+        setInput(text);
+        setStreamingId(null);
+        setSending(false);
+        if (e instanceof ApiError && e.status === 429) setSendError("Слишком много сообщений подряд. Подожди немного.");
+        else if (e instanceof ApiError && e.status === 503) { setReady(false); setSendError(null); }
+        else setSendError("Не удалось получить ответ. Попробуй ещё раз.");
+      },
+    });
   }, [sending, ready, conversationId]);
 
   const onContinue = async () => {
@@ -80,6 +98,7 @@ export default function MetricScreen() {
     setSending(true);
     try {
       const r = await metricApi.continue(conversationId);
+      setRolePlayActive(r.rolePlayActive);
       setMessages((m) => m.map((x) => (x.id === r.message.id ? r.message : x)));
     } catch {
       setSendError("Не удалось продолжить ответ. Попробуй ещё раз.");
@@ -134,7 +153,14 @@ export default function MetricScreen() {
 
         {status === "ready" && !empty && (
           <div className="space-y-4">
-            {messages.map((m) => <MessageBubble key={m.id} message={m} />)}
+            {rolePlayActive && (
+              <div className="flex justify-center">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-brand/40 bg-brand/10 px-3 py-1 text-xs font-semibold text-brand">
+                  <Drama className="size-3.5" /> Тренировка: Метрик играет клиента
+                </span>
+              </div>
+            )}
+            {messages.map((m) => <MessageBubble key={m.id} message={m} streaming={m.id === streamingId} />)}
             {canContinue && (
               <div className="flex justify-start">
                 <button onClick={onContinue} className="flex items-center gap-1.5 rounded-2xl border border-brand/40 bg-brand/10 px-4 py-2 text-sm font-semibold text-brand">
@@ -142,7 +168,6 @@ export default function MetricScreen() {
                 </button>
               </div>
             )}
-            {sending && <TypingBubble />}
             {sendError && (
               <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card px-4 py-3">
                 <span className="flex items-center gap-2 text-sm text-muted-foreground"><AlertCircle className="size-4" /> {sendError}</span>
@@ -184,7 +209,7 @@ export default function MetricScreen() {
   );
 }
 
-function MessageBubble({ message }: { message: MetricMessageDTO }) {
+function MessageBubble({ message, streaming = false }: { message: MetricMessageDTO; streaming?: boolean }) {
   const isUser = message.role === "USER";
   return (
     <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className={isUser ? "flex justify-end" : "flex justify-start"}>
@@ -194,7 +219,11 @@ function MessageBubble({ message }: { message: MetricMessageDTO }) {
         ) : (
           <>
             <div className="rounded-2xl rounded-bl-md border border-border bg-card px-4 py-3 text-[15px] leading-relaxed">
-              <p className="whitespace-pre-line">{message.content}</p>
+              {message.content
+                ? <RichText doc={metricMarkdownToRichDoc(message.content)} />
+                : streaming
+                  ? <TypingDots />
+                  : null}
             </div>
             {message.sources.length > 0 && (
               <div className="space-y-1.5">
@@ -231,14 +260,12 @@ function MessageBubble({ message }: { message: MetricMessageDTO }) {
   );
 }
 
-function TypingBubble() {
+function TypingDots() {
   return (
-    <div className="flex justify-start">
-      <div className="flex items-center gap-1 rounded-2xl rounded-bl-md border border-border bg-card px-4 py-3">
-        {[0, 1, 2].map((i) => (
-          <motion.span key={i} className="size-2 rounded-full bg-muted-foreground/60" animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1, repeat: Infinity, delay: i * 0.15 }} />
-        ))}
-      </div>
+    <div className="flex items-center gap-1">
+      {[0, 1, 2].map((i) => (
+        <motion.span key={i} className="size-2 rounded-full bg-muted-foreground/60" animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1, repeat: Infinity, delay: i * 0.15 }} />
+      ))}
     </div>
   );
 }

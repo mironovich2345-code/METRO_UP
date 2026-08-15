@@ -3,6 +3,7 @@ import { jsonOk, handleError } from "@/lib/server/http";
 import { prisma } from "@/lib/server/db";
 import { getMetricEnv, isMetricReady } from "@/lib/server/metric/env";
 import { toMessageDTO } from "@/lib/server/metric/conversations";
+import { readRolePlayState } from "@/lib/server/metric/mode";
 import type { MetricConversationDTO } from "@/lib/api/metric-types";
 
 export const runtime = "nodejs";
@@ -22,6 +23,7 @@ export async function GET() {
       conversationId: conv?.id ?? null,
       messages: (conv?.messages ?? []).map(toMessageDTO),
       ready,
+      rolePlayActive: readRolePlayState(conv?.state)?.active ?? false,
     };
     return jsonOk(payload);
   } catch (e) {

@@ -24,11 +24,15 @@ export interface MetricConversationDTO {
   messages: MetricMessageDTO[];
   /** false when the feature flag is off or config is incomplete. */
   ready: boolean;
+  /** True while a role-play training is active in this conversation. */
+  rolePlayActive: boolean;
 }
 
 export interface MetricChatResultDTO {
   conversationId: string;
   message: MetricMessageDTO;
+  /** True while a role-play training is active after this turn. */
+  rolePlayActive: boolean;
 }
 
 /* ------------------------------ admin status ----------------------------- */
