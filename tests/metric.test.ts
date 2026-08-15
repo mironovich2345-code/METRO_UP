@@ -167,7 +167,7 @@ test("grounding 1: corporate facts only from retrieved METRO UP materials", () =
 
 test("grounding 2: no false attribution to a source", () => {
   assert.ok(INSTR.includes("Не создавай ложную атрибуцию источнику"));
-  assert.ok(INSTR.includes("означает только то, что источник использовался"));
+  assert.ok(INSTR.includes("подтверждает только те факты, которые реально содержатся в источнике"));
   assert.ok(INSTR.includes("Не приписывай такой вывод источнику"));
 });
 
@@ -199,6 +199,57 @@ test("grounding 8: adapting an existing script is allowed, but new company terms
   assert.ok(INSTR.includes("адаптируй формулировку под ситуацию"));
   assert.ok(INSTR.includes("новые условия, цены или правила компании при этом не придумывай"));
 });
+
+/* ----------- derived advice: model-built algorithm ≠ corporate ----------- */
+
+test("derived: a self-built algorithm/script/methodology is not passed off as a corporate standard", () => {
+  // Applies when sources confirm only facts, not the whole requested method.
+  assert.ok(INSTR.includes("НЕ подтверждают запрошенный алгоритм, процедуру, скрипт или методику целиком"));
+  // 1) mark the boundary of the base
+  assert.ok(INSTR.includes("отдельного утверждённого скрипта или методики для этой ситуации в базе пока нет"));
+  // 2) Metric may still offer its own working variant
+  assert.ok(INSTR.includes("Могу предложить рабочий вариант на основе доступной информации"));
+  // 3) treat it as Metric's recommendation, not a corporate standard
+  assert.ok(INSTR.includes("считай такой алгоритм своей рекомендацией, а не корпоративным стандартом"));
+  assert.ok(INSTR.includes("CORPORATE FACT ≠ MODEL-DERIVED RECOMMENDATION"));
+});
+
+test("derived: high-confidence corporate framings are banned for self-built solutions", () => {
+  for (const banned of [
+    "проверенная схема",
+    "утверждённая схема",
+    "по стандартам MetroFitness",
+    "MetroFitness рекомендует",
+    "учебный материал рекомендует",
+    "правильный алгоритм",
+    "готовый рабочий алгоритм",
+  ]) {
+    assert.ok(INSTR.includes(banned), `policy must name banned framing: ${banned}`);
+  }
+});
+
+test("derived: Metric still reasons and builds solutions from corporate facts", () => {
+  assert.ok(INSTR.includes("собирать решение из нескольких корпоративных фактов"));
+  assert.ok(INSTR.includes("но честно обозначай происхождение такого решения"));
+});
+
+test("source-card confirms only facts actually in the source, not the whole answer", () => {
+  assert.ok(INSTR.includes("подтверждает только те факты, которые реально содержатся в источнике, а не весь твой сгенерированный ответ"));
+});
+
+/*
+ * Production case + analogous method requests. The retrieved knowledge holds
+ * product facts (e.g. "Что получает клиент", "Групповые занятия") but NOT an
+ * approved selling method. For any of these the policy above requires marking
+ * that no approved method exists, then allowing Metric's own working variant —
+ * without a corporate-standard framing:
+ *   - "Как продать клиенту, который только пришёл в зал"
+ *   - "Как продать клиенту абонемент?"
+ *   - "Как обработать возражение «дорого»?"
+ *   - "Как провести экскурсию по клубу?"
+ * These are behavioural expectations verified live (see manual checklist); the
+ * static policy assertions above are what the model is instructed to follow.
+ */
 
 /* ------------------ integration scenarios (require Postgres/OpenAI) ------ */
 
