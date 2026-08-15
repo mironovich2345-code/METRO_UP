@@ -713,3 +713,102 @@ model RatingAuditLog {
   @@index([actorUserId])
   @@map("rating_audit_logs")
 }
+
+/* =========================================================================
+ * Knowledge base — Scripts + Work Instructions (production CMS).
+ * Independent knowledge objects (NOT linked to Lesson). Reuse ContentStatus
+ * and the structured RichText document model. Employee API returns PUBLISHED
+ * only. Additive — no existing table/column is modified.
+ * ========================================================================= */
+
+model ScriptCategory {
+  id          String   @id @default(uuid()) @db.Uuid
+  title       String
+  slug        String   @unique
+  description String?
+  order       Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  scripts Script[]
+
+  @@map("script_categories")
+}
+
+model Script {
+  id              String        @id @default(uuid()) @db.Uuid
+  categoryId      String        @db.Uuid
+  title           String
+  slug            String        @unique
+  description     String?
+  /// Structured sections: whenToUse/goal/keyQuestions[]/script(RichDoc)/doNotSay[]/nextStep
+  content         Json
+  status          ContentStatus @default(DRAFT)
+  order           Int           @default(0)
+  createdByUserId String        @db.Uuid
+  updatedByUserId String?       @db.Uuid
+  publishedAt     DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  category ScriptCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@index([categoryId, status])
+  @@index([status])
+  @@map("scripts")
+}
+
+model WorkInstructionCategory {
+  id          String   @id @default(uuid()) @db.Uuid
+  title       String
+  slug        String   @unique
+  description String?
+  order       Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  instructions WorkInstruction[]
+
+  @@map("work_instruction_categories")
+}
+
+model WorkInstruction {
+  id              String        @id @default(uuid()) @db.Uuid
+  categoryId      String        @db.Uuid
+  title           String
+  slug            String        @unique
+  summary         String?
+  /// Structured reference blocks: TEXT/STEPS/CHECKLIST/INFO_CARD/WARNING.
+  /// CHECKLIST here is informational only — it never creates a DailyTask.
+  blocks          Json
+  status          ContentStatus @default(DRAFT)
+  order           Int           @default(0)
+  createdByUserId String        @db.Uuid
+  updatedByUserId String?       @db.Uuid
+  publishedAt     DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  category WorkInstructionCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@index([categoryId, status])
+  @@index([status])
+  @@map("work_instructions")
+}
+
+/* Sensitive administrative changes (role / club / position) audit trail. */
+model UserAuditLog {
+  id           String   @id @default(uuid()) @db.Uuid
+  actorUserId  String   @db.Uuid
+  targetUserId String   @db.Uuid
+  action       String
+  before       Json?
+  after        Json?
+  createdAt    DateTime @default(now())
+
+  @@index([targetUserId])
+  @@index([actorUserId])
+  @@map("user_audit_logs")
+}

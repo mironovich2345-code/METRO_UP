@@ -7,6 +7,7 @@ import {
   ArrowDown,
   ArrowUp,
   Award,
+  BookOpen,
   CheckCircle2,
   ChevronRight,
   Circle,
@@ -160,6 +161,21 @@ export default function HomeScreen() {
             <motion.div variants={cardIn} className="flex flex-col gap-3">
               <p className="px-1 text-sm font-bold text-foreground">Продолжить обучение</p>
               <ContinueLearningCard />
+            </motion.div>
+
+            <motion.div variants={cardIn}>
+              <GlassCard variant="solid" pad="md" animateIn={false} interactive onClick={() => router.push("/knowledge")}>
+                <div className="flex items-center gap-3">
+                  <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-brand/12">
+                    <BookOpen className="size-5 text-brand" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold">База знаний</p>
+                    <p className="truncate text-xs text-muted-foreground">Скрипты и рабочие инструкции</p>
+                  </div>
+                  <span className="text-xs font-semibold text-brand">Открыть</span>
+                </div>
+              </GlassCard>
             </motion.div>
 
             <motion.div variants={cardIn}>
