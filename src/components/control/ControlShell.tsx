@@ -4,12 +4,15 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   BarChart3,
+  BookOpen,
   Eye,
   GraduationCap,
   Home,
   ListChecks,
   LogOut,
+  ScrollText,
   Trophy,
+  UserCog,
   Users,
 } from "lucide-react";
 import type { AppRole } from "@prisma/client";
@@ -38,7 +41,14 @@ export function ControlShell({
 
   const nav = [
     { href: "/control", label: "Главная", icon: Home, exact: true },
-    ...(isAdmin ? [{ href: "/admin/content", label: "Обучение", icon: GraduationCap, exact: false }] : []),
+    ...(isAdmin
+      ? [
+          { href: "/admin/content", label: "Обучение", icon: GraduationCap, exact: false },
+          { href: "/control/scripts", label: "Скрипты", icon: ScrollText, exact: false },
+          { href: "/control/instructions", label: "Инструкции", icon: BookOpen, exact: false },
+          { href: "/control/users", label: "Сотрудники", icon: UserCog, exact: false },
+        ]
+      : []),
     ...(canManageClub(role)
       ? [
           { href: "/control/plan", label: "План дня", icon: ListChecks, exact: false },
