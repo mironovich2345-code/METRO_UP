@@ -9,6 +9,7 @@ import { ApiError } from "@/lib/api/client";
 import { Field, TextArea, TextInput, StatusBadge, fieldCls } from "@/components/admin/ui";
 import { BlockEditor } from "@/components/admin/BlockEditor";
 import { QuizBuilder } from "@/components/admin/QuizBuilder";
+import { formatDayLabel } from "@/lib/learning-format";
 
 const BLOCK_DEFAULTS: Record<string, unknown> = {
   VIDEO: {},
@@ -119,11 +120,30 @@ export default function LessonEditorPage() {
     flash(status === "DRAFT" ? "Снято с публикации" : "В архиве");
   };
 
+  const day = lesson.course.trainingDay;
+  const crumbs = [
+    "Обучение",
+    lesson.course.program.title,
+    day ? formatDayLabel(day.dayNumber, day.title) : null,
+    lesson.course.title,
+    lesson.title,
+  ].filter(Boolean) as string[];
+
   return (
     <div className="pb-16">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Link href="/admin/content" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="size-4" /> К обучению
+      {/* Breadcrumb — Обучение → Программа → День → Раздел → Урок (no ids). */}
+      <nav aria-label="Хлебные крошки" className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
+        {crumbs.map((c, i) => (
+          <span key={i} className="flex items-center gap-1.5">
+            {i > 0 && <span className="text-muted-foreground/50">/</span>}
+            {i === crumbs.length - 1 ? <span className="font-semibold text-foreground">{c}</span> : <span className="truncate">{c}</span>}
+          </span>
+        ))}
+      </nav>
+
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+        <Link href="/admin/content" className="flex items-center gap-1.5 rounded-2xl border border-border px-3 py-2 text-sm font-semibold hover:bg-muted">
+          <ArrowLeft className="size-4" /> Назад к обучению
         </Link>
         <div className="flex items-center gap-2">
           <StatusBadge status={lesson.status} />
@@ -141,7 +161,6 @@ export default function LessonEditorPage() {
       </div>
 
       <h1 className="mt-4 text-2xl font-bold">{lesson.title}</h1>
-      <p className="text-sm text-muted-foreground">{lesson.course.program.title} · {lesson.course.title}</p>
 
       {/* Informational structure checklist (does not change publish rules). */}
       <div className="mt-3 flex flex-wrap gap-2">

@@ -1,53 +1,64 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Archive, ChevronRight, FolderTree, Plus, Settings2 } from "lucide-react";
-import { adminApi, type AdminDashboard, type AdminProgramTree } from "@/lib/api/content-client";
-import { InlineCreate, StatusBadge, fieldCls } from "@/components/admin/ui";
+import { AlertTriangle, ChevronDown, ChevronRight, Plus, Settings2 } from "lucide-react";
+import { adminApi, type AdminProgramTree } from "@/lib/api/content-client";
+import { StatusBadge } from "@/components/admin/ui";
 import { CreateLessonFlow } from "@/components/admin/CreateLessonFlow";
+import { StructureManager } from "@/components/admin/StructureManager";
+import { formatDayLabel, lessonsWord, daysWord, sectionsWord, minutesWord } from "@/lib/learning-format";
 
-type Course = AdminProgramTree["courses"][number];
+type Program = AdminProgramTree;
+type Course = Program["courses"][number];
+type WizardInit = { programId?: string; dayId?: string; courseId?: string } | null;
 
 export default function ContentPage() {
-  const [tree, setTree] = useState<AdminProgramTree[]>([]);
-  const [totals, setTotals] = useState<AdminDashboard["totals"] | null>(null);
+  const [tree, setTree] = useState<Program[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [showCreate, setShowCreate] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [wizard, setWizard] = useState<WizardInit>(null); // null = closed
+  const [showStructure, setShowStructure] = useState(false);
 
-  const refresh = useCallback(async () => {
-    try {
-      const [{ programs }, dash] = await Promise.all([adminApi.programs(), adminApi.dashboard()]);
-      setTree(programs);
-      setTotals(dash.totals);
-      setError(null);
-    } catch {
-      setError("Нет доступа или сервер недоступен.");
-    }
+  const loadTree = useCallback(async (): Promise<Program[]> => {
+    const { programs } = await adminApi.programs();
+    setTree(programs);
+    setError(null);
+    setLoaded(true);
+    return programs;
   }, []);
 
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
+  useEffect(() => { void loadTree().catch(() => { setError("Нет доступа или сервер недоступен."); setLoaded(true); }); }, [loadTree]);
+
+  const totals = useMemo(() => {
+    const lessons = tree.flatMap((p) => p.courses.flatMap((c) => c.lessons));
+    return {
+      programs: tree.length,
+      published: lessons.filter((l) => l.status === "PUBLISHED").length,
+      draft: lessons.filter((l) => l.status === "DRAFT").length,
+    };
+  }, [tree]);
+
+  // Unassigned sections across all programs — a structure problem, not a normal element.
+  const unassigned = useMemo(
+    () => tree.flatMap((p) => p.courses.filter((c) => !c.trainingDayId)),
+    [tree],
+  );
 
   return (
     <div>
-      {/* Primary scenario: create a lesson. */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Обучение</h1>
           <p className="mt-1 text-sm text-muted-foreground">Уроки, видео, материалы и тесты</p>
         </div>
-        <div className="flex items-center gap-4">
-          {totals && (
-            <div className="hidden gap-4 text-sm text-muted-foreground lg:flex">
-              <span><b className="text-foreground">{totals.programs}</b> программ</span>
-              <span><b className="text-foreground">{totals.lessonsPublished}</b> опубликовано</span>
-              <span><b className="text-foreground">{totals.lessonsDraft}</b> черновиков</span>
-            </div>
-          )}
+        <div className="flex items-center gap-2">
+          <div className="mr-1 hidden gap-4 text-sm text-muted-foreground lg:flex">
+            <span><b className="text-foreground">{totals.published}</b> опубл.</span>
+            <span><b className="text-foreground">{totals.draft}</b> черновиков</span>
+          </div>
           <button
-            onClick={() => setShowCreate(true)}
+            onClick={() => setWizard({})}
             className="flex h-11 items-center gap-1.5 rounded-2xl bg-brand px-5 text-sm font-semibold text-brand-foreground"
           >
             <Plus className="size-4" /> Создать урок
@@ -55,211 +66,166 @@ export default function ContentPage() {
         </div>
       </div>
 
-      {showCreate && <CreateLessonFlow tree={tree} onClose={() => setShowCreate(false)} />}
-
       {error && <p className="mt-6 text-sm text-red-500">{error}</p>}
 
-      {/* Content hierarchy — read-focused. */}
+      {/* Unassigned sections warning (only when there is a real problem). */}
+      {unassigned.length > 0 && (
+        <button
+          onClick={() => setShowStructure(true)}
+          className="mt-5 flex w-full items-center gap-3 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-left"
+        >
+          <AlertTriangle className="size-5 shrink-0 text-amber-600 dark:text-amber-500" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-foreground">Не распределено</p>
+            <p className="text-xs text-muted-foreground">
+              {unassigned.length} {sectionsWord(unassigned.length)} без дня — назначьте день в управлении структурой.
+            </p>
+          </div>
+          <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+        </button>
+      )}
+
       <div className="mt-6 space-y-5">
         {tree.map((program) => (
-          <ProgramCard key={program.id} program={program} onChanged={refresh} />
+          <ProgramCard key={program.id} program={program} onCreateLesson={setWizard} />
         ))}
-        {tree.length === 0 && !error && (
+        {loaded && tree.length === 0 && !error && (
           <div className="rounded-3xl border border-dashed border-border bg-card/50 p-10 text-center">
             <p className="font-semibold">Пока нет программ обучения</p>
-            <p className="mt-1 text-sm text-muted-foreground">Создайте программу ниже, затем добавьте день, раздел и урок.</p>
+            <p className="mt-1 text-sm text-muted-foreground">Создайте программу, день и раздел в управлении структурой — затем добавляйте уроки.</p>
+            <button onClick={() => setShowStructure(true)} className="mt-4 inline-flex items-center gap-1.5 rounded-2xl bg-brand px-4 py-2.5 text-sm font-semibold text-brand-foreground">
+              <Settings2 className="size-4" /> Управление структурой
+            </button>
           </div>
         )}
       </div>
 
-      {/* Secondary: structure management (create a new program). */}
-      <div className="mt-10 border-t border-border pt-6">
-        <p className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          <Settings2 className="size-3.5" /> Управление структурой
-        </p>
-        <div className="max-w-md">
-          <InlineCreate
-            placeholder="Название новой программы"
-            cta="Программа"
-            onCreate={async (title) => {
-              await adminApi.createProgram(title);
-              await refresh();
-            }}
-          />
+      {/* Secondary action — structure management lives out of the main workspace. */}
+      {tree.length > 0 && (
+        <div className="mt-8 border-t border-border pt-5">
+          <button
+            onClick={() => setShowStructure(true)}
+            className="flex items-center gap-2 rounded-2xl border border-border px-4 py-2.5 text-sm font-semibold text-muted-foreground hover:bg-muted"
+          >
+            <Settings2 className="size-4" /> Управление структурой
+          </button>
         </div>
-      </div>
-    </div>
-  );
-}
+      )}
 
-function ProgramCard({ program, onChanged }: { program: AdminProgramTree; onChanged: () => Promise<void> }) {
-  const [manage, setManage] = useState(false);
-  const nextDayNumber = (program.days.at(-1)?.dayNumber ?? 0) + 1;
-  const looseCourses = program.courses.filter((c) => !c.trainingDayId);
-  const totalLessons = program.courses.reduce((s, c) => s + c.lessons.length, 0);
-
-  return (
-    <div className="rounded-3xl border border-border bg-card p-5 sm:p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <FolderTree className="size-5 shrink-0 text-brand" />
-          <h2 className="truncate text-lg font-bold">{program.title}</h2>
-          <StatusBadge status={program.status} />
-          <span className="hidden text-xs text-muted-foreground sm:inline">
-            · {program.days.length} дн. · {totalLessons} уроков
-          </span>
-        </div>
-        <button
-          onClick={() => setManage((m) => !m)}
-          className={`flex h-9 items-center gap-1.5 rounded-xl border px-3 text-xs font-semibold transition-colors ${manage ? "border-brand/40 bg-brand/10 text-foreground" : "border-border text-muted-foreground hover:bg-muted"}`}
-        >
-          <Settings2 className="size-3.5" /> {manage ? "Готово" : "Структура"}
-        </button>
-      </div>
-
-      {/* Hierarchy grouped by training day. */}
-      <div className="mt-4 space-y-4">
-        {program.days.map((day) => (
-          <DaySection
-            key={day.id}
-            label={`День ${day.dayNumber} · ${day.title}`}
-            courses={program.courses.filter((c) => c.trainingDayId === day.id)}
-            manage={manage}
-            program={program}
-            onChanged={onChanged}
-          />
-        ))}
-        <DaySection
-          label="Без дня"
-          courses={looseCourses}
-          manage={manage}
-          program={program}
-          onChanged={onChanged}
-          hideWhenEmpty
-        />
-        {program.courses.length === 0 && (
-          <p className="text-sm text-muted-foreground">Пока нет разделов и уроков — включите «Структуру», чтобы добавить.</p>
-        )}
-      </div>
-
-      {/* Management controls (secondary, revealed on demand). */}
-      {manage && (
-        <div className="mt-5 grid gap-3 rounded-2xl border border-border bg-background p-4 sm:grid-cols-2">
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-muted-foreground">Новый день (№{nextDayNumber})</span>
-            <InlineCreate
-              placeholder={`Название дня ${nextDayNumber}`}
-              cta="День"
-              onCreate={async (title) => {
-                await adminApi.createDay({ programId: program.id, title, dayNumber: nextDayNumber });
-                await onChanged();
-              }}
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-muted-foreground">Новый раздел (курс)</span>
-            <InlineCreate
-              placeholder="Название раздела"
-              cta="Раздел"
-              onCreate={async (title) => {
-                await adminApi.createCourse({ programId: program.id, title });
-                await onChanged();
-              }}
-            />
-          </label>
-          {program.status !== "ARCHIVED" && (
-            <button
-              onClick={async () => {
-                if (!confirm("Архивировать программу? Контент не удаляется.")) return;
-                await adminApi.archiveProgram(program.id);
-                await onChanged();
-              }}
-              className="flex h-11 items-center justify-center gap-1.5 rounded-2xl border border-border px-4 text-sm font-medium text-muted-foreground hover:bg-muted sm:col-span-2 sm:w-fit"
-            >
-              <Archive className="size-4" /> Архивировать программу
-            </button>
-          )}
-        </div>
+      {wizard !== null && (
+        <CreateLessonFlow tree={tree} initial={wizard ?? undefined} onClose={() => setWizard(null)} onRefreshTree={loadTree} />
+      )}
+      {showStructure && (
+        <StructureManager tree={tree} onClose={() => setShowStructure(false)} onRefreshTree={loadTree} />
       )}
     </div>
   );
 }
 
-function DaySection({
-  label,
-  courses,
-  manage,
-  program,
-  onChanged,
-  hideWhenEmpty,
-}: {
-  label: string;
-  courses: Course[];
-  manage: boolean;
-  program: AdminProgramTree;
-  onChanged: () => Promise<void>;
-  hideWhenEmpty?: boolean;
-}) {
-  if (hideWhenEmpty && courses.length === 0) return null;
+function ProgramCard({ program, onCreateLesson }: { program: Program; onCreateLesson: (init: WizardInit) => void }) {
+  const days = useMemo(() => [...program.days].sort((a, b) => a.dayNumber - b.dayNumber), [program.days]);
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(days[0] ? [days[0].id] : []));
+  const toggle = (id: string) => setExpanded((s) => {
+    const n = new Set(s);
+    if (n.has(id)) n.delete(id); else n.add(id);
+    return n;
+  });
+
+  const allLessons = program.courses.flatMap((c) => c.lessons);
+  const published = allLessons.filter((l) => l.status === "PUBLISHED").length;
+  const draft = allLessons.filter((l) => l.status === "DRAFT").length;
+
   return (
-    <div>
-      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-      <div className="space-y-3">
-        {courses.map((course) => (
-          <div key={course.id} className="rounded-2xl border border-border bg-background p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="min-w-0 truncate font-semibold">{course.title}</p>
-              {manage && (
-                <select
-                  className={fieldCls + " h-9 w-auto py-0"}
-                  value={course.trainingDayId ?? ""}
-                  onChange={async (e) => {
-                    await adminApi.updateCourse(course.id, { trainingDayId: e.target.value || null });
-                    await onChanged();
-                  }}
-                >
-                  <option value="">Без дня</option>
-                  {program.days.map((d) => (
-                    <option key={d.id} value={d.id}>День {d.dayNumber}: {d.title}</option>
+    <div className="rounded-3xl border border-border bg-card p-5 sm:p-6">
+      <div className="flex flex-wrap items-center gap-2">
+        <h2 className="min-w-0 truncate text-lg font-bold">{program.title}</h2>
+        <StatusBadge status={program.status} />
+      </div>
+      <p className="mt-1 text-sm text-muted-foreground">
+        {days.length} {daysWord(days.length)} · {allLessons.length} {lessonsWord(allLessons.length)} · {published} опубликовано · {draft} черновиков
+      </p>
+
+      <div className="mt-4 space-y-2.5">
+        {days.map((day) => {
+          const sections = program.courses.filter((c) => c.trainingDayId === day.id).sort((a, b) => a.order - b.order);
+          const dayLessons = sections.flatMap((c) => c.lessons);
+          const minutes = dayLessons.reduce((s, l) => s + (l.durationMinutes || 0), 0);
+          const isOpen = expanded.has(day.id);
+          return (
+            <div key={day.id} className="overflow-hidden rounded-2xl border border-border">
+              <button onClick={() => toggle(day.id)} className="flex w-full items-center gap-3 bg-background px-4 py-3 text-left hover:bg-muted/50">
+                <ChevronDown className={`size-4 shrink-0 text-muted-foreground transition-transform ${isOpen ? "" : "-rotate-90"}`} />
+                <span className="min-w-0 flex-1 truncate font-semibold">{formatDayLabel(day.dayNumber, day.title)}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {dayLessons.length} {lessonsWord(dayLessons.length)}{minutes > 0 ? ` · ~${minutes} ${minutesWord(minutes)}` : ""}
+                </span>
+              </button>
+              {isOpen && (
+                <div className="space-y-4 border-t border-border px-4 py-4">
+                  {sections.map((section) => (
+                    <SectionBlock key={section.id} section={section} program={program} dayId={day.id} onCreateLesson={onCreateLesson} />
                   ))}
-                </select>
+                  {sections.length === 0 && (
+                    <div className="rounded-xl border border-dashed border-border p-4 text-center">
+                      <p className="text-sm text-muted-foreground">В этом дне пока нет разделов.</p>
+                      <button onClick={() => onCreateLesson({ programId: program.id, dayId: day.id })} className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-brand hover:underline">
+                        <Plus className="size-3.5" /> Создать урок в этом дне
+                      </button>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
-            <div className="mt-3 space-y-1">
-              {course.lessons.map((lesson) => (
-                <Link
-                  key={lesson.id}
-                  href={`/admin/content/lessons/${lesson.id}`}
-                  className="flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-sm hover:bg-muted"
-                >
-                  <span className="flex min-w-0 items-center gap-2">
-                    <span className="truncate">{lesson.title}</span>
-                    {lesson.isRequired && <span className="shrink-0 text-xs text-muted-foreground">обяз.</span>}
-                  </span>
-                  <span className="flex shrink-0 items-center gap-2">
-                    <StatusBadge status={lesson.status} />
-                    <ChevronRight className="size-4 text-muted-foreground" />
-                  </span>
-                </Link>
-              ))}
-              {course.lessons.length === 0 && <p className="px-3 text-xs text-muted-foreground">Нет уроков</p>}
-            </div>
-            {manage && (
-              <div className="mt-3 max-w-sm">
-                <InlineCreate
-                  placeholder="Название урока"
-                  cta="Урок"
-                  onCreate={async (title) => {
-                    await adminApi.createLesson({ courseId: course.id, title });
-                    await onChanged();
-                  }}
-                />
-              </div>
-            )}
+          );
+        })}
+        {days.length === 0 && (
+          <div className="rounded-2xl border border-dashed border-border p-6 text-center">
+            <p className="text-sm text-muted-foreground">В программе пока нет дней. Добавьте день и раздел в управлении структурой, затем создавайте уроки.</p>
           </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SectionBlock({
+  section, program, dayId, onCreateLesson,
+}: {
+  section: Course;
+  program: Program;
+  dayId: string;
+  onCreateLesson: (init: WizardInit) => void;
+}) {
+  return (
+    <div>
+      <p className="mb-1.5 text-xs font-bold uppercase tracking-wide text-muted-foreground">{section.title}</p>
+      <div className="space-y-1">
+        {section.lessons.map((lesson) => (
+          <Link
+            key={lesson.id}
+            href={`/admin/content/lessons/${lesson.id}`}
+            className="flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-sm hover:bg-muted"
+          >
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="truncate">{lesson.title}</span>
+              {lesson.isRequired && <span className="shrink-0 text-xs text-muted-foreground">обяз.</span>}
+            </span>
+            <span className="flex shrink-0 items-center gap-2">
+              <StatusBadge status={lesson.status} />
+              <ChevronRight className="size-4 text-muted-foreground" />
+            </span>
+          </Link>
         ))}
-        {courses.length === 0 && !hideWhenEmpty && (
-          <p className="text-xs text-muted-foreground">Нет разделов в этом дне</p>
+        {section.lessons.length === 0 && (
+          <div className="flex items-center justify-between gap-2 px-3 py-2">
+            <p className="text-xs text-muted-foreground">В этом разделе пока нет уроков.</p>
+            <button
+              onClick={() => onCreateLesson({ programId: program.id, dayId, courseId: section.id })}
+              className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-brand hover:underline"
+            >
+              <Plus className="size-3" /> Урок
+            </button>
+          </div>
         )}
       </div>
     </div>

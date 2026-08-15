@@ -88,14 +88,18 @@ export interface AdminLessonDetail {
   id: string; title: string; slug: string; shortDescription: string | null;
   durationMinutes: number; xpReward: number; isRequired: boolean; status: string; courseId: string;
   blocks: AdminBlock[]; quiz: AdminQuiz | null;
-  course: { id: string; title: string; program: { id: string; title: string } };
+  course: {
+    id: string; title: string;
+    program: { id: string; title: string };
+    trainingDay: { id: string; title: string; dayNumber: number } | null;
+  };
 }
 export interface AdminProgramTree {
   id: string; title: string; description: string | null; status: string; order: number;
   days: { id: string; title: string; dayNumber: number; order: number }[];
   courses: {
     id: string; title: string; order: number; trainingDayId: string | null;
-    lessons: { id: string; title: string; slug: string; status: string; order: number; xpReward: number; isRequired: boolean }[];
+    lessons: { id: string; title: string; slug: string; status: string; order: number; xpReward: number; isRequired: boolean; durationMinutes: number }[];
   }[];
 }
 
@@ -108,10 +112,10 @@ export const adminApi = {
     request(`/api/admin/programs/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   archiveProgram: (id: string) => request(`/api/admin/programs/${id}`, { method: "DELETE" }),
 
-  createDay: (body: Record<string, unknown>) => request("/api/admin/days", { method: "POST", body: JSON.stringify(body) }),
+  createDay: (body: Record<string, unknown>) => request<{ day: { id: string } }>("/api/admin/days", { method: "POST", body: JSON.stringify(body) }),
   updateDay: (id: string, body: Record<string, unknown>) => request(`/api/admin/days/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
 
-  createCourse: (body: Record<string, unknown>) => request("/api/admin/courses", { method: "POST", body: JSON.stringify(body) }),
+  createCourse: (body: Record<string, unknown>) => request<{ course: { id: string } }>("/api/admin/courses", { method: "POST", body: JSON.stringify(body) }),
   updateCourse: (id: string, body: Record<string, unknown>) => request(`/api/admin/courses/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
 
   createLesson: (body: Record<string, unknown>) => request<{ lesson: { id: string } }>("/api/admin/lessons", { method: "POST", body: JSON.stringify(body) }),
