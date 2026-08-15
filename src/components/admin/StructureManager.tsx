@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Archive, ChevronDown, ChevronUp, FolderTree, X } from "lucide-react";
 import { adminApi, type AdminProgramTree } from "@/lib/api/content-client";
 import { InlineCreate, StatusBadge, fieldCls } from "./ui";
+import { Modal } from "@/components/control/Modal";
 import { formatDayLabel, dayNeedsTitle, daysWord, sectionsWord } from "@/lib/learning-format";
 
 /**
@@ -33,8 +34,7 @@ export function StructureManager({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4" onClick={onClose}>
-      <div className="my-8 w-full max-w-2xl rounded-3xl border border-border bg-card p-6" onClick={(e) => e.stopPropagation()}>
+    <Modal onClose={onClose} size="2xl">
         <div className="flex items-center justify-between">
           <h2 className="flex items-center gap-2 text-lg font-bold"><FolderTree className="size-5 text-brand" /> Управление структурой</h2>
           <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-muted"><X className="size-4" /></button>
@@ -58,8 +58,7 @@ export function StructureManager({
             <InlineCreate placeholder="Название программы" cta="Программа" onCreate={(t) => run(() => adminApi.createProgram(t))} />
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 

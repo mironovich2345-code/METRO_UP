@@ -8,6 +8,7 @@ import type { ClubPlanDTO, ClubPlanEmployeeDTO, ClubTaskTarget, ClubTaskTemplate
 import { Field, TextArea, TextInput, fieldCls } from "@/components/admin/ui";
 import { ChecklistEditor, type ChecklistDraftItem } from "@/components/control/ChecklistEditor";
 import { ClubScopePicker } from "@/components/control/ClubScopePicker";
+import { Modal } from "@/components/control/Modal";
 
 /** ADMIN-selected club scope; null → server uses the actor's own club. Ignored
  * server-side for CLUB_MANAGER (always locked to their own club). */
@@ -263,8 +264,7 @@ function TemplateEditorModal({ template, onClose, onSaved }: { template: ClubTas
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-3xl border border-border bg-card p-6" onClick={(e) => e.stopPropagation()}>
+    <Modal onClose={onClose} size="xl">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-bold">{template ? "Редактировать задачу" : "Новая задача плана"}</h2>
           <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-muted"><X className="size-4" /></button>
@@ -300,8 +300,7 @@ function TemplateEditorModal({ template, onClose, onSaved }: { template: ClubTas
         <button onClick={save} disabled={busy || title.trim().length < 2} className="mt-5 w-full rounded-2xl bg-brand px-5 py-2.5 text-sm font-semibold text-brand-foreground disabled:opacity-50">
           {busy ? "Сохраняем…" : "Сохранить"}
         </button>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -342,8 +341,7 @@ function CreateTaskModal({ date, employees, onClose, onCreated }: { date: string
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-3xl border border-border bg-card p-6" onClick={(e) => e.stopPropagation()}>
+    <Modal onClose={onClose} size="xl">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-bold">Новая задача</h2>
           <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-muted"><X className="size-4" /></button>
@@ -387,7 +385,6 @@ function CreateTaskModal({ date, employees, onClose, onCreated }: { date: string
         <button onClick={create} disabled={busy || title.trim().length < 2 || (targetType === "USER" && !userId)} className="mt-5 w-full rounded-2xl bg-brand px-5 py-2.5 text-sm font-semibold text-brand-foreground disabled:opacity-50">
           {busy ? "Создаём…" : "Создать задачу"}
         </button>
-      </div>
-    </div>
+    </Modal>
   );
 }

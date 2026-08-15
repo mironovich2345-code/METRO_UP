@@ -6,6 +6,7 @@ import { Plus, X } from "lucide-react";
 import { adminApi, type AdminProgramTree } from "@/lib/api/content-client";
 import { ApiError } from "@/lib/api/client";
 import { Field, TextInput, fieldCls } from "./ui";
+import { Modal } from "@/components/control/Modal";
 import { formatDayLabel } from "@/lib/learning-format";
 
 /**
@@ -95,8 +96,7 @@ export function CreateLessonFlow({
   const canCreate = Boolean(programId && dayId && courseId && title.trim().length >= 2);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4" onClick={onClose}>
-      <div className="my-8 w-full max-w-lg rounded-3xl border border-border bg-card p-6" onClick={(e) => e.stopPropagation()}>
+    <Modal onClose={onClose} size="lg">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-bold">Создать урок</h2>
           <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-muted"><X className="size-4" /></button>
@@ -181,8 +181,7 @@ export function CreateLessonFlow({
             </button>
           </div>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 }
 

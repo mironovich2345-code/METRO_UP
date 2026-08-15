@@ -7,6 +7,7 @@ import { scriptsAdminApi } from "@/lib/api/knowledge-client";
 import type { ScriptAdminRowDTO, ScriptCategoryDTO, ScriptAdminDetailDTO, ScriptContentDTO } from "@/lib/api/knowledge-types";
 import { Field, TextArea, TextInput, StatusBadge, InlineCreate, fieldCls } from "@/components/admin/ui";
 import { RichTextField, StringListEditor } from "@/components/control/knowledge-ui";
+import { Modal } from "@/components/control/Modal";
 import { RichText } from "@/components/academy/lesson/RichText";
 
 const EMPTY_CONTENT: ScriptContentDTO = { whenToUse: "", goal: "", keyQuestions: [], script: [], doNotSay: [], nextStep: "" };
@@ -198,8 +199,7 @@ function ScriptEditor({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4">
-      <div className="my-8 w-full max-w-2xl rounded-3xl border border-border bg-card p-6">
+    <Modal onClose={onClose} size="2xl">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <h2 className="text-lg font-bold">{id ? "Редактирование скрипта" : "Новый скрипт"}</h2>
@@ -254,8 +254,7 @@ function ScriptEditor({
           {statusVal === "PUBLISHED" && <button onClick={() => setStatusTo("DRAFT")} disabled={busy} className="rounded-2xl bg-brand px-4 py-2.5 text-sm font-semibold text-brand-foreground disabled:opacity-50">Вернуть в черновик</button>}
           {id && statusVal !== "ARCHIVED" && <button onClick={() => setStatusTo("ARCHIVED")} disabled={busy} className="rounded-2xl border border-border px-4 py-2.5 text-sm font-semibold text-muted-foreground hover:bg-muted disabled:opacity-50">В архив</button>}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -323,8 +322,7 @@ function CategoryManager({
     try { await scriptsAdminApi.updateCategory(c.id, { order: Math.max(0, c.order + dir) }); onChanged(); } finally { setBusy(false); }
   };
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4">
-      <div className="my-8 w-full max-w-lg rounded-3xl border border-border bg-card p-6">
+    <Modal onClose={onClose} size="lg">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-bold">Категории скриптов</h2>
           <button onClick={onClose} className="rounded-xl p-2 hover:bg-muted"><X className="size-5" /></button>
@@ -348,7 +346,6 @@ function CategoryManager({
             </div>
           ))}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

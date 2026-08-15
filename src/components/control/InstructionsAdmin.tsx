@@ -8,6 +8,7 @@ import type { InstructionAdminRowDTO, InstructionCategoryDTO, InstructionAdminDe
 import { Field, TextArea, TextInput, StatusBadge, InlineCreate, fieldCls } from "@/components/admin/ui";
 import { RichTextField, StringListEditor } from "@/components/control/knowledge-ui";
 import { InstructionBlocksView } from "@/components/knowledge/InstructionBlocksView";
+import { Modal } from "@/components/control/Modal";
 
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" });
@@ -196,8 +197,7 @@ function InstructionEditor({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4">
-      <div className="my-8 w-full max-w-2xl rounded-3xl border border-border bg-card p-6">
+    <Modal onClose={onClose} size="2xl">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <h2 className="text-lg font-bold">{id ? "Редактирование инструкции" : "Новая инструкция"}</h2>
@@ -261,8 +261,7 @@ function InstructionEditor({
           {statusVal === "PUBLISHED" && <button onClick={() => setStatusTo("DRAFT")} disabled={busy} className="rounded-2xl bg-brand px-4 py-2.5 text-sm font-semibold text-brand-foreground disabled:opacity-50">Вернуть в черновик</button>}
           {id && statusVal !== "ARCHIVED" && <button onClick={() => setStatusTo("ARCHIVED")} disabled={busy} className="rounded-2xl border border-border px-4 py-2.5 text-sm font-semibold text-muted-foreground hover:bg-muted disabled:opacity-50">В архив</button>}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -339,8 +338,7 @@ function CategoryManager({
   const toggle = async (c: InstructionCategoryDTO) => { setBusy(true); try { await instructionsAdminApi.updateCategory(c.id, { isActive: !c.isActive }); onChanged(); } finally { setBusy(false); } };
   const move = async (c: InstructionCategoryDTO, dir: -1 | 1) => { setBusy(true); try { await instructionsAdminApi.updateCategory(c.id, { order: Math.max(0, c.order + dir) }); onChanged(); } finally { setBusy(false); } };
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4">
-      <div className="my-8 w-full max-w-lg rounded-3xl border border-border bg-card p-6">
+    <Modal onClose={onClose} size="lg">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-bold">Категории инструкций</h2>
           <button onClick={onClose} className="rounded-xl p-2 hover:bg-muted"><X className="size-5" /></button>
@@ -364,7 +362,6 @@ function CategoryManager({
             </div>
           ))}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

@@ -19,6 +19,7 @@ import {
 import type { AppRole } from "@prisma/client";
 import { canAccessAdmin, canAccessSpm, canManageClub } from "@/lib/roles";
 import { cn } from "@/lib/utils";
+import { ThemeSegmented, ThemeSwitcher } from "@/components/ui/theme-switcher";
 
 const ROLE_LABEL: Record<string, string> = { ADMIN: "Администратор", SPM: "СПМ", CLUB_MANAGER: "Управляющий" };
 
@@ -105,6 +106,10 @@ export function ControlShell({
         </nav>
 
         <div className="mt-auto">
+          <div className="mb-3">
+            <p className="mb-1.5 px-1 text-xs font-medium text-muted-foreground">Тема оформления</p>
+            <ThemeSegmented />
+          </div>
           <Link
             href="/home"
             className="mb-2 flex w-full items-center gap-2 rounded-2xl border border-border px-3 py-2.5 text-sm font-medium text-foreground hover:bg-muted"
@@ -133,9 +138,12 @@ export function ControlShell({
               <ArrowLeft className="size-4" /> METRO UP
             </Link>
             <span className="truncate text-xs font-medium text-muted-foreground">{ROLE_LABEL[role] ?? role}</span>
-            <button onClick={logout} aria-label="Выйти" className="flex size-9 items-center justify-center rounded-2xl border border-border text-muted-foreground">
-              <LogOut className="size-4" />
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              <ThemeSwitcher className="size-9" />
+              <button onClick={logout} aria-label="Выйти" className="flex size-9 items-center justify-center rounded-2xl border border-border text-muted-foreground">
+                <LogOut className="size-4" />
+              </button>
+            </div>
           </div>
           <nav className="flex gap-1 overflow-x-auto px-4 pb-2.5">
             {nav.map((item) => {

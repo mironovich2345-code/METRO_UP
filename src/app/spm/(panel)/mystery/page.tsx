@@ -8,6 +8,7 @@ import type { SpmMysteryRowDTO } from "@/lib/api/spm-types";
 import { prevCalendarMonth } from "@/lib/spm-period";
 import { SpmToolbar } from "@/components/spm/SpmToolbar";
 import { fieldCls } from "@/components/admin/ui";
+import { Modal } from "@/components/control/Modal";
 
 const STATUS: Record<string, { label: string; cls: string }> = {
   DRAFT: { label: "Черновик", cls: "bg-muted text-muted-foreground" },
@@ -112,8 +113,7 @@ function MysteryModal({ row, period, onClose, onSaved }: { row: SpmMysteryRowDTO
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-3xl border border-border bg-card p-6" onClick={(e) => e.stopPropagation()}>
+    <Modal onClose={onClose} size="md">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-bold">{row.displayName}</h2>
           <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-muted"><X className="size-4" /></button>
@@ -139,7 +139,6 @@ function MysteryModal({ row, period, onClose, onSaved }: { row: SpmMysteryRowDTO
             <button onClick={() => save(true)} disabled={busy || !score} className="rounded-2xl bg-brand px-4 py-2.5 text-sm font-semibold text-brand-foreground disabled:opacity-50">Опубликовать</button>
           </div>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 }
