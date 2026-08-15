@@ -6,6 +6,7 @@ import { ApiError } from "@/lib/api/client";
 import { usersAdminApi } from "@/lib/api/knowledge-client";
 import type { AdminUserRowDTO, AdminUserDetailDTO, AdminUserFacetsDTO } from "@/lib/api/knowledge-types";
 import { Field, fieldCls } from "@/components/admin/ui";
+import { Modal } from "@/components/control/Modal";
 
 const ROLE_LABEL: Record<string, string> = { EMPLOYEE: "Сотрудник", CLUB_MANAGER: "Управляющий", SPM: "СПМ", ADMIN: "Администратор" };
 const POSITION_LABEL: Record<string, string> = { CLIENT_MANAGER: "Менеджер по работе с клиентами", NIGHT_MANAGER: "Ночной менеджер", ADMINISTRATOR: "Администратор клуба" };
@@ -181,8 +182,7 @@ function UserEditor({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4">
-      <div className="my-8 w-full max-w-lg rounded-3xl border border-border bg-card p-6">
+    <Modal onClose={onClose} size="lg">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-bold">{initial.displayName}</h2>
           <button onClick={onClose} className="rounded-xl p-2 hover:bg-muted"><X className="size-5" /></button>
@@ -235,8 +235,7 @@ function UserEditor({
           <button onClick={onClose} className="rounded-2xl border border-border px-4 py-2.5 text-sm font-semibold hover:bg-muted">Отмена</button>
           <button onClick={save} disabled={busy || selfDemotion} className="rounded-2xl bg-brand px-4 py-2.5 text-sm font-semibold text-brand-foreground disabled:opacity-50">Сохранить</button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 

@@ -30,6 +30,15 @@ export default function RootLayout({
   return (
     <html lang="ru" suppressHydrationWarning>
       <head>
+        {/* Apply the saved theme before first paint — no light/dark flash on
+            reload (Web Control especially). Runs synchronously during HTML parse;
+            the ThemeProvider reconciles Telegram colorScheme afterwards. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "(function(){try{var m=localStorage.getItem('metro.theme')||'system';var d=m==='dark'||(m==='system'&&window.matchMedia('(prefers-color-scheme: dark)').matches);var e=document.documentElement;e.classList.toggle('dark',d);e.style.colorScheme=d?'dark':'light';}catch(_){}})();",
+          }}
+        />
         {/* Telegram Mini Apps runtime — provides window.Telegram.WebApp */}
         <Script
           src="https://telegram.org/js/telegram-web-app.js"
