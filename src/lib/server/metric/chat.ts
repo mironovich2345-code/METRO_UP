@@ -10,8 +10,10 @@ import type { MetricChatResultDTO, MetricSourceDTO, MetricSourceTypeDTO } from "
 import { getMetricEnv, isMetricReady, type MetricEnv } from "./env";
 import { httpTransport, MetricOpenAiError, type MetricTransport, type ChatMessage } from "./openai";
 import { retrievalFilter, positionAllows, type PositionScope } from "./access";
-import { buildSystemInstructions } from "./instructions";
+import { buildSystemInstructions, type EmployeeContext } from "./instructions";
+import { classifyMode, needsRetrieval, nextRolePlayState, readRolePlayState, writeRolePlayState, rolePlayEqual } from "./mode";
 import { getOrCreateActiveConversation, requireOwnConversation, getRecentMessages, appendMessages, extendAssistantMessage } from "./conversations";
+import type { Prisma } from "@prisma/client";
 
 /** Injected dependencies (real by default; a fake transport is used in tests). */
 export interface ChatDeps {
@@ -70,24 +72,32 @@ async function mapSources(citedFileIds: string[], position: EmployeePosition | n
   return out.slice(0, 4);
 }
 
-function instructionsFor(user: CurrentUser): string {
+function contextFor(user: CurrentUser): EmployeeContext {
   const p = user.employeeProfile;
-  return buildSystemInstructions({
+  return {
     displayName: user.displayName,
     roleTitle: ROLE_LABEL[user.role] ?? "Сотрудник",
     positionTitle: getPositionById(p?.positionId)?.title ?? null,
     cityName: getCityById(p?.cityId)?.name ?? null,
     clubName: getClubById(p?.clubId)?.name ?? null,
     scriptsAllowed: canAccessScripts(p?.positionId),
-  });
+  };
 }
 
 /**
- * Answer one employee message. Server is the source of truth for history, model,
- * access filtering and sources. Throws AuthError on config/transport problems so
- * the route can return a safe, user-friendly message.
+ * One Metric turn. A light server-side heuristic + the conversation's role-play
+ * state pick the mode (no extra LLM call); the mode drives the prompt and whether
+ * file_search runs. Grounding, position access and history are unchanged. When
+ * `onDelta` is provided the answer streams; otherwise it is returned whole. The
+ * final answer is persisted exactly once.
  */
-export async function metricChat(user: CurrentUser, input: { text: string; conversationId?: string }, deps: ChatDeps = {}): Promise<MetricChatResultDTO> {
+async function runTurn(
+  user: CurrentUser,
+  input: { text: string; conversationId?: string },
+  deps: ChatDeps,
+  onDelta?: (text: string) => void,
+): Promise<MetricChatResultDTO> {
+  const t0 = Date.now();
   const env = deps.env ?? getMetricEnv();
   if (!isMetricReady(env)) throw new AuthError(503, "metric_unavailable", "Метрик временно недоступен");
   const profile = user.employeeProfile;
@@ -98,26 +108,47 @@ export async function metricChat(user: CurrentUser, input: { text: string; conve
     ? await requireOwnConversation(user.id, input.conversationId)
     : await getOrCreateActiveConversation(user.id);
 
+  const rp = readRolePlayState(conv.state);
+  const decision = classifyMode(input.text, rp);
+  const useFileSearch = needsRetrieval(decision.mode, decision.transform);
+
   const history = await getRecentMessages(conv.id);
+  const tCtx = Date.now();
   const messages: ChatMessage[] = [
     ...history.map((m) => ({ role: m.role === "USER" ? ("user" as const) : ("assistant" as const), content: m.content })),
     { role: "user", content: input.text },
   ];
-
-  const instructions = instructionsFor(user);
+  const instructions = buildSystemInstructions(contextFor(user), decision.mode, decision.detailed);
 
   const transport = deps.transport ?? httpTransport(env.apiKey!);
-  const result = await transport.createResponse({
+  const reqInput = {
     model: env.model,
     instructions,
     messages,
     vectorStoreId: env.vectorStoreId!,
-    filters: retrievalFilter(position),
+    filters: useFileSearch ? retrievalFilter(position) : undefined,
     maxOutputTokens: env.maxOutputTokens,
-  });
+    useFileSearch,
+  };
+
+  const tReq = Date.now();
+  let firstDeltaMs = 0;
+  const result = onDelta
+    ? await transport.streamResponse(reqInput, (txt) => { if (!firstDeltaMs) firstDeltaMs = Date.now() - tReq; onDelta(txt); })
+    : await transport.createResponse(reqInput);
+  const tAI = Date.now();
 
   if (!result.text) throw new AuthError(502, "empty_response", "Пустой ответ");
   const sources = await mapSources(result.citedFileIds, position);
+
+  // Persist role-play state only when it changed (start/exit).
+  const nextRp = nextRolePlayState(decision.mode, rp);
+  if (!rolePlayEqual(nextRp, rp)) {
+    await prisma.metricConversation.update({
+      where: { id: conv.id },
+      data: { state: writeRolePlayState(conv.state, nextRp) as Prisma.InputJsonValue },
+    });
+  }
 
   const { assistantMsg } = await appendMessages(conv.id, input.text, {
     content: result.text,
@@ -125,11 +156,26 @@ export async function metricChat(user: CurrentUser, input: { text: string; conve
     openaiResponseId: result.responseId || null,
     isTruncated: result.truncated,
   });
+  const tDone = Date.now();
 
-  // Non-sensitive observability (no key, no prompt, no PII).
-  console.info(`[metric] ok conv=${conv.id.slice(0, 8)} in=${result.usage?.inputTokens ?? "?"} out=${result.usage?.outputTokens ?? "?"} src=${sources.length} trunc=${result.truncated}`);
+  // Safe timing metrics — no question/answer text, no PII, no key, no prompt.
+  console.info(`[metric] timing {mode:"${decision.mode}", retrieval:${useFileSearch}, firstDeltaMs:${firstDeltaMs || "-"}, openaiMs:${tAI - tReq}, ctxMs:${tCtx - t0}, persistMs:${tDone - tAI}, totalMs:${tDone - t0}, src:${sources.length}, trunc:${result.truncated}}`);
 
-  return { conversationId: conv.id, message: assistantMsg };
+  return { conversationId: conv.id, message: assistantMsg, rolePlayActive: nextRp?.active ?? false };
+}
+
+export function metricChat(user: CurrentUser, input: { text: string; conversationId?: string }, deps: ChatDeps = {}): Promise<MetricChatResultDTO> {
+  return runTurn(user, input, deps);
+}
+
+/** Streaming variant — `onDelta` receives incremental text as it arrives. */
+export function metricChatStream(
+  user: CurrentUser,
+  input: { text: string; conversationId?: string },
+  onDelta: (text: string) => void,
+  deps: ChatDeps = {},
+): Promise<MetricChatResultDTO> {
+  return runTurn(user, input, deps, onDelta);
 }
 
 /**
@@ -168,7 +214,7 @@ export async function continueMetric(user: CurrentUser, conversationId: string, 
   try {
     result = await transport.createResponse({
       model: env.model,
-      instructions: instructionsFor(user),
+      instructions: buildSystemInstructions(contextFor(user)),
       messages,
       vectorStoreId: env.vectorStoreId!,
       filters: retrievalFilter(position),
@@ -188,5 +234,5 @@ export async function continueMetric(user: CurrentUser, conversationId: string, 
   const sources = await mapSources(result.citedFileIds, position);
   const updated = await extendAssistantMessage(last.id, result.text, result.truncated, sources);
   console.info(`[metric] continue ok conv=${convPrefix} msg=${msgPrefix} trunc=${result.truncated} src=${sources.length}`);
-  return { conversationId: conv.id, message: updated };
+  return { conversationId: conv.id, message: updated, rolePlayActive: readRolePlayState(conv.state)?.active ?? false };
 }

@@ -863,6 +863,8 @@ model MetricConversation {
   id        String   @id @default(uuid()) @db.Uuid
   userId    String   @db.Uuid
   title     String?
+  /// Lightweight interaction state (e.g. active role-play scenario). No secrets.
+  state     Json?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

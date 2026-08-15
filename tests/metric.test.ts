@@ -8,6 +8,12 @@ import { resolveMaxOutputTokens, DEFAULT_MAX_OUTPUT_TOKENS, MAX_OUTPUT_CEILING }
 import { isClickableSource } from "../src/lib/metric-source";
 import { checkMetricRate, _resetMetricRate } from "../src/lib/server/metric/rate-limit";
 import { buildSystemInstructions } from "../src/lib/server/metric/instructions";
+import {
+  classifyMode, needsRetrieval, nextRolePlayState,
+  readRolePlayState, writeRolePlayState, rolePlayEqual,
+} from "../src/lib/server/metric/mode";
+import { parseSSEBlock, splitSSE } from "../src/lib/server/metric/stream-parse";
+import { metricMarkdownToRichDoc } from "../src/lib/metric-markdown";
 import type { ScriptDetailDTO, InstructionDetailDTO } from "../src/lib/api/knowledge-types";
 import type { LessonBlockDTO } from "../src/lib/api/content-types";
 
@@ -403,3 +409,217 @@ test("contN: server logs a safe continuation diagnostic (no secret/PII)", skip, 
 // Documents visibility
 test("S: employees have no raw document viewer route", skip, () => {});
 test("T: ADMIN document management is unaffected", skip, () => {});
+
+/* =======================================================================
+ * Metric Interaction v2 — mode routing, retrieval policy, prompt policy,
+ * SSE stream parsing, safe markdown. All pure (no OpenAI/DB/HTTP).
+ * ===================================================================== */
+
+/* --------------------------- A. mode routing ---------------------------- */
+
+test("v2-A: informational questions route to ANSWER (no retrieval skip)", () => {
+  for (const q of ["Что входит в клубную карту?", "Расскажи про пробное посещение", "Какие зоны есть в клубе?"]) {
+    const d = classifyMode(q, null);
+    assert.equal(d.mode, "ANSWER", q);
+    assert.equal(needsRetrieval(d.mode, d.transform), true, q);
+  }
+});
+
+test("v2-A: 'что ответить клиенту' situations route to ASSIST", () => {
+  for (const q of ["Что ответить клиенту, который говорит что дорого?", "Как лучше сказать клиенту про продление?", "Клиент сомневается, что делать?"]) {
+    const d = classifyMode(q, null);
+    assert.equal(d.mode, "ASSIST", q);
+    assert.equal(needsRetrieval(d.mode, d.transform), true, q); // ASSIST always retrieves
+  }
+});
+
+test("v2-A: 'давай потренируемся' starts role-play (ROLE_PLAY_START)", () => {
+  for (const q of ["Давай потренируемся", "Давай отработаем возражение дорого", "Ты клиент, я менеджер"]) {
+    const d = classifyMode(q, null);
+    assert.equal(d.mode, "ROLE_PLAY_START", q);
+    assert.equal(needsRetrieval(d.mode, d.transform), true, q); // start still grounds the scenario
+  }
+});
+
+test("v2-A: while role-play is active a normal message is a client turn (ROLE_PLAY, no retrieval)", () => {
+  const rp = { active: true, scenario: null };
+  const d = classifyMode("Мне это дорого, честно говоря", rp);
+  assert.equal(d.mode, "ROLE_PLAY");
+  assert.equal(needsRetrieval(d.mode, d.transform), false); // client reply — no corporate facts
+});
+
+test("v2-A: exit triggers during role-play route to REVIEW (with retrieval for grounded criteria)", () => {
+  const rp = { active: true, scenario: null };
+  for (const q of ["стоп", "разбери как я справился", "дай обратную связь"]) {
+    const d = classifyMode(q, rp);
+    assert.equal(d.mode, "REVIEW", q);
+    assert.equal(needsRetrieval(d.mode, d.transform), true, q);
+  }
+});
+
+test("v2-A: start/exit are gated by state — 'стоп' with no active role-play is just ANSWER", () => {
+  assert.equal(classifyMode("стоп", null).mode, "ANSWER");
+  // A role-play trigger does NOT fire mid-role-play (already active → stays a client turn).
+  assert.equal(classifyMode("давай ещё раз", { active: true, scenario: null }).mode, "ROLE_PLAY");
+});
+
+test("v2-A: 'подробно' sets detailed; ANSWER stays ANSWER", () => {
+  const d = classifyMode("Объясни подробнее про абонемент", null);
+  assert.equal(d.mode, "ANSWER");
+  assert.equal(d.detailed, true);
+});
+
+/* ------------------------ B. retrieval policy --------------------------- */
+
+test("v2-B: pure transforms skip retrieval; corporate requests never do", () => {
+  const shorten = classifyMode("Сократи этот текст", null);
+  assert.equal(shorten.transform, true);
+  assert.equal(needsRetrieval(shorten.mode, shorten.transform), false); // pure rewrite
+  // But a transform-looking word inside a client-facing ask still retrieves via ASSIST.
+  const assist = classifyMode("Как ответить клиенту, который просит скидку?", null);
+  assert.equal(needsRetrieval(assist.mode, assist.transform), true);
+});
+
+test("v2-B: retrieval matrix — only ROLE_PLAY turn and ANSWER+transform skip", () => {
+  assert.equal(needsRetrieval("ANSWER", false), true);
+  assert.equal(needsRetrieval("ANSWER", true), false);
+  assert.equal(needsRetrieval("ASSIST", true), true); // ASSIST retrieves even if a transform word appears
+  assert.equal(needsRetrieval("ROLE_PLAY_START", false), true);
+  assert.equal(needsRetrieval("ROLE_PLAY", false), false);
+  assert.equal(needsRetrieval("REVIEW", false), true);
+});
+
+/* ----------------------- role-play state machine ------------------------ */
+
+test("v2: role-play state transitions and (de)serialisation are stable", () => {
+  assert.deepEqual(nextRolePlayState("ROLE_PLAY_START", null), { active: true, scenario: null });
+  assert.deepEqual(nextRolePlayState("REVIEW", { active: true, scenario: null }), { active: false });
+  assert.deepEqual(nextRolePlayState("ROLE_PLAY", { active: true, scenario: "x" }), { active: true, scenario: "x" });
+
+  const stored = writeRolePlayState({ other: 1 }, { active: true, scenario: "дорого" });
+  assert.equal((stored as { other: number }).other, 1); // unrelated state preserved
+  assert.deepEqual(readRolePlayState(stored), { active: true, scenario: "дорого" });
+
+  const cleared = writeRolePlayState(stored, { active: false });
+  assert.equal(readRolePlayState(cleared), null); // inactive → no rolePlay key
+  assert.equal(readRolePlayState(null), null);
+  assert.equal(readRolePlayState({}), null);
+
+  assert.equal(rolePlayEqual(null, { active: false }), true);
+  assert.equal(rolePlayEqual({ active: true, scenario: null }, { active: true, scenario: null }), true);
+  assert.equal(rolePlayEqual({ active: true, scenario: "a" }, { active: true, scenario: "b" }), false);
+});
+
+/* --------------------- C. prompt policy (per mode) ---------------------- */
+
+const CTX = {
+  displayName: "Даниил", roleTitle: "Сотрудник", positionTitle: "Менеджер по работе с клиентами",
+  cityName: "Екатеринбург", clubName: "Клуб 1", scriptsAllowed: true,
+} as const;
+
+test("v2-C: system prompt bans unsolicited artifacts (checklist/памятка/плакат/PDF)", () => {
+  const p = buildSystemInstructions(CTX, "ANSWER");
+  assert.ok(p.includes("чек-лист"));
+  assert.ok(p.includes("памятк"));
+  assert.ok(p.includes("плакат"));
+  assert.ok(p.includes("распечат"));
+  assert.ok(p.includes("PDF"));
+  assert.ok(p.includes("Если хочешь, могу ещё")); // the banned dangling follow-up is named
+});
+
+test("v2-C: ASSIST prompt is action-first", () => {
+  const p = buildSystemInstructions(CTX, "ASSIST");
+  assert.ok(p.includes("ACTION FIRST"));
+  assert.ok(/сначала дай конкретную реплику/i.test(p));
+});
+
+test("v2-C: ROLE_PLAY_START tells the model to enter the client role immediately", () => {
+  const p = buildSystemInstructions(CTX, "ROLE_PLAY_START");
+  assert.ok(/СРАЗУ войди в роль клиента/i.test(p));
+  assert.ok(/Не объясняй тренировку/i.test(p));
+});
+
+test("v2-C: ROLE_PLAY prompt makes the model reply ONLY as the client", () => {
+  const p = buildSystemInstructions(CTX, "ROLE_PLAY");
+  assert.ok(/играешь КЛИЕНТА/i.test(p));
+  assert.ok(/Отвечай ТОЛЬКО как клиент/i.test(p));
+  assert.ok(/не приводи корпоративные факты/i.test(p));
+});
+
+test("v2-C: REVIEW prompt uses the structured debrief format", () => {
+  const p = buildSystemInstructions(CTX, "REVIEW");
+  assert.ok(p.includes("Что получилось"));
+  assert.ok(p.includes("Что улучшить"));
+  assert.ok(p.includes("Следующий фокус"));
+});
+
+test("v2-C: ANSWER default is concise, detailed only on request", () => {
+  const concise = buildSystemInstructions(CTX, "ANSWER", false);
+  assert.ok(/По умолчанию кратко/i.test(concise));
+  const detailed = buildSystemInstructions(CTX, "ANSWER", true);
+  assert.ok(/Пользователь просит подробно/i.test(detailed));
+});
+
+/* ------------------------ D. SSE stream parsing ------------------------- */
+
+test("v2-D: parseSSEBlock extracts incremental text deltas", () => {
+  const block = `event: response.output_text.delta\ndata: ${JSON.stringify({ type: "response.output_text.delta", delta: "Привет" })}`;
+  assert.deepEqual(parseSSEBlock(block), { kind: "delta", text: "Привет" });
+});
+
+test("v2-D: parseSSEBlock yields the final response on completed/incomplete", () => {
+  const completed = parseSSEBlock(`data: ${JSON.stringify({ type: "response.completed", response: { id: "r1", status: "completed" } })}`);
+  assert.equal(completed?.kind, "final");
+  if (completed?.kind === "final") assert.deepEqual(completed.response, { id: "r1", status: "completed" });
+  const incomplete = parseSSEBlock(`data: ${JSON.stringify({ type: "response.incomplete", response: { id: "r2" } })}`);
+  assert.equal(incomplete?.kind, "final");
+});
+
+test("v2-D: parseSSEBlock flags errors and ignores noise / [DONE] / keep-alives", () => {
+  assert.deepEqual(parseSSEBlock(`data: ${JSON.stringify({ type: "response.failed" })}`), { kind: "error" });
+  assert.deepEqual(parseSSEBlock(`data: ${JSON.stringify({ type: "error" })}`), { kind: "error" });
+  assert.equal(parseSSEBlock("data: [DONE]"), null);
+  assert.equal(parseSSEBlock(": keep-alive comment"), null); // no data line
+  assert.equal(parseSSEBlock("data: not-json"), null);
+  assert.equal(parseSSEBlock(`data: ${JSON.stringify({ type: "response.created" })}`), null); // unrelated event
+});
+
+test("v2-D: splitSSE returns complete blocks and keeps the partial remainder buffered", () => {
+  const { blocks, rest } = splitSSE("data: a\n\ndata: b\n\ndata: par");
+  assert.deepEqual(blocks, ["data: a", "data: b"]);
+  assert.equal(rest, "data: par"); // partial block not yet emitted (no double newline)
+});
+
+/* --------------------------- E. safe markdown --------------------------- */
+
+test("v2-E: markdown → RichDoc handles bold, italics, bullets and numbered lists", () => {
+  const doc = metricMarkdownToRichDoc("Вот **важное** и *курсив*.\n\n- первый\n- второй\n\n1. шаг один\n2. шаг два");
+  const para = doc.find((n) => n.type === "paragraph");
+  assert.ok(para && para.type === "paragraph");
+  if (para && para.type === "paragraph") {
+    assert.ok(para.spans.some((s) => s.bold && s.text === "важное"));
+    assert.ok(para.spans.some((s) => s.italic && s.text === "курсив"));
+  }
+  const bullets = doc.find((n) => n.type === "bulletList");
+  assert.ok(bullets && bullets.type === "bulletList" && bullets.items.length === 2);
+  const numbers = doc.find((n) => n.type === "numberedList");
+  assert.ok(numbers && numbers.type === "numberedList" && numbers.items.length === 2);
+});
+
+test("v2-E: markdown is XSS-safe — HTML is never structural, only inert text", () => {
+  const doc = metricMarkdownToRichDoc("Опасно: <script>alert(1)</script> и <img src=x onerror=y>");
+  // Every node is a known structural type; raw HTML survives only as literal text spans.
+  for (const node of doc) {
+    assert.ok(["paragraph", "heading", "quote", "bulletList", "numberedList"].includes(node.type));
+  }
+  const flat = JSON.stringify(doc);
+  assert.ok(flat.includes("<script>")); // preserved as text, never interpreted (RichText renders text nodes only)
+});
+
+test("v2-E: headings are supported and empty input yields a single empty paragraph", () => {
+  const h = metricMarkdownToRichDoc("## Заголовок");
+  assert.equal(h[0].type, "heading");
+  const empty = metricMarkdownToRichDoc("");
+  assert.equal(empty.length, 1);
+  assert.equal(empty[0].type, "paragraph");
+});
