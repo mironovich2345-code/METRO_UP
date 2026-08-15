@@ -75,7 +75,7 @@ export function LessonBlockRenderer({ block }: { block: LessonBlockDTO }) {
                   </span>
                   <div className="min-w-0">
                     <p className="font-bold leading-snug text-foreground">{it.title}</p>
-                    <p className="mt-0.5 text-sm leading-relaxed text-muted-foreground">{it.text}</p>
+                    <p className="mt-0.5 whitespace-pre-line text-sm leading-relaxed text-muted-foreground">{it.text.trim()}</p>
                   </div>
                 </div>
               );
@@ -94,7 +94,7 @@ export function LessonBlockRenderer({ block }: { block: LessonBlockDTO }) {
           </span>
           <div className="min-w-0">
             <p className="font-semibold text-foreground">{block.title}</p>
-            <p className="mt-1 text-[15px] leading-relaxed text-muted-foreground">{block.text}</p>
+            <p className="mt-1 whitespace-pre-line text-[15px] leading-relaxed text-muted-foreground">{block.text.trim()}</p>
           </div>
         </div>
       );
