@@ -86,6 +86,7 @@ export function CreateLessonFlow({
     setBusy(true); setError(null);
     try {
       const { lesson } = await adminApi.createLesson({ courseId, title: title.trim() });
+      onClose(); // unmount the modal first so its body-scroll lock releases cleanly
       router.push(`/admin/content/lessons/${lesson.id}`);
     } catch (e) {
       setError(e instanceof ApiError ? "Не удалось создать урок" : "Ошибка");

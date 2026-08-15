@@ -19,6 +19,38 @@ const SIZES = {
   "2xl": "max-w-2xl",
 } as const;
 
+/**
+ * Reference-counted body scroll lock. Multiple stacked modals share one lock;
+ * the original body styles are captured once (when the count goes 0→1) and
+ * restored once (when it returns to 0). This guarantees the lock is released
+ * even when a modal unmounts via route navigation (e.g. the create-lesson wizard
+ * navigating to the editor) — so `body { overflow: hidden }` can never leak onto
+ * the next page and kill wheel scroll.
+ */
+let lockCount = 0;
+let savedOverflow = "";
+let savedPad = "";
+
+function acquireBodyLock() {
+  const body = document.body;
+  if (lockCount === 0) {
+    savedOverflow = body.style.overflow;
+    savedPad = body.style.paddingRight;
+    const scrollbar = window.innerWidth - document.documentElement.clientWidth;
+    body.style.overflow = "hidden";
+    if (scrollbar > 0) body.style.paddingRight = `${scrollbar}px`;
+  }
+  lockCount += 1;
+}
+
+function releaseBodyLock() {
+  lockCount = Math.max(0, lockCount - 1);
+  if (lockCount === 0) {
+    document.body.style.overflow = savedOverflow;
+    document.body.style.paddingRight = savedPad;
+  }
+}
+
 export function Modal({
   onClose,
   children,
@@ -31,22 +63,14 @@ export function Modal({
   className?: string;
 }) {
   useEffect(() => {
+    acquireBodyLock();
+    return releaseBodyLock;
+  }, []);
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     document.addEventListener("keydown", onKey);
-
-    // Lock background scroll without a layout shift (compensate the scrollbar).
-    const body = document.body;
-    const scrollbar = window.innerWidth - document.documentElement.clientWidth;
-    const prevOverflow = body.style.overflow;
-    const prevPad = body.style.paddingRight;
-    body.style.overflow = "hidden";
-    if (scrollbar > 0) body.style.paddingRight = `${scrollbar}px`;
-
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      body.style.overflow = prevOverflow;
-      body.style.paddingRight = prevPad;
-    };
+    return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
   return (

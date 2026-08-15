@@ -100,8 +100,21 @@ export function LessonRenderer({ lesson }: { lesson: LessonDetailDTO }) {
         </motion.div>
       ))}
 
-      {/* Footer: completion state, or quiz, or the explicit complete CTA. */}
-      {completed ? (
+      {/* Footer: quiz (own start/result/retry flow), completion state, or CTA.
+          A lesson with a quiz keeps the quiz available even once completed so it
+          can be retaken (XP stays idempotent server-side). */}
+      {lesson.quiz ? (
+        <motion.div variants={cardIn}>
+          <QuizFlow
+            quiz={lesson.quiz}
+            slug={lesson.slug}
+            preview={preview}
+            lessonCompleted={completed}
+            next={next}
+            onPassed={onQuizPassed}
+          />
+        </motion.div>
+      ) : completed ? (
         <motion.div variants={cardIn}>
           <GlassCard variant="brand" pad="lg" animateIn={false} className="text-center">
             <div className="mx-auto mb-2 w-fit">
@@ -121,10 +134,6 @@ export function LessonRenderer({ lesson }: { lesson: LessonDetailDTO }) {
               </Button>
             )}
           </GlassCard>
-        </motion.div>
-      ) : lesson.quiz ? (
-        <motion.div variants={cardIn}>
-          <QuizFlow quiz={lesson.quiz} slug={lesson.slug} preview={preview} onPassed={onQuizPassed} />
         </motion.div>
       ) : (
         <motion.div variants={cardIn}>
