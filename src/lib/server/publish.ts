@@ -2,6 +2,7 @@ import "server-only";
 import { prisma } from "./db";
 import { AuthError } from "./authz";
 import { writeAudit } from "./audit";
+import { onKnowledgeChanged } from "./metric/knowledge-sync";
 import { validateQuizStructure } from "./quiz";
 import { isMeaningfulBlock } from "./content";
 import { richDocHasText, type QuizUpsertInput, type RichDoc } from "./content-schemas";
@@ -148,6 +149,7 @@ export async function publishLesson(actorUserId: string, lessonId: string) {
     });
     return updated;
   });
+  onKnowledgeChanged("ACADEMY", lessonId);
   return lesson;
 }
 
@@ -157,9 +159,11 @@ export async function setLessonStatus(
   status: "DRAFT" | "ARCHIVED",
 ) {
   const action = status === "ARCHIVED" ? "ARCHIVE" : "UNPUBLISH";
-  return prisma.$transaction(async (tx) => {
-    const updated = await tx.lesson.update({ where: { id: lessonId }, data: { status } });
+  const updated = await prisma.$transaction(async (tx) => {
+    const row = await tx.lesson.update({ where: { id: lessonId }, data: { status } });
     await writeAudit(tx, { actorUserId, entityType: "Lesson", entityId: lessonId, action });
-    return updated;
+    return row;
   });
+  onKnowledgeChanged("ACADEMY", lessonId);
+  return updated;
 }

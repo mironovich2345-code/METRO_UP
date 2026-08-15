@@ -63,6 +63,7 @@ model User {
   mysteryResults  MysteryShopperResult[]
   monthlyRatings  MonthlyRating[]
   achievements    UserAchievement[]
+  metricConversations MetricConversation[]
 
   @@index([telegramId])
   @@map("users")
@@ -811,4 +812,78 @@ model UserAuditLog {
   @@index([targetUserId])
   @@index([actorUserId])
   @@map("user_audit_logs")
+}
+
+/* =========================================================================
+ * Metric AI v1 — knowledge sync state + employee conversations.
+ * Additive only. No secrets are stored (never the OpenAI key or raw errors).
+ * ========================================================================= */
+
+enum KnowledgeSourceType {
+  ACADEMY
+  SCRIPT
+  INSTRUCTION
+}
+
+enum KnowledgeSyncStatus {
+  PENDING
+  SYNCED
+  FAILED
+}
+
+enum MetricMessageRole {
+  USER
+  ASSISTANT
+}
+
+/// Tracks the OpenAI vector-store sync state of one PUBLISHED knowledge source.
+model KnowledgeSyncRecord {
+  id                String              @id @default(uuid()) @db.Uuid
+  sourceType        KnowledgeSourceType
+  sourceId          String              @db.Uuid
+  sourceUpdatedAt   DateTime
+  status            KnowledgeSyncStatus @default(PENDING)
+  /// "ALL" or a comma-separated EmployeePosition list — the access scope of the chunk.
+  positionScope     String              @default("ALL")
+  openaiFileId      String?
+  vectorStoreFileId String?
+  /// Short, non-sensitive failure reason (never a secret or full payload).
+  lastErrorSafe     String?
+  syncedAt          DateTime?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  @@unique([sourceType, sourceId])
+  @@index([status])
+  @@map("knowledge_sync_records")
+}
+
+model MetricConversation {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  title     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages MetricMessage[]
+
+  @@index([userId, updatedAt])
+  @@map("metric_conversations")
+}
+
+model MetricMessage {
+  id               String            @id @default(uuid()) @db.Uuid
+  conversationId   String            @db.Uuid
+  role             MetricMessageRole
+  content          String
+  /// Structured source references shown as source cards (no secrets).
+  sources          Json?
+  openaiResponseId String?
+  createdAt        DateTime          @default(now())
+
+  conversation MetricConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@map("metric_messages")
 }
