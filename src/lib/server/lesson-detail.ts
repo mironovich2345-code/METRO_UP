@@ -3,7 +3,7 @@ import { prisma } from "./db";
 import { toLessonBlockDTOs } from "./content";
 import { toPublicQuizDTO } from "./quiz";
 import { resolveLessonAccess } from "./gating";
-import type { LessonDetailDTO } from "@/lib/api/content-types";
+import type { LessonDetailDTO, LastQuizAttemptDTO } from "@/lib/api/content-types";
 
 /**
  * Assemble the client-safe lesson detail for the employee player. In preview
@@ -28,12 +28,21 @@ export async function getLessonDetail(
   const blocks = await toLessonBlockDTOs(lesson.blocks);
 
   let attemptsUsed = 0;
+  let lastAttempt: LastQuizAttemptDTO | null = null;
   if (lesson.quiz && opts.userId && !opts.preview) {
-    attemptsUsed = await prisma.quizAttempt.count({
-      where: { userId: opts.userId, quizId: lesson.quiz.id },
-    });
+    // Latest attempt of the CURRENT user only (own read-model, no history).
+    const [count, latest] = await Promise.all([
+      prisma.quizAttempt.count({ where: { userId: opts.userId, quizId: lesson.quiz.id } }),
+      prisma.quizAttempt.findFirst({
+        where: { userId: opts.userId, quizId: lesson.quiz.id },
+        orderBy: { attemptNumber: "desc" },
+        select: { attemptNumber: true, scorePercent: true, passed: true },
+      }),
+    ]);
+    attemptsUsed = count;
+    lastAttempt = latest;
   }
-  const quiz = lesson.quiz ? toPublicQuizDTO(lesson.quiz, attemptsUsed) : null;
+  const quiz = lesson.quiz ? toPublicQuizDTO(lesson.quiz, attemptsUsed, lastAttempt) : null;
 
   let progress: LessonDetailDTO["progress"] = { status: "NOT_STARTED", completedAt: null };
   let access: LessonDetailDTO["access"] = { locked: false, reason: null };

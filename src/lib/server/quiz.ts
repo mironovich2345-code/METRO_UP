@@ -3,6 +3,7 @@ import type {
   PublicQuizDTO,
   QuizSubmitResultDTO,
   QuizQuestionResultDTO,
+  LastQuizAttemptDTO,
 } from "@/lib/api/content-types";
 import type { QuizSubmitInput, QuizUpsertInput } from "./content-schemas";
 
@@ -123,7 +124,11 @@ export interface QuizWithGraph {
 }
 
 /** Strip answer keys → the shape safe to send to the employee before submit. */
-export function toPublicQuizDTO(quiz: QuizWithGraph, attemptsUsed: number): PublicQuizDTO {
+export function toPublicQuizDTO(
+  quiz: QuizWithGraph,
+  attemptsUsed: number,
+  lastAttempt: LastQuizAttemptDTO | null = null,
+): PublicQuizDTO {
   return {
     id: quiz.id,
     title: quiz.title,
@@ -132,6 +137,7 @@ export function toPublicQuizDTO(quiz: QuizWithGraph, attemptsUsed: number): Publ
     maxAttempts: quiz.maxAttempts,
     attemptsUsed,
     xpReward: quiz.xpReward,
+    lastAttempt,
     questions: quiz.questions
       .slice()
       .sort((a, b) => a.order - b.order)

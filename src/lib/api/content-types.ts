@@ -42,6 +42,12 @@ export interface PublicQuizQuestionDTO {
   order: number;
   options: PublicQuizOptionDTO[];
 }
+/** Compact summary of the current user's most recent attempt (no answer keys). */
+export interface LastQuizAttemptDTO {
+  attemptNumber: number;
+  scorePercent: number;
+  passed: boolean;
+}
 export interface PublicQuizDTO {
   id: string;
   title: string;
@@ -51,6 +57,8 @@ export interface PublicQuizDTO {
   attemptsUsed: number;
   xpReward: number;
   questions: PublicQuizQuestionDTO[];
+  /** The current user's latest attempt, if any — for the reopen/refresh state. */
+  lastAttempt: LastQuizAttemptDTO | null;
 }
 
 export interface LessonAccessDTO {
