@@ -8,7 +8,7 @@ import { getPositionById } from "@/content/positions";
 import { getCityById, getClubById } from "@/content/cities";
 import type { MetricChatResultDTO, MetricSourceDTO, MetricSourceTypeDTO } from "@/lib/api/metric-types";
 import { getMetricEnv, isMetricReady, type MetricEnv } from "./env";
-import { httpTransport, type MetricTransport, type ChatMessage } from "./openai";
+import { httpTransport, MetricOpenAiError, type MetricTransport, type ChatMessage } from "./openai";
 import { retrievalFilter, positionAllows, type PositionScope } from "./access";
 import { buildSystemInstructions } from "./instructions";
 import { getOrCreateActiveConversation, requireOwnConversation, getRecentMessages, appendMessages, extendAssistantMessage } from "./conversations";
@@ -27,11 +27,13 @@ const HREF: Record<MetricSourceTypeDTO, (slugOrId: string) => string> = {
   ACADEMY: (s) => `/academy/lesson/${s}`,
   SCRIPT: (s) => `/scripts/${s}`,
   INSTRUCTION: (s) => `/instructions/${s}`,
-  DOCUMENT: (id) => `/knowledge/documents/${id}`,
+  // Documents are attribution-only for employees — no employee-facing viewer.
+  DOCUMENT: () => "",
 };
 
 /** Continuation instruction — the model resumes exactly where it stopped. */
-const CONTINUE_DIRECTIVE = "Продолжи предыдущий ответ с места остановки. Не повторяй уже сказанное.";
+export const CONTINUE_DIRECTIVE =
+  "Продолжи предыдущий ответ с места, где он был остановлен. Не повторяй уже написанный текст и не добавляй вступление вроде «продолжаю». Заверши начатую мысль и оставшуюся часть ответа. Если слово было оборвано, начни с нового законченного предложения.";
 
 /** Map OpenAI file citations back to our sources, re-checking access server-side. */
 async function mapSources(citedFileIds: string[], position: EmployeePosition | null): Promise<MetricSourceDTO[]> {
@@ -143,30 +145,48 @@ export async function continueMetric(user: CurrentUser, conversationId: string, 
   if (!profile) throw new AuthError(409, "onboarding_required");
 
   const conv = await requireOwnConversation(user.id, conversationId);
-  const last = await prisma.metricMessage.findFirst({ where: { conversationId: conv.id }, orderBy: { createdAt: "desc" } });
+  // Deterministic "last message" by seq (createdAt ties within a turn).
+  const last = await prisma.metricMessage.findFirst({ where: { conversationId: conv.id }, orderBy: { seq: "desc" } });
   if (!last || last.role !== "ASSISTANT" || !last.isTruncated) {
     throw new AuthError(400, "nothing_to_continue", "Нечего продолжать");
   }
+  const convPrefix = conv.id.slice(0, 8);
+  const msgPrefix = last.id.slice(0, 8);
 
   const position = profile.positionId;
   const history = await getRecentMessages(conv.id);
+  // Same file_search tool + position filter as the original turn → grounding and
+  // access are preserved. History (incl. the truncated answer) gives the model
+  // the original question, its own partial answer, and the retrieved context.
   const messages: ChatMessage[] = [
     ...history.map((m) => ({ role: m.role === "USER" ? ("user" as const) : ("assistant" as const), content: m.content })),
     { role: "user", content: CONTINUE_DIRECTIVE },
   ];
 
   const transport = deps.transport ?? httpTransport(env.apiKey!);
-  const result = await transport.createResponse({
-    model: env.model,
-    instructions: instructionsFor(user),
-    messages,
-    vectorStoreId: env.vectorStoreId!,
-    filters: retrievalFilter(position),
-    maxOutputTokens: env.maxOutputTokens,
-  });
-  if (!result.text) throw new AuthError(502, "empty_response", "Пустой ответ");
+  let result;
+  try {
+    result = await transport.createResponse({
+      model: env.model,
+      instructions: instructionsFor(user),
+      messages,
+      vectorStoreId: env.vectorStoreId!,
+      filters: retrievalFilter(position),
+      maxOutputTokens: env.maxOutputTokens,
+    });
+  } catch (e) {
+    // Safe diagnostics — no key/cookie/session/document/PII.
+    const status = e instanceof MetricOpenAiError ? e.status : "?";
+    console.error(`[metric] continue stage=openai status=${status} err=${e instanceof Error ? e.name : "unknown"} conv=${convPrefix} msg=${msgPrefix}`);
+    throw e;
+  }
+  if (!result.text) {
+    console.error(`[metric] continue stage=empty conv=${convPrefix} msg=${msgPrefix} out=${result.usage?.outputTokens ?? "?"}`);
+    throw new AuthError(502, "empty_response", "Пустой ответ");
+  }
 
   const sources = await mapSources(result.citedFileIds, position);
   const updated = await extendAssistantMessage(last.id, result.text, result.truncated, sources);
+  console.info(`[metric] continue ok conv=${convPrefix} msg=${msgPrefix} trunc=${result.truncated} src=${sources.length}`);
   return { conversationId: conv.id, message: updated };
 }

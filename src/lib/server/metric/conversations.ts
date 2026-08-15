@@ -23,9 +23,11 @@ export async function requireOwnConversation(userId: string, conversationId: str
 }
 
 export async function getRecentMessages(conversationId: string, limit = HISTORY_LIMIT) {
+  // Order by the monotonic seq (createdAt ties within a turn) → correct
+  // user→assistant order and a stable "last message".
   const rows = await prisma.metricMessage.findMany({
     where: { conversationId },
-    orderBy: { createdAt: "desc" },
+    orderBy: { seq: "desc" },
     take: limit,
   });
   return rows.reverse();

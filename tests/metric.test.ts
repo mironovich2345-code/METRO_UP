@@ -4,6 +4,8 @@ import { scopeForSource, positionAllows, retrievalFilter, normalizeScope } from 
 import { buildScriptDoc, buildInstructionDoc, buildLessonDoc, buildDocumentDoc } from "../src/lib/server/metric/documents";
 import { parseResponsePayload } from "../src/lib/server/metric/openai-parse";
 import { extractDocumentText, detectFormat, docxXmlToText, sanitizeFilename } from "../src/lib/server/metric/document-text";
+import { resolveMaxOutputTokens, DEFAULT_MAX_OUTPUT_TOKENS, MAX_OUTPUT_CEILING } from "../src/lib/server/metric/token-policy";
+import { isClickableSource } from "../src/lib/metric-source";
 import { checkMetricRate, _resetMetricRate } from "../src/lib/server/metric/rate-limit";
 import { buildSystemInstructions } from "../src/lib/server/metric/instructions";
 import type { ScriptDetailDTO, InstructionDetailDTO } from "../src/lib/api/knowledge-types";
@@ -308,6 +310,31 @@ test("document access: SALES-scoped document hidden from non-sales positions", (
   assert.deepEqual(retrievalFilter("ADMINISTRATOR"), { type: "eq", key: "positionScope", value: "ALL" });
 });
 
+/* --------------------------- output-token policy ------------------------ */
+
+test("A: default max output tokens is 2500", () => {
+  assert.equal(DEFAULT_MAX_OUTPUT_TOKENS, 2500);
+  assert.equal(resolveMaxOutputTokens(undefined), 2500);
+  assert.equal(resolveMaxOutputTokens(""), 2500);
+  assert.equal(resolveMaxOutputTokens("0"), 2500);
+});
+
+test("B: env override is honoured and clamped to the ceiling", () => {
+  assert.equal(resolveMaxOutputTokens("2000"), 2000);
+  assert.equal(resolveMaxOutputTokens("3000"), 3000);
+  assert.equal(resolveMaxOutputTokens("99999"), MAX_OUTPUT_CEILING);
+  assert.ok(MAX_OUTPUT_CEILING >= 2500);
+});
+
+/* -------------------- document source presentation ---------------------- */
+
+test("Q/R: DOCUMENT source is attribution-only; others stay clickable", () => {
+  assert.equal(isClickableSource("DOCUMENT"), false);
+  assert.equal(isClickableSource("ACADEMY"), true);
+  assert.equal(isClickableSource("SCRIPT"), true);
+  assert.equal(isClickableSource("INSTRUCTION"), true);
+});
+
 /* -------------------------- complete responses -------------------------- */
 
 test("O: a completed response is not marked truncated", () => {
@@ -363,3 +390,16 @@ test("S: continuation cannot target another user's message (404)", skip, () => {
 test("T: continuation appends without duplicating prior content", skip, () => {});
 test("U: timeout/error does not persist a broken partial as a successful complete answer", skip, () => {});
 test("W: DB stores a long response without clipping", skip, () => {});
+// Continuation (fixed): deterministic last-message + preserved grounding/access
+test("contE: continuation only on the caller's own conversation", skip, () => {});
+test("contF: another user's conversation/message is denied", skip, () => {});
+test("contG: continuation resends history + question + partial answer as context", skip, () => {});
+test("contH: continuation keeps file_search + position filter (grounding/access)", skip, () => {});
+test("contI: a completed continuation clears isTruncated (button disappears)", skip, () => {});
+test("contJ: a still-incomplete continuation keeps the button", skip, () => {});
+test("contK: continuation appends without duplicating the prior text", skip, () => {});
+test("contL: continuation failure leaves the original message intact", skip, () => {});
+test("contN: server logs a safe continuation diagnostic (no secret/PII)", skip, () => {});
+// Documents visibility
+test("S: employees have no raw document viewer route", skip, () => {});
+test("T: ADMIN document management is unaffected", skip, () => {});
