@@ -21,7 +21,7 @@ export async function GET() {
           include: {
             lessons: {
               orderBy: { order: "asc" },
-              select: { id: true, title: true, slug: true, status: true, order: true, xpReward: true, isRequired: true },
+              select: { id: true, title: true, slug: true, status: true, order: true, xpReward: true, isRequired: true, durationMinutes: true },
             },
           },
         },
