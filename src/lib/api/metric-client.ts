@@ -1,7 +1,7 @@
 import { ApiError } from "./client";
 import type {
   MetricConversationDTO, MetricChatResultDTO, MetricStatusDTO,
-  MetricDocumentsPayload, MetricDocumentDetailDTO, EmployeeDocumentDTO,
+  MetricDocumentsPayload, MetricDocumentDetailDTO,
 } from "./metric-types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -29,7 +29,6 @@ export const metricApi = {
     request<MetricChatResultDTO>("/api/metric/chat", { method: "POST", body: JSON.stringify({ text, conversationId }) }),
   continue: (conversationId: string) =>
     request<MetricChatResultDTO>("/api/metric/chat/continue", { method: "POST", body: JSON.stringify({ conversationId }) }),
-  document: (id: string) => request<{ document: EmployeeDocumentDTO }>(`/api/knowledge/documents/${id}`),
   // ADMIN
   status: () => request<MetricStatusDTO>("/api/control/metric/status"),
   sync: () => request<{ synced: number; removed: number }>("/api/control/metric/sync", { method: "POST" }),

@@ -11,6 +11,7 @@ import { hapticSelection } from "@/lib/telegram";
 import { useApp } from "@/providers/app-provider";
 import { ApiError } from "@/lib/api/client";
 import { metricApi } from "@/lib/api/metric-client";
+import { isClickableSource } from "@/lib/metric-source";
 import type { MetricMessageDTO, MetricSourceDTO } from "@/lib/api/metric-types";
 
 const SUGGESTIONS = [
@@ -201,14 +202,24 @@ function MessageBubble({ message }: { message: MetricMessageDTO }) {
                 {message.sources.map((s, i) => {
                   const meta = SOURCE_META[s.sourceType];
                   const Icon = meta.icon;
-                  return (
-                    <Link key={i} href={s.href} className="flex items-center gap-2.5 rounded-2xl border border-border bg-card px-3 py-2.5 transition-colors hover:border-brand/40">
+                  const inner = (
+                    <>
                       <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-brand/12"><Icon className="size-4 text-brand" /></span>
                       <span className="min-w-0 flex-1">
                         <span className="block text-xs font-semibold text-muted-foreground">{meta.label}</span>
                         <span className="block truncate text-sm font-medium">{s.title}</span>
                       </span>
+                    </>
+                  );
+                  // Documents are attribution-only — not clickable, no link affordance.
+                  return isClickableSource(s.sourceType) ? (
+                    <Link key={i} href={s.href} className="flex items-center gap-2.5 rounded-2xl border border-border bg-card px-3 py-2.5 transition-colors hover:border-brand/40">
+                      {inner}
                     </Link>
+                  ) : (
+                    <div key={i} className="flex items-center gap-2.5 rounded-2xl border border-border bg-card px-3 py-2.5">
+                      {inner}
+                    </div>
                   );
                 })}
               </div>

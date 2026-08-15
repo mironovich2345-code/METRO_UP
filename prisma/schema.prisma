@@ -875,6 +875,9 @@ model MetricConversation {
 
 model MetricMessage {
   id               String            @id @default(uuid()) @db.Uuid
+  /// Monotonic insertion order — reliable within-transaction ordering (createdAt
+  /// is transaction-scoped and ties between the user + assistant of one turn).
+  seq              Int               @default(autoincrement())
   conversationId   String            @db.Uuid
   role             MetricMessageRole
   content          String
@@ -888,6 +891,7 @@ model MetricMessage {
   conversation MetricConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@index([conversationId, createdAt])
+  @@index([conversationId, seq])
   @@map("metric_messages")
 }
 
