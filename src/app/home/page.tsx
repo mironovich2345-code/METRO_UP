@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
@@ -113,12 +114,21 @@ export default function HomeScreen() {
     <div className="relative min-h-[100dvh] pb-32">
       <header className="brand-aura px-5 pb-2 pt-[calc(env(safe-area-inset-top)+16px)]">
         <div className="flex items-center gap-3">
-          <Avatar name={profile.displayName} src={telegramUser.photoUrl} size={48} ring />
-          <div className="min-w-0 flex-1">
-            <p className="text-xs font-medium text-muted-foreground">{greeting},</p>
-            <h1 className="truncate text-xl font-extrabold tracking-tight text-foreground">{firstName}</h1>
-            {identity && <p className="truncate text-xs font-medium text-muted-foreground">{identity}</p>}
-          </div>
+          {/* User block → Profile (Profile is no longer a bottom-nav tab). Large
+              tap zone; a subtle chevron signals it's interactive. */}
+          <Link
+            href="/profile"
+            aria-label="Открыть профиль"
+            className="-m-1 flex min-w-0 flex-1 items-center gap-3 rounded-2xl p-1 transition-colors active:bg-foreground/5"
+          >
+            <Avatar name={profile.displayName} src={telegramUser.photoUrl} size={48} ring />
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-medium text-muted-foreground">{greeting},</p>
+              <h1 className="truncate text-xl font-extrabold tracking-tight text-foreground">{firstName}</h1>
+              {identity && <p className="truncate text-xs font-medium text-muted-foreground">{identity}</p>}
+            </div>
+            <ChevronRight className="size-4 shrink-0 text-muted-foreground/50" />
+          </Link>
           <ThemeSwitcher />
         </div>
       </header>
