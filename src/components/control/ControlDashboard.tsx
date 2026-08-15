@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, BarChart3, BookOpen, Eye, GraduationCap, ListChecks, ScrollText, Trophy, UserCog, Users } from "lucide-react";
+import { ArrowRight, BarChart3, BookOpen, Bot, Eye, GraduationCap, ListChecks, ScrollText, Trophy, UserCog, Users } from "lucide-react";
 import type { AppRole } from "@prisma/client";
 import { canAccessAdmin, canAccessSpm, canManageClub } from "@/lib/roles";
 import { adminApi, type AdminDashboard } from "@/lib/api/content-client";
@@ -22,6 +22,7 @@ const CARDS: CardDef[] = [
   { key: "scripts", title: "Скрипты", description: "Рабочие сценарии разговоров для менеджеров", href: "/control/scripts", cta: "Открыть скрипты", icon: ScrollText, can: canAccessAdmin },
   { key: "instructions", title: "Инструкции", description: "Регламенты и рабочие инструкции для смены", href: "/control/instructions", cta: "Открыть инструкции", icon: BookOpen, can: canAccessAdmin },
   { key: "users", title: "Сотрудники", description: "Роли, должности и клубы сотрудников", href: "/control/users", cta: "Открыть сотрудников", icon: UserCog, can: canAccessAdmin },
+  { key: "metric", title: "Метрик", description: "Статус синхронизации базы знаний с ИИ-помощником", href: "/control/metric", cta: "Открыть Метрик", icon: Bot, can: canAccessAdmin },
   { key: "plan", title: "План дня", description: "Операционные задачи сотрудников вашего клуба", href: "/control/plan", cta: "Открыть план дня", icon: ListChecks, can: canManageClub },
   { key: "team", title: "Команда", description: "Сотрудники клуба и их прогресс", href: "/control/team", cta: "Открыть команду", icon: Users, can: canManageClub },
   { key: "sales", title: "Продажи", description: "Личные планы и фактические продажи менеджеров", href: "/spm/sales", cta: "Открыть продажи", icon: BarChart3, can: canAccessSpm },

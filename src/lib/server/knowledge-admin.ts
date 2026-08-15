@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "./db";
 import { AuthError } from "./authz";
 import { writeAudit } from "./audit";
+import { onKnowledgeChanged } from "./metric/knowledge-sync";
 import { slugify } from "./content";
 import {
   scriptContentSchema,
@@ -221,6 +222,7 @@ export async function publishScript(actorUserId: string, id: string): Promise<Sc
     include: { category: { select: { title: true } } },
   });
   await writeAudit(prisma, { actorUserId, entityType: "Script", entityId: id, action: "PUBLISH" });
+  onKnowledgeChanged("SCRIPT", id);
   return toScriptDetailDTO(updated);
 }
 
@@ -236,6 +238,7 @@ export async function setScriptStatus(actorUserId: string, id: string, status: "
     actorUserId, entityType: "Script", entityId: id,
     action: status === "ARCHIVED" ? "ARCHIVE" : "UNPUBLISH",
   });
+  onKnowledgeChanged("SCRIPT", id);
   return toScriptDetailDTO(updated);
 }
 
@@ -393,6 +396,7 @@ export async function publishInstruction(actorUserId: string, id: string): Promi
     include: { category: { select: { title: true } } },
   });
   await writeAudit(prisma, { actorUserId, entityType: "WorkInstruction", entityId: id, action: "PUBLISH" });
+  onKnowledgeChanged("INSTRUCTION", id);
   return toInstructionDetailDTO(updated);
 }
 
@@ -408,5 +412,6 @@ export async function setInstructionStatus(actorUserId: string, id: string, stat
     actorUserId, entityType: "WorkInstruction", entityId: id,
     action: status === "ARCHIVED" ? "ARCHIVE" : "UNPUBLISH",
   });
+  onKnowledgeChanged("INSTRUCTION", id);
   return toInstructionDetailDTO(updated);
 }

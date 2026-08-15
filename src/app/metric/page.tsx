@@ -1,102 +1,209 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { motion } from "framer-motion";
-import { Send } from "lucide-react";
+import { AlertCircle, BookOpen, GraduationCap, RotateCcw, ScrollText, Send } from "lucide-react";
 import { MetricCharacter } from "@/components/ui/metric-character";
 import { BottomNavigation } from "@/components/bottom-navigation";
 import { cardIn, staggerStack } from "@/lib/motion";
 import { hapticSelection } from "@/lib/telegram";
+import { useApp } from "@/providers/app-provider";
+import { ApiError } from "@/lib/api/client";
+import { metricApi } from "@/lib/api/metric-client";
+import type { MetricMessageDTO, MetricSourceDTO } from "@/lib/api/metric-types";
 
-/**
- * Metric — UI foundation for the future Metric AI. No LLM / API / RAG is wired
- * up yet: sending never fabricates an answer, it only shows a neutral
- * "coming soon" note. The layout is the real screen the AI will later plug into.
- */
-const EXAMPLES = [
+const SUGGESTIONS = [
   "Что входит в клубную карту?",
   "Как обработать заявку с сайта?",
   "Что сказать клиенту про пробное посещение?",
-  "Как действовать в этой ситуации?",
+  "Объясни преимущества MetroFitness",
 ];
 
-export default function MetricScreen() {
-  const [input, setInput] = useState("");
-  const [notice, setNotice] = useState(false);
+const SOURCE_META: Record<MetricSourceDTO["sourceType"], { label: string; icon: typeof BookOpen }> = {
+  ACADEMY: { label: "Академия", icon: GraduationCap },
+  SCRIPT: { label: "Скрипт", icon: ScrollText },
+  INSTRUCTION: { label: "Инструкция", icon: BookOpen },
+};
 
-  const send = () => {
-    if (!input.trim()) return;
+export default function MetricScreen() {
+  const { profile } = useApp();
+  const firstName = profile?.displayName?.split(" ")[0] ?? "";
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [ready, setReady] = useState(true);
+  const [messages, setMessages] = useState<MetricMessageDTO[]>([]);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [input, setInput] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    metricApi.conversation()
+      .then((c) => { setMessages(c.messages); setConversationId(c.conversationId); setReady(c.ready); setStatus("ready"); })
+      .catch(() => setStatus("error"));
+  }, []);
+
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, sending]);
+
+  const send = useCallback(async (raw: string) => {
+    const text = raw.trim();
+    if (!text || sending || !ready) return;
     hapticSelection();
-    setNotice(true); // no fake AI response — neutral not-ready state only
-  };
+    setSendError(null);
+    setInput("");
+    // Optimistic user bubble.
+    const optimistic: MetricMessageDTO = { id: `local-${Date.now()}`, role: "USER", content: text, sources: [], createdAt: new Date().toISOString() };
+    setMessages((m) => [...m, optimistic]);
+    setSending(true);
+    try {
+      const r = await metricApi.chat(text, conversationId ?? undefined);
+      setConversationId(r.conversationId);
+      // Replace optimistic with the real pair by refetching would be heavy; just append the assistant.
+      setMessages((m) => [...m, r.message]);
+    } catch (e) {
+      setMessages((m) => m.filter((x) => x.id !== optimistic.id));
+      setInput(text);
+      if (e instanceof ApiError && e.status === 429) setSendError("Слишком много сообщений подряд. Подожди немного.");
+      else if (e instanceof ApiError && e.status === 503) { setReady(false); setSendError(null); }
+      else setSendError("Не удалось получить ответ. Попробуй ещё раз.");
+    } finally {
+      setSending(false);
+    }
+  }, [sending, ready, conversationId]);
+
+  const empty = messages.length === 0;
 
   return (
-    <div className="relative min-h-[100dvh] pb-44">
-      <motion.main
-        variants={staggerStack}
-        initial="hidden"
-        animate="show"
-        className="flex flex-col items-center px-5 pt-[calc(env(safe-area-inset-top)+28px)] text-center"
-      >
-        {/* Headroom + overflow-visible so the mascot's marker above its head is not clipped */}
-        <motion.div variants={cardIn} className="overflow-visible pt-2">
-          <MetricCharacter size={108} mood="happy" />
-        </motion.div>
+    <div className="relative flex min-h-[100dvh] flex-col pb-[calc(env(safe-area-inset-bottom)+150px)]">
+      <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-border/60 bg-background/85 px-5 pb-3 pt-[calc(env(safe-area-inset-top)+12px)] backdrop-blur-xl">
+        <span className="overflow-visible"><MetricCharacter size={40} animated={false} /></span>
+        <div className="min-w-0 flex-1">
+          <p className="text-base font-extrabold leading-tight">Метрик</p>
+          <p className="truncate text-xs text-muted-foreground">ИИ-помощник METRO UP</p>
+        </div>
+      </header>
 
-        <motion.span variants={cardIn} className="mt-4 rounded-full bg-brand/12 px-3 py-1 text-xs font-semibold text-brand">
-          Скоро
-        </motion.span>
-        <motion.h1 variants={cardIn} className="mt-3 text-2xl font-extrabold tracking-tight">Метрик</motion.h1>
-        <motion.p variants={cardIn} className="mt-0.5 text-sm font-medium text-muted-foreground">ИИ-помощник METRO UP</motion.p>
-        <motion.p variants={cardIn} className="mt-3 max-w-[320px] text-[15px] leading-relaxed text-muted-foreground">
-          Помогу найти ответ по работе, обучению и стандартам MetroFitness.
-        </motion.p>
+      <main className="flex-1 px-4 pt-4">
+        {status === "loading" && <div className="space-y-3">{[0, 1].map((i) => <div key={i} className="h-16 animate-pulse rounded-2xl bg-muted" />)}</div>}
+        {status === "error" && <p className="mt-8 text-center text-sm text-muted-foreground">Не удалось загрузить Метрика.</p>}
 
-        <motion.div variants={cardIn} className="mt-7 w-full max-w-[440px]">
-          <p className="px-1 pb-2 text-left text-xs font-bold uppercase tracking-wide text-muted-foreground">Примеры вопросов</p>
-          <div className="space-y-2">
-            {EXAMPLES.map((q) => (
-              <button
-                key={q}
-                onClick={() => { hapticSelection(); setInput(q); setNotice(false); }}
-                className="flex w-full items-center gap-2 rounded-2xl border border-border bg-card px-4 py-3 text-left text-[15px] transition-colors hover:border-brand/40"
-              >
-                <span className="min-w-0 flex-1">{q}</span>
-              </button>
-            ))}
+        {status === "ready" && !ready && (
+          <div className="mt-6 rounded-3xl border border-border bg-card p-6 text-center">
+            <p className="font-semibold">Метрик временно недоступен</p>
+            <p className="mt-1 text-sm text-muted-foreground">Скоро снова сможет отвечать на вопросы.</p>
           </div>
-        </motion.div>
-      </motion.main>
+        )}
 
-      {/* Composer — sits above the bottom nav; sending shows a neutral note only. */}
-      <div className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+96px)] z-30 px-4">
-        <div className="mx-auto max-w-[460px]">
-          {notice && (
-            <div className="mb-2 rounded-2xl border border-border bg-card px-4 py-2.5 text-center text-sm text-muted-foreground shadow-[var(--shadow-float)]">
-              Метрик скоро будет готов отвечать на вопросы.
-            </div>
-          )}
-          <div className="flex items-center gap-2 rounded-2xl border border-border bg-card p-1.5 shadow-[var(--shadow-float)]">
-            <input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") send(); }}
-              placeholder="Спросите Метрика…"
-              className="min-w-0 flex-1 bg-transparent px-3 py-2 text-[15px] text-foreground outline-none placeholder:text-muted-foreground"
-            />
-            <button
-              onClick={send}
-              disabled={!input.trim()}
-              aria-label="Отправить"
-              className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-brand text-brand-foreground transition-opacity disabled:opacity-40"
-            >
-              <Send className="size-4" />
-            </button>
+        {status === "ready" && ready && empty && (
+          <motion.div variants={staggerStack} initial="hidden" animate="show" className="space-y-5">
+            <motion.div variants={cardIn} className="rounded-3xl border border-border bg-card p-5">
+              <p className="text-[15px] leading-relaxed">
+                Привет{firstName ? `, ${firstName}` : ""} 👋<br />
+                Я Метрик. Можешь спросить меня о работе, обучении или ситуации с клиентом.
+              </p>
+              <p className="mt-2 text-sm text-muted-foreground">Помогу разобраться в работе, продукте и стандартах MetroFitness.</p>
+            </motion.div>
+            <motion.div variants={cardIn} className="space-y-2">
+              {SUGGESTIONS.map((q) => (
+                <button key={q} onClick={() => send(q)} className="flex w-full items-center gap-2 rounded-2xl border border-border bg-card px-4 py-3 text-left text-[15px] transition-colors hover:border-brand/40">
+                  {q}
+                </button>
+              ))}
+            </motion.div>
+          </motion.div>
+        )}
+
+        {status === "ready" && !empty && (
+          <div className="space-y-4">
+            {messages.map((m) => <MessageBubble key={m.id} message={m} />)}
+            {sending && <TypingBubble />}
+            {sendError && (
+              <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card px-4 py-3">
+                <span className="flex items-center gap-2 text-sm text-muted-foreground"><AlertCircle className="size-4" /> {sendError}</span>
+                <button onClick={() => send(input)} disabled={!input.trim()} className="flex items-center gap-1 rounded-xl bg-brand px-3 py-1.5 text-sm font-semibold text-brand-foreground disabled:opacity-40">
+                  <RotateCcw className="size-3.5" /> Ещё раз
+                </button>
+              </div>
+            )}
           </div>
+        )}
+        <div ref={bottomRef} />
+      </main>
+
+      {/* Composer above the bottom nav */}
+      <div className="fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+92px)] z-30 px-4">
+        <div className="mx-auto flex max-w-[460px] items-end gap-2 rounded-2xl border border-border bg-card p-1.5 shadow-[var(--shadow-float)]">
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value.slice(0, 2000))}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); } }}
+            placeholder={ready ? "Спроси Метрика…" : "Метрик временно недоступен"}
+            rows={1}
+            disabled={!ready || sending}
+            className="max-h-28 min-h-[40px] min-w-0 flex-1 resize-none bg-transparent px-3 py-2 text-[15px] text-foreground outline-none placeholder:text-muted-foreground disabled:opacity-60"
+          />
+          <button
+            onClick={() => send(input)}
+            disabled={!ready || sending || !input.trim()}
+            aria-label="Отправить"
+            className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-brand text-brand-foreground transition-opacity disabled:opacity-40"
+          >
+            <Send className="size-4" />
+          </button>
         </div>
       </div>
 
       <BottomNavigation />
+    </div>
+  );
+}
+
+function MessageBubble({ message }: { message: MetricMessageDTO }) {
+  const isUser = message.role === "USER";
+  return (
+    <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className={isUser ? "flex justify-end" : "flex justify-start"}>
+      <div className={isUser ? "max-w-[85%] rounded-2xl rounded-br-md bg-brand px-4 py-2.5 text-[15px] text-brand-foreground" : "max-w-[92%] space-y-2"}>
+        {isUser ? (
+          <p className="whitespace-pre-line">{message.content}</p>
+        ) : (
+          <>
+            <div className="rounded-2xl rounded-bl-md border border-border bg-card px-4 py-3 text-[15px] leading-relaxed">
+              <p className="whitespace-pre-line">{message.content}</p>
+            </div>
+            {message.sources.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="px-1 text-xs font-semibold text-muted-foreground">Источники</p>
+                {message.sources.map((s, i) => {
+                  const meta = SOURCE_META[s.sourceType];
+                  const Icon = meta.icon;
+                  return (
+                    <Link key={i} href={s.href} className="flex items-center gap-2.5 rounded-2xl border border-border bg-card px-3 py-2.5 transition-colors hover:border-brand/40">
+                      <span className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-brand/12"><Icon className="size-4 text-brand" /></span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-xs font-semibold text-muted-foreground">{meta.label}</span>
+                        <span className="block truncate text-sm font-medium">{s.title}</span>
+                      </span>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+function TypingBubble() {
+  return (
+    <div className="flex justify-start">
+      <div className="flex items-center gap-1 rounded-2xl rounded-bl-md border border-border bg-card px-4 py-3">
+        {[0, 1, 2].map((i) => (
+          <motion.span key={i} className="size-2 rounded-full bg-muted-foreground/60" animate={{ opacity: [0.3, 1, 0.3] }} transition={{ duration: 1, repeat: Infinity, delay: i * 0.15 }} />
+        ))}
+      </div>
     </div>
   );
 }
