@@ -137,17 +137,17 @@ test("L: rate limit allows a burst then blocks within the window", () => {
 
 /* --------------------------- system instructions ------------------------ */
 
+const INSTR = buildSystemInstructions({
+  displayName: "Даниил", roleTitle: "Сотрудник", positionTitle: "Менеджер по работе с клиентами",
+  cityName: "Екатеринбург", clubName: "Клуб 1", scriptsAllowed: true,
+});
+
 test("H: system instructions carry only safe context (no telegram id / tokens)", () => {
-  const s = buildSystemInstructions({
-    displayName: "Даниил", roleTitle: "Сотрудник", positionTitle: "Менеджер по работе с клиентами",
-    cityName: "Екатеринбург", clubName: "Клуб 1", scriptsAllowed: true,
-  });
-  assert.match(s, /Метрик/);
-  assert.match(s, /Даниил/);
-  assert.match(s, /НЕ придумывай корпоративные факты/);
-  assert.doesNotMatch(s, /telegram/i);
-  assert.doesNotMatch(s, /token/i);
-  assert.doesNotMatch(s, /OPENAI/i);
+  assert.match(INSTR, /Метрик/);
+  assert.match(INSTR, /Даниил/);
+  assert.doesNotMatch(INSTR, /telegram/i);
+  assert.doesNotMatch(INSTR, /token/i);
+  assert.doesNotMatch(INSTR, /OPENAI/i);
 });
 
 test("system instructions add a script restriction for positions without access", () => {
@@ -156,6 +156,48 @@ test("system instructions add a script restriction for positions without access"
     cityName: null, clubName: null, scriptsAllowed: false,
   });
   assert.match(restricted, /недоступны продажные скрипты/);
+});
+
+/* ------------------- grounding policy (three levels) -------------------- */
+
+test("grounding 1: corporate facts only from retrieved METRO UP materials", () => {
+  assert.ok(INSTR.includes("ТОЛЬКО если оно прямо подтверждено найденными материалами METRO UP"));
+  assert.ok(INSTR.includes("Такие факты бери только из найденной базы"));
+});
+
+test("grounding 2: no false attribution to a source", () => {
+  assert.ok(INSTR.includes("Не создавай ложную атрибуцию источнику"));
+  assert.ok(INSTR.includes("означает только то, что источник использовался"));
+  assert.ok(INSTR.includes("Не приписывай такой вывод источнику"));
+});
+
+test("grounding 3: general AI abilities are explicitly allowed", () => {
+  assert.ok(INSTR.includes("рассуждать, объяснять, сокращать, переформулировать"));
+  assert.ok(INSTR.includes("помогай своими общими знаниями"));
+});
+
+test("grounding 4: missing corporate info is stated explicitly", () => {
+  assert.ok(INSTR.includes("прямо скажи об этом"));
+  assert.ok(INSTR.includes("В базе METRO UP пока нет утверждённого материала"));
+});
+
+test("grounding 5: general advice is not called a MetroFitness regulation", () => {
+  assert.ok(INSTR.includes("это общий совет, а не регламент MetroFitness"));
+});
+
+test("grounding 6: prices/promos must not be invented", () => {
+  assert.ok(INSTR.includes("Никогда не выдумывай цену, акцию, условие или процедуру"));
+});
+
+test("grounding 7: sensitive topics without a source are not turned into an invented procedure", () => {
+  assert.ok(INSTR.includes("возвраты, договоры, касса"));
+  assert.ok(INSTR.includes("НЕ давай конкретную процедуру как факт без подтверждающего источника METRO UP"));
+  assert.ok(INSTR.includes("направь к ответственному"));
+});
+
+test("grounding 8: adapting an existing script is allowed, but new company terms are not invented", () => {
+  assert.ok(INSTR.includes("адаптируй формулировку под ситуацию"));
+  assert.ok(INSTR.includes("новые условия, цены или правила компании при этом не придумывай"));
 });
 
 /* ------------------ integration scenarios (require Postgres/OpenAI) ------ */
