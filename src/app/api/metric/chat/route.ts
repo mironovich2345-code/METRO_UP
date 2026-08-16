@@ -33,23 +33,36 @@ export async function POST(req: NextRequest) {
     return jsonError(500, "internal_error");
   }
 
+  // One controller aborts the upstream OpenAI request the moment the client goes
+  // away — whether the browser aborts the request (req.signal) or the response
+  // stream is cancelled (cancel()). Without this, an abandoned request keeps
+  // generating server-side and pegs the CPU.
+  const ac = new AbortController();
+  const abort = () => ac.abort();
+  if (req.signal.aborted) ac.abort();
+  else req.signal.addEventListener("abort", abort, { once: true });
+
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
       const send = (obj: unknown) => {
-        try { controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`)); } catch { /* client gone — server still finishes + persists */ }
+        try { controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`)); } catch { /* client gone — enqueue on a closed stream */ }
       };
       try {
-        const result = await metricChatStream(user, input, (text) => send({ type: "delta", text }));
+        const result = await metricChatStream(user, input, (text) => send({ type: "delta", text }), ac.signal);
         send({ type: "done", conversationId: result.conversationId, message: result.message, rolePlayActive: result.rolePlayActive });
       } catch (e) {
-        const code = e instanceof AuthError ? e.code : "ai_error";
-        console.error(`[metric] chat_failed ${code}`);
+        // AbortError on client disconnect is expected — not a server fault.
+        const code = e instanceof AuthError ? e.code : ac.signal.aborted ? "aborted" : "ai_error";
+        if (code !== "aborted") console.error(`[metric] chat_failed ${code}`);
         send({ type: "error", code });
       } finally {
+        req.signal.removeEventListener("abort", abort);
         try { controller.close(); } catch { /* already closed */ }
       }
     },
+    // Fired when the consumer cancels the SSE response (e.g. client disconnect).
+    cancel() { ac.abort(); },
   });
 
   return new Response(stream, {

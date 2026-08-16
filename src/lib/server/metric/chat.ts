@@ -96,6 +96,7 @@ async function runTurn(
   input: { text: string; conversationId?: string },
   deps: ChatDeps,
   onDelta?: (text: string) => void,
+  signal?: AbortSignal,
 ): Promise<MetricChatResultDTO> {
   const t0 = Date.now();
   const env = deps.env ?? getMetricEnv();
@@ -134,8 +135,8 @@ async function runTurn(
   const tReq = Date.now();
   let firstDeltaMs = 0;
   const result = onDelta
-    ? await transport.streamResponse(reqInput, (txt) => { if (!firstDeltaMs) firstDeltaMs = Date.now() - tReq; onDelta(txt); })
-    : await transport.createResponse(reqInput);
+    ? await transport.streamResponse(reqInput, (txt) => { if (!firstDeltaMs) firstDeltaMs = Date.now() - tReq; onDelta(txt); }, signal)
+    : await transport.createResponse(reqInput, signal);
   const tAI = Date.now();
 
   if (!result.text) throw new AuthError(502, "empty_response", "Пустой ответ");
@@ -168,14 +169,19 @@ export function metricChat(user: CurrentUser, input: { text: string; conversatio
   return runTurn(user, input, deps);
 }
 
-/** Streaming variant — `onDelta` receives incremental text as it arrives. */
+/**
+ * Streaming variant — `onDelta` receives incremental text as it arrives.
+ * `signal` aborts the upstream OpenAI request when the client disconnects, so a
+ * request the user abandoned never keeps generating (and burning CPU) server-side.
+ */
 export function metricChatStream(
   user: CurrentUser,
   input: { text: string; conversationId?: string },
   onDelta: (text: string) => void,
+  signal?: AbortSignal,
   deps: ChatDeps = {},
 ): Promise<MetricChatResultDTO> {
-  return runTurn(user, input, deps, onDelta);
+  return runTurn(user, input, deps, onDelta, signal);
 }
 
 /**
