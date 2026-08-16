@@ -6,7 +6,8 @@ import type { ScriptDetailDTO, InstructionDetailDTO, InstructionBlockDTO } from 
 import { normalizeScope, type MetricSourceType } from "./access";
 import type { MetricStatusDTO, MetricSyncCountsDTO, MetricSourceTypeDTO } from "@/lib/api/metric-types";
 import { buildScriptDoc, buildInstructionDoc, buildLessonDoc, buildDocumentDoc, type KnowledgeDoc } from "./documents";
-import { httpTransport, type MetricTransport, MetricOpenAiError } from "./openai";
+import { httpTransport, type MetricTransport, type VectorStoreFileStatus, MetricOpenAiError } from "./openai";
+import { indexStatusToSyncStatus } from "./sync-status";
 import { getMetricEnv, isMetricReady } from "./env";
 
 /**
@@ -23,6 +24,27 @@ function safeError(e: unknown): string {
   if (e instanceof MetricOpenAiError) return e.message;
   if (e instanceof Error) return e.name;
   return "sync_error";
+}
+
+// A vector-store file indexes asynchronously after attach. Poll until it is
+// terminal (completed/failed) or the budget elapses; only "completed" is
+// retrievable. Bounded so a slow/stuck file never blocks forever.
+const INDEX_POLL_MS = 2000;
+const INDEX_BUDGET_MS = 45_000;
+
+async function waitForIndexing(deps: SyncDeps, fileId: string): Promise<VectorStoreFileStatus> {
+  const deadline = Date.now() + INDEX_BUDGET_MS;
+  for (;;) {
+    let status: VectorStoreFileStatus;
+    try {
+      status = await deps.transport.getVectorStoreFileStatus(deps.vectorStoreId, fileId);
+    } catch {
+      return "unknown"; // transient — treat as not-yet-ready (PENDING), retryable
+    }
+    if (status === "completed" || status === "failed" || status === "cancelled") return status;
+    if (Date.now() >= deadline) return status; // still in_progress → PENDING
+    await new Promise((r) => setTimeout(r, INDEX_POLL_MS));
+  }
 }
 
 /* ------------------------- published source → doc ------------------------ */
@@ -90,15 +112,29 @@ export async function syncSource(sourceType: MetricSourceType, sourceId: string,
   try {
     const { fileId } = await deps.transport.uploadKnowledgeFile(doc.filename, doc.content);
     const { vectorStoreFileId } = await deps.transport.attachToVectorStore(deps.vectorStoreId, fileId, doc.attributes);
-    // Replace the previous file (best-effort; never blocks the new one).
-    if (existing?.vectorStoreFileId && existing.openaiFileId) {
+    // Only mark SYNCED once OpenAI has finished INDEXING the file — an attached
+    // but still-indexing file is not retrievable, so reporting it as synced makes
+    // a published document invisible to file_search.
+    const indexStatus = await waitForIndexing(deps, fileId);
+    const syncStatus = indexStatusToSyncStatus(indexStatus);
+    // Replace the previous file only once the new one is actually retrievable, so
+    // the old (working) file stays until the new one is indexed.
+    if (syncStatus === "SYNCED" && existing?.vectorStoreFileId && existing.openaiFileId && existing.openaiFileId !== fileId) {
       await deps.transport.removeFromVectorStore(deps.vectorStoreId, existing.openaiFileId).catch(() => {});
       await deps.transport.deleteFile(existing.openaiFileId).catch(() => {});
     }
     await prisma.knowledgeSyncRecord.update({
       where: { sourceType_sourceId: { sourceType, sourceId } },
-      data: { status: "SYNCED", openaiFileId: fileId, vectorStoreFileId, syncedAt: new Date(), lastErrorSafe: null },
+      data: {
+        status: syncStatus,
+        openaiFileId: fileId,
+        vectorStoreFileId,
+        syncedAt: syncStatus === "SYNCED" ? new Date() : null,
+        lastErrorSafe: syncStatus === "FAILED" ? `index_${indexStatus}` : null,
+      },
     });
+    // Safe diagnostics — type + statuses only, no content/PII.
+    console.info(`[metric] sync {type:"${sourceType}", index:"${indexStatus}", status:"${syncStatus}"}`);
   } catch (e) {
     await prisma.knowledgeSyncRecord.update({
       where: { sourceType_sourceId: { sourceType, sourceId } },

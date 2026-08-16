@@ -16,6 +16,8 @@ import { parseSSEBlock, splitSSE } from "../src/lib/server/metric/stream-parse";
 import { consumeSSEStream, SSEStreamError, type ByteReader } from "../src/lib/server/metric/stream-consume";
 import { metricMarkdownToRichDoc } from "../src/lib/metric-markdown";
 import { sliceHistory, SMOKE_SET, HISTORY_VARIANTS, RETRIEVAL_VARIANTS } from "../src/lib/server/metric/bench-config";
+import { groupAllowedCitations, assembleSources, type CitationRecord } from "../src/lib/server/metric/source-map";
+import { indexStatusToSyncStatus, isRetrievableSyncStatus } from "../src/lib/server/metric/sync-status";
 import type { ScriptDetailDTO, InstructionDetailDTO } from "../src/lib/api/knowledge-types";
 import type { LessonBlockDTO } from "../src/lib/api/content-types";
 
@@ -448,6 +450,120 @@ test("document access: SALES-scoped document hidden from non-sales positions", (
   assert.deepEqual(retrievalFilter("ADMINISTRATOR"), { type: "eq", key: "positionScope", value: "ALL" });
 });
 
+/* ---------- DOCUMENT sync + retrieval + source mapping (this sprint) ----- */
+/*
+ * Regression for: a published DOCUMENT («Информационная страница КМ+ОМ») did not
+ * reach retrieval. Root-cause class: a source was reported SYNCED before OpenAI
+ * finished indexing (not retrievable), and the source-mapping / access path must
+ * treat DOCUMENT exactly like the other types.
+ */
+const seeAll = (scope: "ALL" | "SALES") => positionAllows("ADMINISTRATOR", scope);       // non-sales
+const seeSales = (scope: "ALL" | "SALES") => positionAllows("CLIENT_MANAGER", scope);     // sales
+const HREF = (t: string, slug: string) => (t === "DOCUMENT" ? "" : `/x/${slug}`);
+
+test("DOC-B: a DOCUMENT with ALL scope passes retrieval access for any position", () => {
+  assert.equal(positionAllows("ADMINISTRATOR", "ALL"), true);
+  // The vector-store filter for a non-sales position includes ALL.
+  assert.deepEqual(retrievalFilter("ADMINISTRATOR"), { type: "eq", key: "positionScope", value: "ALL" });
+  const rec: CitationRecord[] = [{ sourceType: "DOCUMENT", sourceId: "doc1", positionScope: "ALL", status: "SYNCED" }];
+  assert.deepEqual(groupAllowedCitations(rec, seeAll).DOCUMENT, ["doc1"]);
+});
+
+test("DOC-C: a SALES-scoped DOCUMENT is hidden from a non-sales position, shown to sales", () => {
+  const rec: CitationRecord[] = [{ sourceType: "DOCUMENT", sourceId: "s1", positionScope: "SALES", status: "SYNCED" }];
+  assert.deepEqual(groupAllowedCitations(rec, seeAll).DOCUMENT, []);     // administrator: excluded
+  assert.deepEqual(groupAllowedCitations(rec, seeSales).DOCUMENT, ["s1"]); // client manager: allowed
+});
+
+test("DOC-D/E/F: a DOCUMENT citation maps back to a source card — title kept, not clickable", () => {
+  const dtos = assembleSources(
+    [{ sourceType: "DOCUMENT", rows: [{ id: "doc1", title: "Информационная страница КМ+ОМ", slug: "doc1" }] }],
+    HREF,
+  );
+  assert.equal(dtos.length, 1);
+  assert.equal(dtos[0].sourceType, "DOCUMENT");
+  assert.equal(dtos[0].title, "Информационная страница КМ+ОМ"); // E: title preserved
+  assert.equal(dtos[0].href, ""); // F: DOCUMENT is attribution-only (non-clickable)
+});
+
+test("DOC-J: a FAILED/PENDING/unknown source is NOT retrievable; only completed→SYNCED", () => {
+  assert.equal(indexStatusToSyncStatus("completed"), "SYNCED");
+  assert.equal(indexStatusToSyncStatus("in_progress"), "PENDING");
+  assert.equal(indexStatusToSyncStatus("failed"), "FAILED");
+  assert.equal(indexStatusToSyncStatus("cancelled"), "FAILED");
+  assert.equal(indexStatusToSyncStatus("unknown"), "PENDING");
+  assert.equal(isRetrievableSyncStatus("SYNCED"), true);
+  assert.equal(isRetrievableSyncStatus("PENDING"), false);
+  assert.equal(isRetrievableSyncStatus("FAILED"), false);
+  // A cited-but-not-yet-indexed DOCUMENT never becomes a source card.
+  const rec: CitationRecord[] = [
+    { sourceType: "DOCUMENT", sourceId: "pending", positionScope: "ALL", status: "PENDING" },
+    { sourceType: "DOCUMENT", sourceId: "failed", positionScope: "ALL", status: "FAILED" },
+  ];
+  assert.deepEqual(groupAllowedCitations(rec, seeAll).DOCUMENT, []);
+});
+
+test("DOC-K/L: ACADEMY + DOCUMENT citations both map; two similar sources don't collide", () => {
+  // Mock retrieval response containing an Academy lesson AND the new document.
+  const records: CitationRecord[] = [
+    { sourceType: "ACADEMY", sourceId: "les1", positionScope: "ALL", status: "SYNCED" },
+    { sourceType: "DOCUMENT", sourceId: "doc1", positionScope: "ALL", status: "SYNCED" },
+  ];
+  const grouped = groupAllowedCitations(records, seeAll);
+  assert.deepEqual(grouped.ACADEMY, ["les1"]);
+  assert.deepEqual(grouped.DOCUMENT, ["doc1"]);
+  const dtos = assembleSources(
+    [
+      { sourceType: "ACADEMY", rows: [{ id: "les1", title: "Учебное пособие 2025", slug: "posobie" }] },
+      { sourceType: "DOCUMENT", rows: [{ id: "doc1", title: "Информационная страница КМ+ОМ", slug: "doc1" }] },
+    ],
+    HREF,
+  );
+  assert.equal(dtos.length, 2); // both survive — the DOCUMENT is not dropped
+  assert.ok(dtos.some((d) => d.sourceType === "ACADEMY" && d.href === "/x/posobie"));
+  assert.ok(dtos.some((d) => d.sourceType === "DOCUMENT" && d.title === "Информационная страница КМ+ОМ"));
+
+  // Two DOCUMENTs with different ids but similar titles both surface (no collision).
+  const two = assembleSources(
+    [{ sourceType: "DOCUMENT", rows: [
+      { id: "a", title: "Закрытие смены — КМ ООО", slug: "a" },
+      { id: "b", title: "Закрытие смены — КМ ИП", slug: "b" },
+    ] }],
+    HREF,
+  );
+  assert.equal(two.length, 2);
+  // A duplicate citation of the same source is de-duplicated to one card.
+  const dup = assembleSources(
+    [{ sourceType: "DOCUMENT", rows: [
+      { id: "a", title: "Док", slug: "a" }, { id: "a", title: "Док", slug: "a" },
+    ] }],
+    HREF,
+  );
+  assert.equal(dup.length, 1);
+});
+
+test("DOC-G: the DOCUMENT builder keeps title, category and the extracted body sections", () => {
+  const extracted = [
+    "Сотрудник закрывает смены ККТ, снимает чеки закрытия смены и сверки итогов эквайринга ООО/ИП.",
+    "По ним заполняет КМ ООО и КМ ИП, распечатывает и подписывает.",
+    "При расхождениях пишется объяснительная, прикрепляются чеки.",
+    "В чеке ККТ выделяется строка «Непереданных ФД».",
+    "Документ сканируется в JPEG и загружается в Архив, далее заполняется Отчет менеджера.",
+  ].join("\n");
+  const doc = buildDocumentDoc({
+    id: "doc1", title: "Информационная страница КМ+ОМ", description: "Закрытие смены",
+    category: "WORK_REGULATION", extractedText: extracted, positionScope: "ALL",
+    versionLabel: "ред. 2026", updatedAt: "2026-01-01T00:00:00.000Z",
+  });
+  assert.equal(doc.sourceType, "DOCUMENT");
+  assert.equal(doc.attributes.positionScope, "ALL");
+  assert.equal(doc.attributes.title, "Информационная страница КМ+ОМ");
+  // Title + every key phrase from the source survives into the indexed content.
+  for (const phrase of ["Информационная страница КМ+ОМ", "КМ ООО", "КМ ИП", "чеки закрытия смены", "сверки итогов эквайринга", "Непереданных ФД", "Архив", "Отчет менеджера", "JPEG"]) {
+    assert.match(doc.content, new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `builder must keep "${phrase}"`);
+  }
+});
+
 /* --------------------------- output-token policy ------------------------ */
 
 test("A: default max output tokens is 2500", () => {
@@ -518,6 +634,9 @@ test("docD: employee sees only PUBLISHED documents", skip, () => {});
 test("docF: original file metadata retained (storageKey/mime/size)", skip, () => {});
 test("docG: replacing a file re-syncs without duplicating the vector-store file", skip, () => {});
 test("docH: fullSync includes DOCUMENT sources", skip, () => {});
+test("docA2: publishing a DOCUMENT creates a KnowledgeSyncRecord (DOCUMENT) via onKnowledgeChanged", skip, () => {});
+test("docJ2: a DOCUMENT is only marked SYNCED once its vector-store file status == completed", skip, () => {});
+test("docI2: an ARCHIVED DOCUMENT is removed from retrieval (loadDoc filters PUBLISHED)", skip, () => {});
 test("docI: source card opens the employee /knowledge/documents/[id] route", skip, () => {});
 test("docJ: only ADMIN can create/edit/publish documents", skip, () => {});
 test("docK: an employee cannot upload a document", skip, () => {});
