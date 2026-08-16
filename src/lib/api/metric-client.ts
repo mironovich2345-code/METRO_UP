@@ -16,8 +16,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 /** Multipart request — never set Content-Type so the browser adds the boundary. */
-async function requestForm<T>(path: string, form: FormData, method = "POST"): Promise<T> {
-  const res = await fetch(path, { method, body: form, credentials: "same-origin" });
+async function requestForm<T>(path: string, form: FormData, method = "POST", timeoutMs = 90_000): Promise<T> {
+  // Client-side safety net: never leave the UI spinning forever if the server
+  // stalls. AbortSignal.timeout is supported by the Telegram WebView (Chromium).
+  let res: Response;
+  try {
+    res = await fetch(path, { method, body: form, credentials: "same-origin", signal: AbortSignal.timeout(timeoutMs) });
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "TimeoutError") throw new ApiError(504, "upload_timeout");
+    throw new ApiError(0, "network_error");
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError(res.status, data?.error ?? "error", data?.fields);
   return data as T;

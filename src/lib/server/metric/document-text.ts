@@ -15,6 +15,21 @@ export type ExtractOutcome =
 
 export const DOC_MAX_BYTES = 20 * 1024 * 1024; // 20 MB
 
+/*
+ * Extraction guards. PDF content is untrusted binary: a stream that is not clean
+ * FlateDecode falls back to raw bytes, and any operator scan must stay LINEAR and
+ * BOUNDED so a malformed / Google-generated PDF can never peg the CPU or block the
+ * event loop. These caps are the safety net on top of the (now linear) regexes.
+ */
+const PDF_BUDGET_MS = 2000;          // hard wall-clock ceiling for a single PDF
+const PDF_MAX_STREAMS = 5000;        // stop after this many content streams
+const PDF_MAX_STREAM_CHARS = 200_000; // chars of one stream fed to the regexes
+const PDF_MAX_TEXT_CHARS = 5_000_000;   // total extracted text ceiling
+// Upper bound on a single string/array operator. Real PDF text operators are far
+// shorter; capping the quantifier keeps each match O(1) so the overall scan is
+// linear even on adversarial binary (no O(n^2) from a group swallowing '[').
+const PDF_MAX_OP_CHARS = 2000;
+
 const MIME: Record<string, DocFormat> = {
   "text/plain": "txt",
   "text/markdown": "md",
@@ -92,18 +107,33 @@ function extractDocx(buf: Buffer): string {
 
 /* --------------------------------- pdf ---------------------------------- */
 
-/** Pull text-showing operator strings from a decoded PDF content stream. */
+/**
+ * Pull text-showing operator strings from a decoded PDF content stream.
+ *
+ * Every quantifier here must have DISJOINT alternatives so the regex stays linear
+ * on adversarial input. The `\\.` branch consumes an escaped pair; the negated
+ * class must therefore EXCLUDE the backslash, otherwise a run of backslashes can
+ * be partitioned two ways and the engine backtracks exponentially (the ReDoS that
+ * hung PDF uploads). Output is also capped so a huge stream can't blow up memory.
+ */
 export function pdfContentToText(content: string): string {
   let out = "";
-  // (string) Tj | (string) ' | (string) "
-  const tj = /\(((?:\\.|[^\\()])*)\)\s*(?:Tj|'|")/g;
+  // (string) Tj | (string) ' | (string) "   — '\\.' vs '[^\\()]' are disjoint,
+  // and the bounded quantifier keeps each match O(PDF_MAX_OP_CHARS).
+  const tj = new RegExp(`\\(((?:\\\\.|[^\\\\()]){0,${PDF_MAX_OP_CHARS}})\\)\\s*(?:Tj|'|")`, "g");
   let m: RegExpExecArray | null;
-  while ((m = tj.exec(content))) out += unescapePdf(m[1]);
-  // [ (a) -10 (b) ] TJ  → concatenate the string parts
-  const tjArr = /\[((?:[^\][]|\\.)*)\]\s*TJ/g;
+  while ((m = tj.exec(content))) {
+    out += unescapePdf(m[1]);
+    if (out.length > PDF_MAX_TEXT_CHARS) return out.slice(0, PDF_MAX_TEXT_CHARS);
+  }
+  // [ (a) -10 (b) ] TJ → concatenate the string parts. '[^\\[\]]' EXCLUDES the
+  // backslash (disjoint from '\\.', no exponential backtracking) and the bounded
+  // quantifier stops a group from scanning to end-of-buffer (no O(n^2)).
+  const tjArr = new RegExp(`\\[((?:\\\\.|[^\\\\[\\]]){0,${PDF_MAX_OP_CHARS}})\\]\\s*TJ`, "g");
   while ((m = tjArr.exec(content))) {
     const parts = m[1].match(/\(((?:\\.|[^\\()])*)\)/g) ?? [];
     for (const p of parts) out += unescapePdf(p.slice(1, -1));
+    if (out.length > PDF_MAX_TEXT_CHARS) return out.slice(0, PDF_MAX_TEXT_CHARS);
   }
   return out ? out + "\n" : "";
 }
@@ -117,16 +147,24 @@ function unescapePdf(s: string): string {
 function extractPdf(buf: Buffer): string {
   const s = buf.toString("latin1");
   const re = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
+  const deadline = Date.now() + PDF_BUDGET_MS;
   let out = "";
+  let streams = 0;
   let m: RegExpExecArray | null;
   while ((m = re.exec(s))) {
+    // Bounded loop: cap the number of streams and the total time. The per-stream
+    // regexes are linear, so this clock check is always reached promptly.
+    if (++streams > PDF_MAX_STREAMS || Date.now() > deadline) break;
     let content: string;
     try {
       content = inflateSync(Buffer.from(m[1], "latin1")).toString("latin1");
     } catch {
       content = m[1];
     }
+    // Never feed an unbounded raw stream to the regexes.
+    if (content.length > PDF_MAX_STREAM_CHARS) content = content.slice(0, PDF_MAX_STREAM_CHARS);
     out += pdfContentToText(content);
+    if (out.length > PDF_MAX_TEXT_CHARS) break;
   }
   return out;
 }
