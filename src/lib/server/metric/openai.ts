@@ -8,12 +8,18 @@ import "server-only";
  */
 
 import { parseResponsePayload, type CreateResponseResult } from "./openai-parse";
-import { parseSSEBlock, splitSSE } from "./stream-parse";
+import { consumeSSEStream } from "./stream-consume";
 export { parseResponsePayload };
 export type { CreateResponseResult };
 
 const OPENAI_BASE = "https://api.openai.com/v1";
 const DEFAULT_TIMEOUT_MS = 30_000;
+/**
+ * Hard ceiling for a single streaming turn. A backstop so a hung / non-closing
+ * upstream can never keep a request (and its read loop) alive forever. Generous
+ * because a slow OpenAI can legitimately take ~20–25s to a full answer.
+ */
+const STREAM_TIMEOUT_MS = 60_000;
 
 export type KnowledgeAttributes = Record<string, string | number | boolean>;
 
@@ -118,35 +124,37 @@ export function httpTransport(apiKey: string, timeoutMs = DEFAULT_TIMEOUT_MS): M
     },
 
     async streamResponse(input, onDelta, signal) {
-      const res = await fetch(`${OPENAI_BASE}/responses`, {
-        method: "POST",
-        headers: { ...authHeaders, "Content-Type": "application/json" },
-        body: JSON.stringify(buildResponseBody(input, true)),
-        signal,
-      });
-      if (!res.ok || !res.body) throw new MetricOpenAiError(res.status, `openai_${res.status}`);
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
-      let finalResponse: unknown = null;
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        const { blocks, rest } = splitSSE(buf);
-        buf = rest;
-        for (const block of blocks) {
-          const evt = parseSSEBlock(block);
-          if (!evt) continue;
-          if (evt.kind === "delta") onDelta(evt.text);
-          else if (evt.kind === "final") finalResponse = evt.response;
-          else if (evt.kind === "error") throw new MetricOpenAiError(500, "openai_stream_error");
-        }
+      // One AbortController drives everything: the caller's signal (client
+      // disconnect) OR our own timeout backstop aborts the fetch, which makes
+      // reader.read() reject and unwinds the loop. Without this the loop could
+      // spin/hang on a non-closing upstream and starve the event loop.
+      const ctrl = new AbortController();
+      const onAbort = () => ctrl.abort();
+      signal?.addEventListener("abort", onAbort);
+      const timer = setTimeout(() => ctrl.abort(), STREAM_TIMEOUT_MS);
+
+      let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+      try {
+        const res = await fetch(`${OPENAI_BASE}/responses`, {
+          method: "POST",
+          headers: { ...authHeaders, "Content-Type": "application/json" },
+          body: JSON.stringify(buildResponseBody(input, true)),
+          signal: ctrl.signal,
+        });
+        if (!res.ok || !res.body) throw new MetricOpenAiError(res.status, `openai_${res.status}`);
+        reader = res.body.getReader();
+        // The read loop (break-after-final + guaranteed reader cancel) lives in a
+        // pure, unit-tested module — see stream-consume.ts.
+        const finalResponse = await consumeSSEStream(reader, onDelta);
+        if (!finalResponse) throw new MetricOpenAiError(502, "openai_no_final");
+        return parseResponsePayload(finalResponse);
+      } finally {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", onAbort);
+        // Backstop: consumeSSEStream already cancels the reader; guard against the
+        // fetch-failed path where we never got one.
+        try { await reader?.cancel(); } catch { /* already released */ }
       }
-      const tail = parseSSEBlock(buf);
-      if (tail?.kind === "final") finalResponse = tail.response;
-      if (!finalResponse) throw new MetricOpenAiError(502, "openai_no_final");
-      return parseResponsePayload(finalResponse);
     },
 
     async uploadKnowledgeFile(filename, content) {

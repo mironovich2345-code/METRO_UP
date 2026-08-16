@@ -13,6 +13,7 @@ import {
   readRolePlayState, writeRolePlayState, rolePlayEqual,
 } from "../src/lib/server/metric/mode";
 import { parseSSEBlock, splitSSE } from "../src/lib/server/metric/stream-parse";
+import { consumeSSEStream, SSEStreamError, type ByteReader } from "../src/lib/server/metric/stream-consume";
 import { metricMarkdownToRichDoc } from "../src/lib/metric-markdown";
 import type { ScriptDetailDTO, InstructionDetailDTO } from "../src/lib/api/knowledge-types";
 import type { LessonBlockDTO } from "../src/lib/api/content-types";
@@ -588,6 +589,67 @@ test("v2-D: splitSSE returns complete blocks and keeps the partial remainder buf
   const { blocks, rest } = splitSSE("data: a\n\ndata: b\n\ndata: par");
   assert.deepEqual(blocks, ["data: a", "data: b"]);
   assert.equal(rest, "data: par"); // partial block not yet emitted (no double newline)
+});
+
+/* ------------- D2. stream consumer lifecycle (CPU incident) ------------- */
+/*
+ * Regression for the v2 production incident: the SSE read loop kept reading a
+ * stream the upstream left open after `response.completed`, which spun the CPU
+ * to ~100% and starved the Node event loop (ordinary routes → 499). The consumer
+ * must (1) stop reading the instant the final event arrives and (2) always cancel
+ * the reader. A fake reader models each upstream behaviour.
+ */
+const _enc = new TextEncoder();
+const _DELTA = (t: string) => `event: response.output_text.delta\ndata: ${JSON.stringify({ type: "response.output_text.delta", delta: t })}\n\n`;
+const _FINAL = `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response: { id: "r9", status: "completed" } })}\n\n`;
+
+function fakeReader(scripted: string[], afterEnd?: () => { done: boolean; value?: Uint8Array }) {
+  const state = { cancelled: false, reads: 0 };
+  let i = 0;
+  const reader: ByteReader = {
+    async read() {
+      state.reads++;
+      if (state.reads > 100_000) throw new Error("SPUN: reader kept being read past the final event");
+      if (i < scripted.length) return { done: false, value: _enc.encode(scripted[i++]) };
+      if (afterEnd) return afterEnd();
+      return { done: true };
+    },
+    async cancel() { state.cancelled = true; },
+  };
+  return { reader, state };
+}
+
+test("D2: consumer returns the final response, emits every delta, and cancels the reader", async () => {
+  const { reader, state } = fakeReader([_DELTA("При"), _DELTA("вет"), _FINAL, "DONE-IGNORED"]);
+  const deltas: string[] = [];
+  const final = await consumeSSEStream(reader, (t) => deltas.push(t));
+  assert.deepEqual(deltas, ["При", "вет"]);
+  assert.deepEqual(final, { id: "r9", status: "completed" });
+  assert.equal(state.cancelled, true); // socket released
+});
+
+test("D2: consumer STOPS reading after the final event — never spins on a non-closing upstream", async () => {
+  // This reader would hand out keep-alive frames forever after the final event.
+  // A correct consumer breaks right after `_FINAL` and never pulls the flood.
+  const { reader, state } = fakeReader([_DELTA("hi"), _FINAL], () => ({ done: false, value: _enc.encode(": keep-alive\n\n") }));
+  const final = await consumeSSEStream(reader, () => {});
+  assert.deepEqual(final, { id: "r9", status: "completed" });
+  assert.ok(state.reads <= 3, `must stop right after final; got ${state.reads} reads`);
+  assert.equal(state.cancelled, true);
+});
+
+test("D2: an upstream error event throws SSEStreamError and still cancels the reader", async () => {
+  const errEvt = `data: ${JSON.stringify({ type: "response.failed" })}\n\n`;
+  const { reader, state } = fakeReader([_DELTA("x"), errEvt], () => ({ done: false, value: _enc.encode(": ping\n\n") }));
+  await assert.rejects(consumeSSEStream(reader, () => {}), (e) => e instanceof SSEStreamError);
+  assert.equal(state.cancelled, true);
+});
+
+test("D2: a stream that closes without a final event returns null (caller rejects → safe error)", async () => {
+  const { reader, state } = fakeReader([_DELTA("partial")]); // then done, no final
+  const final = await consumeSSEStream(reader, () => {});
+  assert.equal(final, null);
+  assert.equal(state.cancelled, true);
 });
 
 /* --------------------------- E. safe markdown --------------------------- */
