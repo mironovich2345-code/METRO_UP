@@ -75,7 +75,11 @@ export type InstructionBlockDTO =
   | { id: string; type: "CHECKLIST"; title: string | null; items: { id: string; text: string }[] }
   | { id: string; type: "INFO_CARD"; title: string | null; text: string }
   | { id: string; type: "WARNING"; title: string | null; text: string }
-  | { id: string; type: "STEPS"; title: string | null; steps: { id: string; text: string }[] };
+  | { id: string; type: "STEPS"; title: string | null; steps: { id: string; text: string }[] }
+  // `mediaAssetId` is the stored reference; `url` is resolved server-side on read
+  // (null while the upload is not READY / the asset is missing). No storage URL is
+  // ever persisted in the block content.
+  | { id: string; type: "IMAGE"; mediaAssetId: string | null; url: string | null; alt: string | null; caption: string | null };
 
 export interface InstructionCategoryDTO {
   id: string;

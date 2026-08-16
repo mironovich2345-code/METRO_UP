@@ -5,6 +5,7 @@ import { AuthError } from "./authz";
 import { writeAudit } from "./audit";
 import { onKnowledgeChanged } from "./metric/knowledge-sync";
 import { slugify } from "./content";
+import { resolveInstructionBlocks } from "./knowledge-media";
 import {
   scriptContentSchema,
   instructionBlocksSchema,
@@ -28,7 +29,6 @@ import type {
   InstructionCategoryDTO,
   InstructionAdminRowDTO,
   InstructionAdminDetailDTO,
-  InstructionBlockDTO,
 } from "@/lib/api/knowledge-types";
 
 /**
@@ -62,11 +62,6 @@ function parseScriptContent(raw: unknown): ScriptContentDTO {
   return (parsed.success ? parsed.data : EMPTY_CONTENT) as ScriptContentDTO;
 }
 
-function parseBlocks(raw: unknown): InstructionBlockDTO[] {
-  const parsed = instructionBlocksSchema.safeParse(raw);
-  const blocks = normalizeBlocks(parsed.success ? parsed.data : []);
-  return blocks as InstructionBlockDTO[];
-}
 
 /* --------------------------- script categories --------------------------- */
 
@@ -304,14 +299,14 @@ function toInstructionRowDTO(w: {
   };
 }
 
-function toInstructionDetailDTO(w: {
+async function toInstructionDetailDTO(w: {
   id: string; title: string; slug: string; categoryId: string; status: string; order: number; updatedAt: Date;
   summary: string | null; blocks: unknown; publishedAt: Date | null; category?: { title: string };
-}): InstructionAdminDetailDTO {
+}): Promise<InstructionAdminDetailDTO> {
   return {
     ...toInstructionRowDTO(w),
     summary: w.summary,
-    blocks: parseBlocks(w.blocks),
+    blocks: await resolveInstructionBlocks(w.blocks),
     publishedAt: w.publishedAt ? w.publishedAt.toISOString() : null,
   };
 }

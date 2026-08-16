@@ -92,6 +92,18 @@ const blockSteps = z.object({
   title: z.string().trim().max(200).optional().nullable(),
   steps: z.array(z.object({ id: z.string().optional(), text: listItem })).max(50),
 });
+// A single reference screenshot. Only a media-asset reference + alt/caption are
+// persisted — never a storage URL or binary (the URL is resolved on read). Any
+// derived field the client may send (e.g. `url`) is stripped by zod.
+const blockImage = z.object({
+  id: z.string().optional(),
+  type: z.literal("IMAGE"),
+  // A valid media-asset id, or absent while the block is still an empty draft.
+  // Must be a real UUID when present (it is used directly in a DB lookup).
+  mediaAssetId: z.string().uuid().nullable().optional(),
+  alt: z.string().trim().max(300).optional().nullable(),
+  caption: z.string().trim().max(300).optional().nullable(),
+});
 
 export const instructionBlockSchema = z.discriminatedUnion("type", [
   blockText,
@@ -99,11 +111,12 @@ export const instructionBlockSchema = z.discriminatedUnion("type", [
   blockInfoCard,
   blockWarning,
   blockSteps,
+  blockImage,
 ]);
 export type InstructionBlock = z.infer<typeof instructionBlockSchema>;
 export const instructionBlocksSchema = z.array(instructionBlockSchema).max(100);
 
-export const INSTRUCTION_BLOCK_TYPES = ["TEXT", "STEPS", "CHECKLIST", "INFO_CARD", "WARNING"] as const;
+export const INSTRUCTION_BLOCK_TYPES = ["TEXT", "STEPS", "CHECKLIST", "INFO_CARD", "WARNING", "IMAGE"] as const;
 
 export const instructionCreateSchema = z.object({
   categoryId: z.string().uuid(),
@@ -134,6 +147,8 @@ export function blockHasContent(b: InstructionBlock): boolean {
     case "INFO_CARD":
     case "WARNING":
       return b.text.trim().length > 0;
+    case "IMAGE":
+      return typeof b.mediaAssetId === "string" && b.mediaAssetId.trim().length > 0;
     default:
       return false;
   }

@@ -32,10 +32,13 @@ export function MediaUploadField({
   kind,
   currentId,
   onUploaded,
+  onLocalPreview,
 }: {
   kind: "VIDEO" | "IMAGE";
   currentId?: string | null;
   onUploaded: (mediaAssetId: string) => void;
+  /** Optional: receives a local object URL for the picked file (instant preview). */
+  onLocalPreview?: (objectUrl: string) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [state, setState] = useState<"idle" | "uploading" | "done" | "error">(currentId ? "done" : "idle");
@@ -45,6 +48,7 @@ export function MediaUploadField({
   const onPick = async (file: File) => {
     setState("uploading");
     setError(null);
+    if (onLocalPreview) { try { onLocalPreview(URL.createObjectURL(file)); } catch { /* no preview */ } }
     try {
       const hints = kind === "VIDEO" ? await readVideoMeta(file) : {};
       const { mediaAssetId } = await uploadFile(file, hints);
