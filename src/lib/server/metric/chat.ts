@@ -9,7 +9,8 @@ import { getCityById, getClubById } from "@/content/cities";
 import type { MetricChatResultDTO, MetricSourceDTO, MetricSourceTypeDTO } from "@/lib/api/metric-types";
 import { getMetricEnv, isMetricReady, type MetricEnv } from "./env";
 import { httpTransport, MetricOpenAiError, type MetricTransport, type ChatMessage } from "./openai";
-import { retrievalFilter, positionAllows, type PositionScope } from "./access";
+import { retrievalFilter, positionAllows } from "./access";
+import { groupAllowedCitations, assembleSources } from "./source-map";
 import { buildSystemInstructions, type EmployeeContext } from "./instructions";
 import { classifyMode, needsRetrieval, nextRolePlayState, readRolePlayState, writeRolePlayState, rolePlayEqual } from "./mode";
 import { getOrCreateActiveConversation, requireOwnConversation, getRecentMessages, appendMessages, extendAssistantMessage } from "./conversations";
@@ -40,13 +41,10 @@ export const CONTINUE_DIRECTIVE =
 /** Map OpenAI file citations back to our sources, re-checking access server-side. */
 async function mapSources(citedFileIds: string[], position: EmployeePosition | null): Promise<MetricSourceDTO[]> {
   if (citedFileIds.length === 0) return [];
-  const records = await prisma.knowledgeSyncRecord.findMany({
-    where: { openaiFileId: { in: citedFileIds }, status: "SYNCED" },
-  });
-  const allowed = records.filter((r) => positionAllows(position, r.positionScope as PositionScope));
-
-  const byType: Record<MetricSourceTypeDTO, string[]> = { ACADEMY: [], SCRIPT: [], INSTRUCTION: [], DOCUMENT: [] };
-  for (const r of allowed) byType[r.sourceType as MetricSourceTypeDTO].push(r.sourceId);
+  // Fetch every cited record; the retrievable(SYNCED)+access filtering is pure and
+  // unit-tested in source-map.ts, so a FAILED/PENDING source never becomes a card.
+  const records = await prisma.knowledgeSyncRecord.findMany({ where: { openaiFileId: { in: citedFileIds } } });
+  const byType = groupAllowedCitations(records, (scope) => positionAllows(position, scope));
 
   const [scripts, instructions, lessons, documents] = await Promise.all([
     byType.SCRIPT.length ? prisma.script.findMany({ where: { id: { in: byType.SCRIPT }, status: "PUBLISHED" }, select: { id: true, title: true, slug: true } }) : Promise.resolve([]),
@@ -55,21 +53,15 @@ async function mapSources(citedFileIds: string[], position: EmployeePosition | n
     byType.DOCUMENT.length ? prisma.metricKnowledgeDocument.findMany({ where: { id: { in: byType.DOCUMENT }, status: "PUBLISHED" }, select: { id: true, title: true } }) : Promise.resolve([]),
   ]);
 
-  const out: MetricSourceDTO[] = [];
-  const seen = new Set<string>();
-  const add = (t: MetricSourceTypeDTO, rows: { id: string; title: string; slug: string }[]) => {
-    for (const row of rows) {
-      const key = `${t}:${row.id}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push({ sourceType: t, title: row.title, href: HREF[t](row.slug) });
-    }
-  };
-  add("ACADEMY", lessons);
-  add("SCRIPT", scripts);
-  add("INSTRUCTION", instructions);
-  add("DOCUMENT", documents.map((d) => ({ id: d.id, title: d.title, slug: d.id })));
-  return out.slice(0, 4);
+  return assembleSources(
+    [
+      { sourceType: "ACADEMY", rows: lessons },
+      { sourceType: "SCRIPT", rows: scripts },
+      { sourceType: "INSTRUCTION", rows: instructions },
+      { sourceType: "DOCUMENT", rows: documents.map((d) => ({ id: d.id, title: d.title, slug: d.id })) },
+    ],
+    (t, slug) => HREF[t](slug),
+  );
 }
 
 function contextFor(user: CurrentUser): EmployeeContext {
@@ -141,6 +133,14 @@ async function runTurn(
 
   if (!result.text) throw new AuthError(502, "empty_response", "Пустой ответ");
   const sources = await mapSources(result.citedFileIds, position);
+
+  // Safe retrieval diagnostics — mode, whether retrieval ran, how many citations
+  // came back, and which source TYPES + titles were surfaced. No question text, no
+  // chunk text, no document content, no PII, no key. Titles are corporate labels.
+  if (useFileSearch) {
+    const surfaced = sources.map((s) => `${s.sourceType}:${s.title.slice(0, 48)}`);
+    console.info(`[metric] retrieval {mode:"${decision.mode}", used:true, citations:${result.citedFileIds.length}, sources:${JSON.stringify(surfaced)}}`);
+  }
 
   // Persist role-play state only when it changed (start/exit).
   const nextRp = nextRolePlayState(decision.mode, rp);

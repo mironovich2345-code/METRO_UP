@@ -45,11 +45,16 @@ export interface CreateResponseInput {
   useFileSearch?: boolean;
 }
 
+/** OpenAI vector-store file indexing status (from the file object's `status`). */
+export type VectorStoreFileStatus = "completed" | "in_progress" | "failed" | "cancelled" | "unknown";
+
 export interface MetricTransport {
   createResponse(input: CreateResponseInput, signal?: AbortSignal): Promise<CreateResponseResult>;
   streamResponse(input: CreateResponseInput, onDelta: (text: string) => void, signal?: AbortSignal): Promise<CreateResponseResult>;
   uploadKnowledgeFile(filename: string, content: string): Promise<{ fileId: string }>;
   attachToVectorStore(vectorStoreId: string, fileId: string, attributes: KnowledgeAttributes): Promise<{ vectorStoreFileId: string }>;
+  /** The file's indexing status inside the vector store — only "completed" is retrievable. */
+  getVectorStoreFileStatus(vectorStoreId: string, fileId: string): Promise<VectorStoreFileStatus>;
   removeFromVectorStore(vectorStoreId: string, fileId: string): Promise<void>;
   deleteFile(fileId: string): Promise<void>;
   createVectorStore(name: string): Promise<{ id: string }>;
@@ -172,6 +177,16 @@ export function httpTransport(apiKey: string, timeoutMs = DEFAULT_TIMEOUT_MS): M
     async attachToVectorStore(vectorStoreId, fileId, attributes) {
       const j = (await jsonRequest(`/vector_stores/${vectorStoreId}/files`, { file_id: fileId, attributes })) as { id: string };
       return { vectorStoreFileId: j.id };
+    },
+
+    async getVectorStoreFileStatus(vectorStoreId, fileId) {
+      const res = await withTimeout(timeoutMs, (s) =>
+        fetch(`${OPENAI_BASE}/vector_stores/${vectorStoreId}/files/${fileId}`, { headers: authHeaders, signal: s }),
+      );
+      if (!res.ok) throw new MetricOpenAiError(res.status, `openai_vsfile_${res.status}`);
+      const j = (await res.json()) as { status?: string };
+      const s = j.status;
+      return s === "completed" || s === "in_progress" || s === "failed" || s === "cancelled" ? s : "unknown";
     },
 
     async removeFromVectorStore(vectorStoreId, fileId) {
