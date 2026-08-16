@@ -109,6 +109,12 @@ export function buildInstructionDoc(w: InstructionDetailDTO, updatedAt: string):
       case "WARNING":
         parts.push(section(b.title ? `ПРЕДУПРЕЖДЕНИЕ — ${b.title}` : "ПРЕДУПРЕЖДЕНИЕ", b.text));
         break;
+      case "IMAGE": {
+        // Index ONLY the human caption/alt text — never the storage URL or binary.
+        const label = (b.caption ?? b.alt ?? "").trim();
+        if (label) parts.push(`[Изображение: ${label}]\n`);
+        break;
+      }
     }
   }
   return {

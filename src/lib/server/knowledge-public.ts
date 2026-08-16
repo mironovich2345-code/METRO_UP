@@ -1,7 +1,8 @@
 import "server-only";
 import { prisma } from "./db";
 import { AuthError } from "./authz";
-import { scriptContentSchema, instructionBlocksSchema, normalizeBlocks } from "./knowledge-schemas";
+import { scriptContentSchema } from "./knowledge-schemas";
+import { resolveInstructionBlocks } from "./knowledge-media";
 import { SCRIPT_POSITIONS, canAccessScripts } from "@/lib/knowledge-access";
 import type {
   EmployeeScriptsPayload,
@@ -9,7 +10,6 @@ import type {
   ScriptContentDTO,
   EmployeeInstructionsPayload,
   InstructionDetailDTO,
-  InstructionBlockDTO,
 } from "@/lib/api/knowledge-types";
 
 /**
@@ -23,11 +23,6 @@ export { SCRIPT_POSITIONS, canAccessScripts };
 function parseScriptContent(raw: unknown): ScriptContentDTO {
   const parsed = scriptContentSchema.safeParse(raw);
   return (parsed.success ? parsed.data : scriptContentSchema.parse({})) as ScriptContentDTO;
-}
-
-function parseBlocks(raw: unknown): InstructionBlockDTO[] {
-  const parsed = instructionBlocksSchema.safeParse(raw);
-  return normalizeBlocks(parsed.success ? parsed.data : []) as InstructionBlockDTO[];
 }
 
 /* -------------------------------- scripts -------------------------------- */
@@ -90,7 +85,7 @@ export async function getEmployeeInstructionBySlug(slug: string): Promise<Instru
   return {
     id: w.id, title: w.title, slug: w.slug, summary: w.summary,
     categoryId: w.categoryId, categoryTitle: w.category.title,
-    blocks: parseBlocks(w.blocks),
+    blocks: await resolveInstructionBlocks(w.blocks),
     updatedAt: w.updatedAt.toISOString(),
   };
 }

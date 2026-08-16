@@ -1,11 +1,13 @@
 import { AlertTriangle, Info, ListChecks, ListOrdered } from "lucide-react";
 import { RichText } from "@/components/academy/lesson/RichText";
+import { InstructionImage } from "@/components/knowledge/InstructionImage";
 import type { InstructionBlockDTO } from "@/lib/api/knowledge-types";
 
 /**
- * Renders structured instruction blocks (TEXT/STEPS/CHECKLIST/INFO_CARD/WARNING).
- * Shared by the admin preview and the employee reader. CHECKLIST is a reference
- * list only — it has NO interactive completion state (Daily Plan is separate).
+ * Renders structured instruction blocks (TEXT/STEPS/CHECKLIST/INFO_CARD/WARNING/
+ * IMAGE). Shared by the admin preview and the employee reader. CHECKLIST is a
+ * reference list only — it has NO interactive completion state (Daily Plan is
+ * separate). IMAGE shows a screenshot with click-to-enlarge.
  */
 export function InstructionBlocksView({ blocks }: { blocks: InstructionBlockDTO[] }) {
   return (
@@ -56,6 +58,8 @@ export function InstructionBlocksView({ blocks }: { blocks: InstructionBlockDTO[
                 <p className="mt-1 text-[15px] leading-relaxed text-foreground">{b.text}</p>
               </div>
             );
+          case "IMAGE":
+            return <InstructionImage key={b.id} url={b.url} alt={b.alt} caption={b.caption} />;
           default:
             return null;
         }

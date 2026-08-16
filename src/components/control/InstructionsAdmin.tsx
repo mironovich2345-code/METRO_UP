@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, ChevronDown, ChevronUp, Eye, Info, ListChecks, ListOrdered, Pencil, Plus, Trash2, Type, X } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronUp, Eye, Image as ImageIcon, Info, ListChecks, ListOrdered, Pencil, Plus, Trash2, Type, X } from "lucide-react";
 import { ApiError } from "@/lib/api/client";
 import { instructionsAdminApi } from "@/lib/api/knowledge-client";
 import type { InstructionAdminRowDTO, InstructionCategoryDTO, InstructionAdminDetailDTO, InstructionBlockDTO } from "@/lib/api/knowledge-types";
 import { Field, TextArea, TextInput, StatusBadge, InlineCreate, fieldCls } from "@/components/admin/ui";
 import { RichTextField, StringListEditor } from "@/components/control/knowledge-ui";
+import { MediaUploadField } from "@/components/admin/MediaUploadField";
 import { InstructionBlocksView } from "@/components/knowledge/InstructionBlocksView";
 import { Modal } from "@/components/control/Modal";
 
@@ -25,6 +26,7 @@ function newBlock(type: InstructionBlockDTO["type"]): InstructionBlockDTO {
     case "CHECKLIST": return { id, type, title: "", items: [] };
     case "INFO_CARD": return { id, type, title: "", text: "" };
     case "WARNING": return { id, type, title: "", text: "" };
+    case "IMAGE": return { id, type, mediaAssetId: null, url: null, alt: "", caption: "" };
   }
 }
 
@@ -141,6 +143,7 @@ const ADD_BUTTONS: { type: InstructionBlockDTO["type"]; label: string; icon: typ
   { type: "CHECKLIST", label: "Чек-лист", icon: ListChecks },
   { type: "INFO_CARD", label: "Важная информация", icon: Info },
   { type: "WARNING", label: "Предупреждение", icon: AlertTriangle },
+  { type: "IMAGE", label: "Изображение", icon: ImageIcon },
 ];
 
 function InstructionEditor({
@@ -266,7 +269,7 @@ function InstructionEditor({
 }
 
 const BLOCK_LABEL: Record<InstructionBlockDTO["type"], string> = {
-  TEXT: "Текст", STEPS: "Шаги", CHECKLIST: "Чек-лист", INFO_CARD: "Важная информация", WARNING: "Предупреждение",
+  TEXT: "Текст", STEPS: "Шаги", CHECKLIST: "Чек-лист", INFO_CARD: "Важная информация", WARNING: "Предупреждение", IMAGE: "Изображение",
 };
 
 function BlockCard({
@@ -310,6 +313,40 @@ function BlockCard({
           <p className="text-xs text-muted-foreground">Справочный чек-лист. Не создаёт задачу в плане дня.</p>
         </div>
       )}
+      {block.type === "IMAGE" && <ImageBlockEditor block={block} readonly={readonly} onChange={onChange} />}
+    </div>
+  );
+}
+
+function ImageBlockEditor({
+  block, readonly, onChange,
+}: {
+  block: Extract<InstructionBlockDTO, { type: "IMAGE" }>;
+  readonly: boolean;
+  onChange: (patch: Partial<InstructionBlockDTO>) => void;
+}) {
+  // Prefer the server-resolved URL; after a fresh upload show a local object URL.
+  const [preview, setPreview] = useState<string | null>(block.url);
+  return (
+    <div className="space-y-2">
+      {!readonly && (
+        <MediaUploadField
+          kind="IMAGE"
+          currentId={block.mediaAssetId || undefined}
+          onUploaded={(id) => onChange({ mediaAssetId: id })}
+          onLocalPreview={(u) => setPreview(u)}
+        />
+      )}
+      {preview ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={preview} alt={block.alt ?? ""} className="max-h-64 w-auto max-w-full rounded-2xl border border-border object-contain" />
+      ) : (
+        <p className="rounded-2xl border border-dashed border-border px-4 py-6 text-center text-xs text-muted-foreground">
+          Загрузите изображение (JPEG, PNG или WebP)
+        </p>
+      )}
+      <TextInput value={block.alt ?? ""} disabled={readonly} onChange={(e) => onChange({ alt: e.target.value })} placeholder="Alt-текст для доступности (необязательно)" />
+      <TextInput value={block.caption ?? ""} disabled={readonly} onChange={(e) => onChange({ caption: e.target.value })} placeholder="Подпись, напр. «Кнопка “Журнал платежей” в CRAFT» (необязательно)" />
     </div>
   );
 }
