@@ -51,8 +51,34 @@ export function sanitizeFilename(name: string): string {
   return (base || "document").slice(0, 200);
 }
 
-function normalize(text: string): string {
-  return text.replace(/\r\n/g, "\n").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+/*
+ * Characters that must be stripped before text is stored / indexed: NUL (U+0000,
+ * fatal for PostgreSQL TEXT — SQLSTATE 22021) plus the other non-printable C0
+ * control characters and DEL (U+007F). TAB (9), LF (10) and CR (13) are KEPT so
+ * line breaks and tabs survive. The class is built from code points so the source
+ * file contains no literal control bytes and no fragile escape sequences.
+ */
+const cc = String.fromCharCode;
+const CONTROL_CHARS_RE = new RegExp(
+  `[${cc(0)}-${cc(8)}${cc(11)}${cc(12)}${cc(14)}-${cc(31)}${cc(127)}]`,
+  "g",
+);
+
+/**
+ * The SINGLE normalization every extracted document passes through before it is
+ * stored (PostgreSQL) and later indexed (RAG). It is PostgreSQL-safe: PostgreSQL
+ * TEXT rejects the NUL byte, which routinely appears in text extracted from PDFs
+ * that encode strings as 2-byte / Identity font codes (e.g. Google Sheets exports).
+ * Every real Unicode character (Cyrillic, Latin, punctuation, emoji, …) is left
+ * untouched — this is NOT an ASCII-only filter.
+ */
+export function sanitizeExtractedText(text: string): string {
+  return text
+    .replace(CONTROL_CHARS_RE, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 export function extractDocumentText(mime: string, filename: string, buf: Buffer): ExtractOutcome {
@@ -64,7 +90,9 @@ export function extractDocumentText(mime: string, filename: string, buf: Buffer)
     if (fmt === "txt" || fmt === "md") text = buf.toString("utf8");
     else if (fmt === "docx") text = extractDocx(buf);
     else text = extractPdf(buf);
-    text = normalize(text);
+    // Sanitize BEFORE the emptiness check so a document that is only NUL/control
+    // noise is correctly rejected as no_text (never stored, never indexed).
+    text = sanitizeExtractedText(text);
     if (!text.trim()) return { ok: false, reason: "no_text" };
     return { ok: true, text };
   } catch {

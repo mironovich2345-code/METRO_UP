@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { scopeForSource, positionAllows, retrievalFilter, normalizeScope } from "../src/lib/server/metric/access";
 import { buildScriptDoc, buildInstructionDoc, buildLessonDoc, buildDocumentDoc } from "../src/lib/server/metric/documents";
 import { parseResponsePayload } from "../src/lib/server/metric/openai-parse";
-import { extractDocumentText, detectFormat, docxXmlToText, sanitizeFilename, pdfContentToText } from "../src/lib/server/metric/document-text";
+import { extractDocumentText, detectFormat, docxXmlToText, sanitizeFilename, pdfContentToText, sanitizeExtractedText } from "../src/lib/server/metric/document-text";
 import { resolveMaxOutputTokens, DEFAULT_MAX_OUTPUT_TOKENS, MAX_OUTPUT_CEILING } from "../src/lib/server/metric/token-policy";
 import { isClickableSource } from "../src/lib/metric-source";
 import { checkMetricRate, _resetMetricRate } from "../src/lib/server/metric/rate-limit";
@@ -332,6 +332,75 @@ test("PDF-D: a malformed PDF (stream without endstream) does not hang", () => {
   const ms = performance.now() - t;
   assert.equal(res.ok, false); // no complete stream → no text
   assert.ok(ms < 2000, `malformed pdf must not hang; took ${ms.toFixed(0)}ms`);
+});
+
+/* -------- PostgreSQL-safe sanitization of extracted text (NUL byte) ------ */
+/*
+ * Regression for SQLSTATE 22021 ("invalid byte sequence for encoding UTF8:
+ * 0x00"): PDFs that encode strings as 2-byte / Identity font codes (e.g. Google
+ * Sheets exports) yield extracted text containing NUL bytes, which PostgreSQL TEXT
+ * rejects. sanitizeExtractedText() is the single choke point every format passes
+ * through before storage AND before RAG indexing.
+ */
+const NUL = String.fromCharCode(0);
+
+test("SAN-A: NUL between words is removed", () => {
+  const out = sanitizeExtractedText(`Привет${NUL} мир`);
+  assert.equal(out, "Привет мир");
+  assert.equal(out.includes(NUL), false);
+});
+
+test("SAN-B: Russian Unicode is preserved intact", () => {
+  const s = "Абонемент — 24/7: зал, бассейн и групповые «занятия».";
+  assert.equal(sanitizeExtractedText(s), s);
+});
+
+test("SAN-C: English / general Unicode is preserved intact", () => {
+  const s = "Club rules: open 7–23 (24/7). Café ☕ €10 — ok.";
+  assert.equal(sanitizeExtractedText(s), s);
+});
+
+test("SAN-D: newlines and tabs are not destroyed (only CRLF folded to LF)", () => {
+  assert.equal(sanitizeExtractedText("a\tb\nc\r\nd"), "a\tb\nc\nd");
+  assert.match(sanitizeExtractedText("line1\nline2"), /line1\nline2/);
+});
+
+test("SAN-E: text that is only NUL/control noise becomes empty (→ no_text upstream)", () => {
+  const out = sanitizeExtractedText(NUL + String.fromCharCode(1) + String.fromCharCode(7) + String.fromCharCode(127));
+  assert.equal(out, "");
+});
+
+test("SAN-F: PDF extraction containing NUL returns PostgreSQL-safe text", () => {
+  // A Tj string with NUL bytes between letters (as 2-byte-encoded PDFs produce).
+  const stream = `BT (H${NUL}e${NUL}l${NUL}l${NUL}o${NUL} ${NUL}M${NUL}i${NUL}r${NUL}) Tj ET`;
+  const buf = Buffer.from(`%PDF-1.4\n4 0 obj<</Length ${stream.length}>>\nstream\n${stream}\nendstream\nendobj\n%%EOF`, "latin1");
+  const res = extractDocumentText("application/pdf", "g.pdf", buf);
+  assert.equal(res.ok, true);
+  if (res.ok) {
+    assert.equal(res.text.includes(NUL), false);
+    assert.match(res.text, /Hello Mir/);
+  }
+});
+
+test("SAN-G: TXT and MD go through the same sanitizer (NUL stripped, text kept)", () => {
+  const txt = extractDocumentText("text/plain", "a.txt", Buffer.from(`Правила${NUL} клуба`, "utf8"));
+  assert.equal(txt.ok, true);
+  if (txt.ok) { assert.equal(txt.text.includes(NUL), false); assert.match(txt.text, /Правила клуба/); }
+  const md = extractDocumentText("text/markdown", "a.md", Buffer.from(`# Заголовок${NUL}\nтекст`, "utf8"));
+  assert.equal(md.ok, true);
+  if (md.ok) assert.equal(md.text.includes(NUL), false);
+});
+
+test("SAN-H: a document that is only NUL after extraction is rejected as no_text", () => {
+  const res = extractDocumentText("text/plain", "z.txt", Buffer.from(NUL + NUL + NUL, "utf8"));
+  assert.equal(res.ok, false);
+  if (!res.ok) assert.equal(res.reason, "no_text");
+});
+
+test("SAN-invariant: sanitized output never contains a NUL byte (varied inputs)", () => {
+  for (const s of ["", NUL, `a${NUL}b`, "чистый текст", "x".repeat(1000) + NUL, `${NUL}\n\t ${NUL}end`]) {
+    assert.equal(sanitizeExtractedText(s).includes(NUL), false, `input ${JSON.stringify(s)}`);
+  }
 });
 
 test("M: a file with no extractable text is rejected (no silent empty index)", () => {
