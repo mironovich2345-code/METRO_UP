@@ -61,28 +61,50 @@ function toDetail(d: {
   };
 }
 
+interface IngestResult {
+  storageKey: string; extractedText: string; mimeType: string; fileSize: number; originalFileName: string;
+  timing: { extractMs: number; uploadMs: number };
+}
+
 /** Validate + extract + store the original in R2. Returns fields for create/replace. */
-async function ingestFile(file: DocFileInput): Promise<{ storageKey: string; extractedText: string; mimeType: string; fileSize: number; originalFileName: string }> {
-  if (!detectFormat(file.mimeType, file.filename)) throw new AuthError(400, "unsupported_format", "Поддерживаются PDF, DOCX, TXT, MD");
+async function ingestFile(file: DocFileInput): Promise<IngestResult> {
+  const fmt = detectFormat(file.mimeType, file.filename);
+  if (!fmt) throw new AuthError(400, "unsupported_format", "Поддерживаются PDF, DOCX, TXT, MD");
   if (file.buffer.length === 0) throw new AuthError(400, "empty_file", "Файл пуст");
   if (file.buffer.length > DOC_MAX_BYTES) throw new AuthError(400, "file_too_large", "Файл больше 20 МБ");
 
+  // Stage 1 — text extraction (CPU-bound; now bounded so it can't block the loop).
+  const tExtract = Date.now();
   const extract = extractDocumentText(file.mimeType, file.filename, file.buffer);
+  const extractMs = Date.now() - tExtract;
   if (!extract.ok) {
+    // Safe diagnostics — format + size only, never filename/content/PII.
+    console.warn(`[metric-doc] extract_failed {format:"${fmt}", bytes:${file.buffer.length}, extractMs:${extractMs}, reason:"${extract.reason}"}`);
     if (extract.reason === "no_text") {
       throw new AuthError(400, "no_extractable_text", "В документе не найден текст. Для сканированных документов OCR пока не поддерживается.");
     }
     throw new AuthError(400, extract.reason === "empty" ? "empty_file" : "unsupported_format");
   }
 
+  // Stage 2 — upload the original to object storage (R2).
   const safeName = sanitizeFilename(file.filename);
   const storageKey = `metric-documents/${randomUUID()}/${safeName}`;
   const storage = getStorageProvider();
+  const tUpload = Date.now();
   const signed = await storage.createSignedUploadUrl({ storageKey, contentType: file.mimeType });
   const put = await fetch(signed.uploadUrl, { method: "PUT", headers: signed.requiredHeaders, body: new Uint8Array(file.buffer) });
   if (!put.ok) throw new AuthError(502, "storage_error", "Не удалось загрузить файл");
+  const uploadMs = Date.now() - tUpload;
 
-  return { storageKey, extractedText: extract.text, mimeType: file.mimeType, fileSize: file.buffer.length, originalFileName: safeName };
+  return {
+    storageKey, extractedText: extract.text, mimeType: file.mimeType, fileSize: file.buffer.length,
+    originalFileName: safeName, timing: { extractMs, uploadMs },
+  };
+}
+
+/** Safe per-stage timing line — no filename, no content, no PII. */
+function logUploadTiming(op: string, fmt: string, bytes: number, t: { extractMs: number; uploadMs: number }, dbMs: number, totalMs: number) {
+  console.info(`[metric-doc] upload timing {op:"${op}", format:"${fmt}", bytes:${bytes}, extractMs:${t.extractMs}, uploadMs:${t.uploadMs}, dbMs:${dbMs}, totalMs:${totalMs}}`);
 }
 
 function assertEditable(status: string) {
@@ -92,7 +114,9 @@ function assertEditable(status: string) {
 /* -------------------------------- create -------------------------------- */
 
 export async function createDocument(actorUserId: string, meta: DocMetaInput, file: DocFileInput): Promise<MetricDocumentDetailDTO> {
-  const ingested = await ingestFile(file);
+  const t0 = Date.now();
+  const { timing, ...ingested } = await ingestFile(file);
+  const tDb = Date.now();
   const doc = await prisma.metricKnowledgeDocument.create({
     data: {
       title: meta.title,
@@ -108,6 +132,7 @@ export async function createDocument(actorUserId: string, meta: DocMetaInput, fi
     },
   });
   await writeAudit(prisma, { actorUserId, entityType: "MetricDocument", entityId: doc.id, action: "CREATE" });
+  logUploadTiming("create", detectFormat(file.mimeType, file.filename) ?? "?", ingested.fileSize, timing, Date.now() - tDb, Date.now() - t0);
   return toDetail(doc);
 }
 
@@ -134,11 +159,14 @@ export async function replaceDocumentFile(actorUserId: string, id: string, file:
   const existing = await prisma.metricKnowledgeDocument.findUnique({ where: { id } });
   if (!existing) throw new AuthError(404, "document_not_found");
   assertEditable(existing.status);
-  const ingested = await ingestFile(file);
+  const t0 = Date.now();
+  const { timing, ...ingested } = await ingestFile(file);
   // Best-effort cleanup of the previous object.
   getStorageProvider().deleteObject(existing.storageKey).catch(() => {});
+  const tDb = Date.now();
   const doc = await prisma.metricKnowledgeDocument.update({ where: { id }, data: { ...ingested, updatedByUserId: actorUserId } });
   await writeAudit(prisma, { actorUserId, entityType: "MetricDocument", entityId: id, action: "UPDATE", metadata: { op: "REPLACE_FILE" } });
+  logUploadTiming("replace", detectFormat(file.mimeType, file.filename) ?? "?", ingested.fileSize, timing, Date.now() - tDb, Date.now() - t0);
   return toDetail(doc);
 }
 

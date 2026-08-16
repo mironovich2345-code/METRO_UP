@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { scopeForSource, positionAllows, retrievalFilter, normalizeScope } from "../src/lib/server/metric/access";
 import { buildScriptDoc, buildInstructionDoc, buildLessonDoc, buildDocumentDoc } from "../src/lib/server/metric/documents";
 import { parseResponsePayload } from "../src/lib/server/metric/openai-parse";
-import { extractDocumentText, detectFormat, docxXmlToText, sanitizeFilename } from "../src/lib/server/metric/document-text";
+import { extractDocumentText, detectFormat, docxXmlToText, sanitizeFilename, pdfContentToText } from "../src/lib/server/metric/document-text";
 import { resolveMaxOutputTokens, DEFAULT_MAX_OUTPUT_TOKENS, MAX_OUTPUT_CEILING } from "../src/lib/server/metric/token-policy";
 import { isClickableSource } from "../src/lib/metric-source";
 import { checkMetricRate, _resetMetricRate } from "../src/lib/server/metric/rate-limit";
@@ -15,6 +15,7 @@ import {
 import { parseSSEBlock, splitSSE } from "../src/lib/server/metric/stream-parse";
 import { consumeSSEStream, SSEStreamError, type ByteReader } from "../src/lib/server/metric/stream-consume";
 import { metricMarkdownToRichDoc } from "../src/lib/metric-markdown";
+import { sliceHistory, SMOKE_SET, HISTORY_VARIANTS, RETRIEVAL_VARIANTS } from "../src/lib/server/metric/bench-config";
 import type { ScriptDetailDTO, InstructionDetailDTO } from "../src/lib/api/knowledge-types";
 import type { LessonBlockDTO } from "../src/lib/api/content-types";
 
@@ -270,6 +271,67 @@ test("document text extraction: txt/md decode; empty & unsupported are rejected"
   assert.deepEqual(extractDocumentText("text/markdown", "a.md", Buffer.from("# Заголовок\nтекст")).ok, true);
   assert.deepEqual(extractDocumentText("text/plain", "a.txt", Buffer.from("")), { ok: false, reason: "empty" });
   assert.deepEqual(extractDocumentText("image/png", "a.png", Buffer.from("x")), { ok: false, reason: "unsupported" });
+});
+
+/* ---------------- PDF extraction: ReDoS / event-loop safety -------------- */
+/*
+ * Regression for the PDF-upload hang: a stream that is not clean FlateDecode was
+ * fed as RAW BINARY to the text-operator regexes, whose TJ-array pattern had
+ * overlapping alternatives → catastrophic (exponential) backtracking → CPU pegged
+ * and the Node event loop blocked (/, /control hung; UI stuck on «Загружаем…»).
+ * Extraction must now stay BOUNDED and fast on any input.
+ */
+function buildSimplePdf(text: string): Buffer {
+  const stream = `BT /F1 12 Tf 72 720 Td (${text}) Tj ET`;
+  return Buffer.from(
+    `%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n` +
+    `4 0 obj<</Length ${stream.length}>>\nstream\n${stream}\nendstream\nendobj\n%%EOF`,
+    "latin1",
+  );
+}
+
+test("PDF-A: a simple text PDF extracts its text quickly", () => {
+  // ASCII fixture: a hand-built PDF stores operator strings byte-for-byte, and the
+  // extractor reads latin1 — so use a latin1-safe string here (real PDFs carry
+  // their own encoding). The point is correct + fast extraction.
+  const t = performance.now();
+  const res = extractDocumentText("application/pdf", "a.pdf", buildSimplePdf("Club rules: open 7 to 23"));
+  const ms = performance.now() - t;
+  assert.equal(res.ok, true);
+  if (res.ok) assert.match(res.text, /Club rules/);
+  assert.ok(ms < 500, `simple pdf should be fast, took ${ms.toFixed(0)}ms`);
+});
+
+test("PDF-B: TJ-array regex is not exponential — a long backslash run returns instantly", () => {
+  // With the old overlapping-alternative regex this hung for minutes at n≈60.
+  const evil = "[" + "\\".repeat(60) + "x"; // '[' + backslash run, no closing ']TJ'
+  const t = performance.now();
+  const out = pdfContentToText(evil);
+  const ms = performance.now() - t;
+  assert.equal(typeof out, "string");
+  assert.ok(ms < 100, `must be linear; took ${ms.toFixed(0)}ms`);
+});
+
+test("PDF-C: a raw-binary stream (inflate-fail fallback) stays bounded and yields no_text", () => {
+  // ~160K chars of '[', '\\', ']' — the shape that hung production.
+  let junk = "";
+  for (let i = 0; i < 40000; i++) junk += "[\\\\\\";
+  const buf = Buffer.from(`%PDF-1.4\nstream\n${junk}\nendstream\n%%EOF`, "latin1");
+  const t = performance.now();
+  const res = extractDocumentText("application/pdf", "g.pdf", buf);
+  const ms = performance.now() - t;
+  assert.equal(res.ok, false);
+  if (!res.ok) assert.equal(res.reason, "no_text");
+  assert.ok(ms < 2000, `extraction must stay bounded; took ${ms.toFixed(0)}ms`);
+});
+
+test("PDF-D: a malformed PDF (stream without endstream) does not hang", () => {
+  const buf = Buffer.from(`%PDF-1.4\nstream\n(text but never closed with endstream ${"x".repeat(50000)}`, "latin1");
+  const t = performance.now();
+  const res = extractDocumentText("application/pdf", "m.pdf", buf);
+  const ms = performance.now() - t;
+  assert.equal(res.ok, false); // no complete stream → no text
+  assert.ok(ms < 2000, `malformed pdf must not hang; took ${ms.toFixed(0)}ms`);
 });
 
 test("M: a file with no extractable text is rejected (no silent empty index)", () => {
@@ -676,6 +738,29 @@ test("v2-E: markdown is XSS-safe — HTML is never structural, only inert text",
   }
   const flat = JSON.stringify(doc);
   assert.ok(flat.includes("<script>")); // preserved as text, never interpreted (RichText renders text nodes only)
+});
+
+/* --------------- perf: benchmark helpers (offline, no secrets) ---------- */
+
+test("perf: sliceHistory keeps the last N messages (same tail as production)", () => {
+  const msgs = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+  assert.deepEqual(sliceHistory(msgs, 4), [9, 10, 11, 12]);
+  assert.deepEqual(sliceHistory(msgs, 2), [11, 12]);
+  assert.deepEqual(sliceHistory([1, 2], 6), [1, 2]); // fewer than keep → unchanged
+  assert.deepEqual(sliceHistory(msgs, 0), []);
+  // never mutates the input
+  const copy = [1, 2, 3];
+  sliceHistory(copy, 1);
+  assert.deepEqual(copy, [1, 2, 3]);
+});
+
+test("perf: benchmark matrix matches the sprint (history 12/6/4/2, retrieval 6/4/3) and smoke set covers modes", () => {
+  assert.deepEqual([...HISTORY_VARIANTS], [12, 6, 4, 2]);
+  assert.deepEqual([...RETRIEVAL_VARIANTS], [6, 4, 3]);
+  const modes = new Set(SMOKE_SET.map((s) => s.expectMode));
+  for (const m of ["ANSWER", "ASSIST", "ROLE_PLAY"]) assert.ok(modes.has(m as never), `smoke set must cover ${m}`);
+  assert.ok(SMOKE_SET.some((s) => s.followUp), "smoke set must include a context-dependent follow-up");
+  assert.equal(SMOKE_SET.length, 6);
 });
 
 test("v2-E: headings are supported and empty input yields a single empty paragraph", () => {

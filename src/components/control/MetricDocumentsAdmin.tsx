@@ -26,6 +26,8 @@ const DOC_ERR: Record<string, string> = {
   storage_error: "Не удалось загрузить файл в хранилище.",
   storage_not_configured: "Хранилище файлов не настроено.",
   document_published_readonly: "Сначала верните документ в черновик.",
+  upload_timeout: "Загрузка заняла слишком много времени. Проверьте файл и попробуйте ещё раз.",
+  network_error: "Проблема с сетью. Попробуйте ещё раз.",
 };
 
 export function MetricDocumentsAdmin() {
@@ -188,7 +190,7 @@ function UploadModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
       </div>
 
       <button onClick={submit} disabled={busy || title.trim().length < 2 || !file} className="mt-5 w-full rounded-2xl bg-brand px-5 py-2.5 text-sm font-semibold text-brand-foreground disabled:opacity-50">
-        {busy ? "Загружаем…" : "Загрузить (черновик)"}
+        {busy ? "Загружаем и обрабатываем файл…" : "Загрузить (черновик)"}
       </button>
     </Modal>
   );
