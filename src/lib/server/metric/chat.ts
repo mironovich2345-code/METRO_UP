@@ -13,6 +13,7 @@ import { retrievalFilter, positionAllows } from "./access";
 import { groupAllowedCitations, assembleSources } from "./source-map";
 import { buildSystemInstructions, type EmployeeContext } from "./instructions";
 import { classifyMode, needsRetrieval, nextRolePlayState, readRolePlayState, writeRolePlayState, rolePlayEqual } from "./mode";
+import { MAX_SEARCH_RESULTS } from "./tuning";
 import { getOrCreateActiveConversation, requireOwnConversation, getRecentMessages, appendMessages, extendAssistantMessage } from "./conversations";
 import type { Prisma } from "@prisma/client";
 
@@ -121,6 +122,7 @@ async function runTurn(
     vectorStoreId: env.vectorStoreId!,
     filters: useFileSearch ? retrievalFilter(position) : undefined,
     maxOutputTokens: env.maxOutputTokens,
+    maxNumResults: MAX_SEARCH_RESULTS,
     useFileSearch,
   };
 
@@ -160,7 +162,7 @@ async function runTurn(
   const tDone = Date.now();
 
   // Safe timing metrics — no question/answer text, no PII, no key, no prompt.
-  console.info(`[metric] timing {mode:"${decision.mode}", retrieval:${useFileSearch}, firstDeltaMs:${firstDeltaMs || "-"}, openaiMs:${tAI - tReq}, ctxMs:${tCtx - t0}, persistMs:${tDone - tAI}, totalMs:${tDone - t0}, src:${sources.length}, trunc:${result.truncated}}`);
+  console.info(`[metric] timing {mode:"${decision.mode}", retrieval:${useFileSearch}, firstDeltaMs:${firstDeltaMs || "-"}, openaiMs:${tAI - tReq}, ctxMs:${tCtx - t0}, persistMs:${tDone - tAI}, totalMs:${tDone - t0}, src:${sources.length}, trunc:${result.truncated}, historyCount:${history.length}, maxSearchResults:${useFileSearch ? MAX_SEARCH_RESULTS : 0}}`);
 
   return { conversationId: conv.id, message: assistantMsg, rolePlayActive: nextRp?.active ?? false };
 }
@@ -225,6 +227,7 @@ export async function continueMetric(user: CurrentUser, conversationId: string, 
       vectorStoreId: env.vectorStoreId!,
       filters: retrievalFilter(position),
       maxOutputTokens: env.maxOutputTokens,
+      maxNumResults: MAX_SEARCH_RESULTS,
     });
   } catch (e) {
     // Safe diagnostics — no key/cookie/session/document/PII.
