@@ -41,6 +41,7 @@ const TRANSFORM: RegExp[] = [
 ];
 const DETAILED: RegExp[] = [
   /подробн/i, /расскажи\s+вс[её]/i, /объясни\s+подробн/i, /поподробн/i, /развернут/i, /детальн/i, /полн(ый|ую)\s+разбор/i,
+  /распиши/i, /пошагов/i, /по\s+шагам/i, /полн(ая|ую)\s+инструкц/i,
 ];
 
 function anyMatch(list: RegExp[], t: string): boolean {

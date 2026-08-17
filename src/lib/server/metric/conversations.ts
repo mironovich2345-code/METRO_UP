@@ -2,10 +2,11 @@ import "server-only";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { AuthError } from "../authz";
+import { HISTORY_LIMIT } from "./tuning";
 import type { MetricSourceDTO, MetricMessageDTO } from "@/lib/api/metric-types";
 
-/** Conversations are strictly scoped to their owning user. */
-const HISTORY_LIMIT = 12; // last N messages sent as model context (cost control)
+/** Conversations are strictly scoped to their owning user. HISTORY_LIMIT is the
+ * number of recent messages sent as model context (see tuning.ts). */
 
 export async function getOrCreateActiveConversation(userId: string) {
   const latest = await prisma.metricConversation.findFirst({

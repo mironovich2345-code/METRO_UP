@@ -16,6 +16,7 @@ import { parseSSEBlock, splitSSE } from "../src/lib/server/metric/stream-parse";
 import { consumeSSEStream, SSEStreamError, type ByteReader } from "../src/lib/server/metric/stream-consume";
 import { metricMarkdownToRichDoc } from "../src/lib/metric-markdown";
 import { sliceHistory, SMOKE_SET, HISTORY_VARIANTS, RETRIEVAL_VARIANTS } from "../src/lib/server/metric/bench-config";
+import { HISTORY_LIMIT, MAX_SEARCH_RESULTS } from "../src/lib/server/metric/tuning";
 import { groupAllowedCitations, assembleSources, type CitationRecord } from "../src/lib/server/metric/source-map";
 import { indexStatusToSyncStatus, isRetrievableSyncStatus } from "../src/lib/server/metric/sync-status";
 import type { ScriptDetailDTO, InstructionDetailDTO } from "../src/lib/api/knowledge-types";
@@ -806,9 +807,68 @@ test("v2-C: REVIEW prompt uses the structured debrief format", () => {
 
 test("v2-C: ANSWER default is concise, detailed only on request", () => {
   const concise = buildSystemInstructions(CTX, "ANSWER", false);
-  assert.ok(/По умолчанию кратко/i.test(concise));
+  assert.ok(/По умолчанию компактно/i.test(concise));
   const detailed = buildSystemInstructions(CTX, "ANSWER", true);
   assert.ok(/Пользователь просит подробно/i.test(detailed));
+});
+
+/* ---------------- presentation-latency tuning (this sprint) ------------- */
+
+test("PERF-A: history limit is 6 (enough for a two-turn follow-up)", () => {
+  assert.equal(HISTORY_LIMIT, 6);
+  // A follow-up needs the prior user+assistant turn — 3 messages ≤ 6.
+  assert.ok(HISTORY_LIMIT >= 3);
+});
+
+test("PERF-B: a context-dependent follow-up still retrieves with context (not a pure rewrite)", () => {
+  // Follow-ups are meaningless without the prior answer; the point is that they are
+  // NOT classified as a pure transform, so retrieval stays on and history (6) carries
+  // the context. The exact mode (ANSWER vs ASSIST) doesn't affect context inclusion.
+  const a = classifyMode("А как это сказать клиенту коротко?", null);
+  assert.equal(a.transform, false);
+  assert.equal(needsRetrieval(a.mode, a.transform), true);
+  // «клиент говорит …» reads as an assist situation and also retrieves.
+  const b = classifyMode("А если клиент говорит, что просто хочет посмотреть клуб?", null);
+  assert.equal(needsRetrieval(b.mode, b.transform), true);
+});
+
+test("PERF-C: file_search max results is the chosen value (4)", () => {
+  assert.equal(MAX_SEARCH_RESULTS, 4);
+  assert.ok(MAX_SEARCH_RESULTS >= 3 && MAX_SEARCH_RESULTS < 6); // reduced from 6, not below the safe floor
+});
+
+test("PERF-D: ANSWER default is compact & action-first (60–140 words), not the old 100–250", () => {
+  const p = buildSystemInstructions(CTX, "ANSWER", false);
+  assert.ok(p.includes("60–140"));
+  assert.ok(p.includes("ACTION FIRST"));
+  assert.ok(!p.includes("100–250"));
+});
+
+test("PERF-E: ASSIST default is compact (40–100 words)", () => {
+  const p = buildSystemInstructions(CTX, "ASSIST", false);
+  assert.ok(p.includes("40–100"));
+  assert.ok(p.includes("ACTION FIRST"));
+});
+
+test("PERF-F: explicit «подробно/распиши/пошагово/полная инструкция» allow a longer answer", () => {
+  for (const q of ["Расскажи подробно, как открыть смену в Крафт", "распиши процедуру", "объясни пошагово", "дай полную инструкцию"]) {
+    assert.equal(classifyMode(q, null).detailed, true, q);
+  }
+  const detailed = buildSystemInstructions(CTX, "ANSWER", true);
+  assert.ok(/просит подробно/i.test(detailed));
+  // A normal question stays compact.
+  assert.equal(classifyMode("Что входит в клубную карту?", null).detailed, false);
+});
+
+test("PERF-G: no unsolicited artifact tails are ever offered (unchanged ban)", () => {
+  const p = buildSystemInstructions(CTX, "ANSWER");
+  for (const banned of ["чек-лист", "памятк", "плакат", "PDF", "Если хочешь, могу ещё"]) assert.ok(p.includes(banned));
+});
+
+test("PERF-H: ROLE_PLAY brevity is unchanged (still client-only, 1–3 sentences)", () => {
+  const p = buildSystemInstructions(CTX, "ROLE_PLAY");
+  assert.ok(/играешь КЛИЕНТА/i.test(p));
+  assert.ok(p.includes("1–3 предложения"));
 });
 
 /* ------------------------ D. SSE stream parsing ------------------------- */
