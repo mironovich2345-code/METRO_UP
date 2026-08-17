@@ -1,6 +1,7 @@
 /** Client-safe DTOs for the CLUB_MANAGER control (daily plan + team). Never
  * exposes telegramId/username or other technical identifiers. */
 
+export type AccessStatusDTO = "LIMITED" | "PENDING_APPROVAL" | "FULL" | "SUSPENDED";
 export type EmployeePositionDTO = "CLIENT_MANAGER" | "NIGHT_MANAGER" | "ADMINISTRATOR";
 export type ClubTaskStatusDTO = "TODO" | "COMPLETED" | "SKIPPED";
 export type TaskPriorityDTO = "NORMAL" | "HIGH";
@@ -95,6 +96,9 @@ export interface TeamMemberDTO {
   planCompleted: number;
   planTotal: number;
   lessonsCompleted: number;
+  /** Onboarding + access state, so the manager can approve full access. */
+  onboardingCompleted: boolean;
+  accessStatus: AccessStatusDTO;
 }
 export interface ClubTeamDTO {
   clubId: string | null;

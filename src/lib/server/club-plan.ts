@@ -1,5 +1,5 @@
 import "server-only";
-import type { DailyTaskPriority, EmployeePosition } from "@prisma/client";
+import type { AccessStatus, DailyTaskPriority, EmployeePosition } from "@prisma/client";
 import { prisma } from "./db";
 import { AuthError } from "./authz";
 import { appDay } from "./time";
@@ -409,7 +409,43 @@ export async function getClubTeam(user: CurrentUser, requestedClubId?: string | 
       planCompleted: done.get(e.id) ?? 0,
       planTotal: total.get(e.id) ?? 0,
       lessonsCompleted: lessonsByUser.get(e.id) ?? 0,
+      onboardingCompleted: e.employeeProfile?.onboardingCompleted ?? false,
+      accessStatus: (e.employeeProfile?.accessStatus ?? "LIMITED") as AccessStatus,
     })),
     scope,
   };
+}
+
+/**
+ * Manager grant/revoke of an employee's full METRO UP access. Club-scoped exactly
+ * like task assignment: the target MUST be a real EMPLOYEE of the actor's OWN club
+ * (a CLUB_MANAGER can never touch another club; ADMIN operates on the club they
+ * scoped into). The change is persisted on EmployeeProfile.accessStatus and audited.
+ */
+export async function setEmployeeAccess(
+  actor: CurrentUser,
+  targetUserId: string,
+  accessStatus: AccessStatus,
+  scopeClubId?: string | null,
+): Promise<{ userId: string; accessStatus: AccessStatus }> {
+  const clubId = await resolveScopedClubId(actor, scopeClubId);
+  const target = await prisma.user.findUnique({ where: { id: targetUserId }, include: { employeeProfile: true } });
+  // Cross-club protection: identical rule to createManagerTask's USER target.
+  if (!target || target.role !== "EMPLOYEE" || target.employeeProfile?.clubId !== clubId) {
+    throw new AuthError(403, "employee_not_in_club", "Сотрудник не из вашего клуба");
+  }
+  const before = target.employeeProfile?.accessStatus ?? null;
+  await prisma.$transaction(async (tx) => {
+    await tx.employeeProfile.update({ where: { userId: targetUserId }, data: { accessStatus } });
+    await tx.userAuditLog.create({
+      data: {
+        actorUserId: actor.id,
+        targetUserId,
+        action: "ACCESS_GRANT",
+        before: { accessStatus: before },
+        after: { accessStatus },
+      },
+    });
+  });
+  return { userId: targetUserId, accessStatus };
 }

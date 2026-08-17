@@ -9,6 +9,7 @@ import { Field, TextArea, TextInput, fieldCls } from "@/components/admin/ui";
 import { ChecklistEditor, type ChecklistDraftItem } from "@/components/control/ChecklistEditor";
 import { ClubScopePicker } from "@/components/control/ClubScopePicker";
 import { Modal } from "@/components/control/Modal";
+import { appDateString } from "@/lib/app-day";
 
 /** ADMIN-selected club scope; null → server uses the actor's own club. Ignored
  * server-side for CLUB_MANAGER (always locked to their own club). */
@@ -19,10 +20,11 @@ const POSITION_LABEL: Record<string, string> = {
   CLIENT_MANAGER: "Менеджеры по работе с клиентами", NIGHT_MANAGER: "Ночные менеджеры", ADMINISTRATOR: "Администраторы",
 };
 
-function todayStr() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
+// The app's business day rolls at Moscow midnight (server uses APP_TIMEZONE, default
+// Europe/Moscow — see src/lib/server/time.ts). Compute the default board date in the
+// SAME timezone so a manager outside Moscow (e.g. Yekaterinburg, UTC+5) doesn't open
+// tomorrow's empty board while employees' plans are still keyed to today.
+const todayStr = appDateString;
 
 export default function ControlPlanPage() {
   const [date, setDate] = useState(todayStr());

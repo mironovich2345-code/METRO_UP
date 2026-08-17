@@ -1,5 +1,5 @@
 import { ApiError } from "./client";
-import type { ClubPlanDTO, ClubTaskTarget, ClubTeamDTO, EmployeePositionDTO, TaskPriorityDTO } from "./club-plan-types";
+import type { AccessStatusDTO, ClubPlanDTO, ClubTaskTarget, ClubTeamDTO, EmployeePositionDTO, TaskPriorityDTO } from "./club-plan-types";
 
 export interface ChecklistItemInput { id?: string; text: string; required?: boolean; order?: number }
 
@@ -26,6 +26,10 @@ export const managerApi = {
   plan: (date?: string, clubId?: string | null) =>
     request<ClubPlanDTO>(`/api/control/plan${scopeQs(clubId, date ? { date } : undefined)}`),
   team: (clubId?: string | null) => request<ClubTeamDTO>(`/api/control/team${scopeQs(clubId)}`),
+  setAccess: (userId: string, accessStatus: AccessStatusDTO, clubId?: string | null) =>
+    request<{ userId: string; accessStatus: AccessStatusDTO }>(`/api/control/team/${userId}/access${scopeQs(clubId)}`, {
+      method: "POST", body: JSON.stringify({ accessStatus }),
+    }),
 
   createTask: (
     body: {

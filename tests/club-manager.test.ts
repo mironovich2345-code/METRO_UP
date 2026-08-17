@@ -72,3 +72,29 @@ test("recurring template materializes idempotently (no duplicates)", skip, () =>
 test("editing a template does not rewrite historical DailyTask", skip, () => {});
 test("no XP awarded for completing a manager task", skip, () => {});
 test("actor is taken from server session, never client userId", skip, () => {});
+
+/* ============ presentation audit: access grant + plan date TZ ============ */
+
+import { appDateString, APP_TZ } from "../src/lib/app-day";
+
+test("plan date uses the app timezone (Moscow), not the browser-local day", () => {
+  assert.equal(APP_TZ, "Europe/Moscow");
+  // Format is YYYY-MM-DD.
+  assert.match(appDateString(new Date("2026-08-17T10:00:00Z")), /^\d{4}-\d{2}-\d{2}$/);
+  assert.equal(appDateString(new Date("2026-08-17T10:00:00Z")), "2026-08-17");
+  // 22:30Z is already the next calendar day in Moscow (UTC+3) → 01:30.
+  assert.equal(appDateString(new Date("2026-01-01T22:30:00Z")), "2026-01-02");
+  // Boundary that used to break: 20:30Z is «tomorrow» in Yekaterinburg (UTC+5,
+  // local 01:30) but still «today» in Moscow (23:30). The manager must see the
+  // Moscow business day so the board matches employees' server-keyed plans.
+  assert.equal(appDateString(new Date("2026-08-17T20:30:00Z"), "Europe/Moscow"), "2026-08-17");
+  assert.equal(appDateString(new Date("2026-08-17T20:30:00Z"), "Asia/Yekaterinburg"), "2026-08-18");
+});
+
+/* Access grant is server-only + DB-scoped — verified as integration skips,
+ * mirroring the existing cross-club skip style above. */
+test("grant full access: only CLUB_MANAGER/ADMIN endpoint (employee → 403)", skip, () => {});
+test("grant full access: manager cannot grant to another club's employee (403)", skip, () => {});
+test("grant full access: target must be an EMPLOYEE (not another manager/admin)", skip, () => {});
+test("grant full access: accessStatus persists on EmployeeProfile and survives refresh/re-login", skip, () => {});
+test("grant full access: change is written to UserAuditLog (before/after)", skip, () => {});
