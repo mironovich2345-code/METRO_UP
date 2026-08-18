@@ -126,9 +126,17 @@
 
 html {
   color-scheme: light dark;
-  /* Mobile-first Mini App: the page itself must never scroll sideways.
-     Edge-to-edge rails scroll inside their own overflow container. */
+  /* Prevent sideways scroll, but keep the document (viewport) as the SINGLE
+     vertical scroll owner. `overflow-x: hidden` forces overflow-y to compute to
+     `auto` (CSS Overflow spec), which turns <html> AND <body> into nested scroll
+     containers — iOS tolerates it, but the Android Telegram WebView targets the
+     wrong container and the page won't scroll by touch. `overflow-x: clip`
+     contains horizontally and leaves overflow-y `visible`, so touch scrolling
+     works everywhere. Old WebViews / iOS < 16 fall back to the `hidden` line. */
   overflow-x: hidden;
+  overflow-x: clip;
+  /* Prevent overscroll chaining / pull-to-refresh on the document scroller. */
+  overscroll-behavior-y: none;
 }
 
 body {
@@ -137,8 +145,9 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  /* Same fix on <body>: clip horizontally without becoming a scroll container. */
   overflow-x: hidden;
-  /* Respect Telegram safe areas on modern clients */
+  overflow-x: clip;
   overscroll-behavior-y: none;
 }
 
