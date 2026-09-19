@@ -1,6 +1,7 @@
 import "server-only";
 import type { AppRole } from "@prisma/client";
 import { getCurrentUser, type CurrentUser } from "./session";
+import { isAccessSuspended, isAccessPending, hasFullAccess } from "./access-status-logic";
 
 /**
  * Server-side authorization helpers. Authorization is ALWAYS enforced on the
@@ -70,7 +71,7 @@ export async function requireEmployeeProfile(): Promise<CurrentUser> {
  * render). */
 export async function requireActiveAccess(): Promise<CurrentUser> {
   const user = await requireEmployeeProfile();
-  if (user.employeeProfile!.accessStatus === "SUSPENDED") {
+  if (isAccessSuspended(user.employeeProfile!.accessStatus)) {
     throw new AuthError(403, "APP_TEMPORARILY_UNAVAILABLE");
   }
   return user;
@@ -82,8 +83,8 @@ export async function requireActiveAccess(): Promise<CurrentUser> {
 export async function requireLimitedOrFullAccess(): Promise<CurrentUser> {
   const user = await requireEmployeeProfile();
   const status = user.employeeProfile!.accessStatus;
-  if (status === "SUSPENDED") throw new AuthError(403, "APP_TEMPORARILY_UNAVAILABLE");
-  if (status === "PENDING_APPROVAL") throw new AuthError(403, "ACCESS_PENDING_APPROVAL");
+  if (isAccessSuspended(status)) throw new AuthError(403, "APP_TEMPORARILY_UNAVAILABLE");
+  if (isAccessPending(status)) throw new AuthError(403, "ACCESS_PENDING_APPROVAL");
   return user;
 }
 
@@ -93,9 +94,9 @@ export async function requireLimitedOrFullAccess(): Promise<CurrentUser> {
 export async function requireFullAccess(): Promise<CurrentUser> {
   const user = await requireEmployeeProfile();
   const status = user.employeeProfile!.accessStatus;
-  if (status === "SUSPENDED") throw new AuthError(403, "APP_TEMPORARILY_UNAVAILABLE");
-  if (status === "PENDING_APPROVAL") throw new AuthError(403, "ACCESS_PENDING_APPROVAL");
-  if (status !== "FULL") throw new AuthError(403, "ACCESS_LIMITED", "Требуется полный доступ");
+  if (isAccessSuspended(status)) throw new AuthError(403, "APP_TEMPORARILY_UNAVAILABLE");
+  if (isAccessPending(status)) throw new AuthError(403, "ACCESS_PENDING_APPROVAL");
+  if (!hasFullAccess(status)) throw new AuthError(403, "ACCESS_LIMITED", "Требуется полный доступ");
   return user;
 }
 

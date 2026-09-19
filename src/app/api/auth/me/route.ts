@@ -1,6 +1,7 @@
 import { getCurrentUser } from "@/lib/server/session";
 import { jsonOk, jsonError, handleError } from "@/lib/server/http";
 import { meDTO } from "@/lib/server/dto";
+import { isAccessSuspended } from "@/lib/server/access-status-logic";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +19,7 @@ export async function GET() {
   try {
     const user = await getCurrentUser();
     if (!user) return jsonError(401, "unauthorized");
-    if (user.employeeProfile?.accessStatus === "SUSPENDED") {
+    if (isAccessSuspended(user.employeeProfile?.accessStatus)) {
       return jsonError(403, "APP_TEMPORARILY_UNAVAILABLE");
     }
     return jsonOk({ user: meDTO(user) });
