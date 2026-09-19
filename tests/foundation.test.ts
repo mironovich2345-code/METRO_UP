@@ -11,6 +11,7 @@ import {
 } from "../src/lib/server/session-token";
 import { isClubInCity, getClubById } from "../src/content/cities";
 import { resolveProfileSource } from "../src/lib/api/profile-source";
+import { isOnboardingLocked } from "../src/lib/server/onboarding-logic";
 import type { AppUserDTO } from "../src/lib/api/types";
 
 /**
@@ -183,6 +184,29 @@ test("onboarding: unknown position rejected", () => {
   });
   assert.equal(r.success, false);
 });
+
+/* ------- P0 fix: onboarding is INITIAL-ONLY, never a self-service transfer ------ */
+
+test("P0-A: no profile yet → onboarding not locked (first-time onboarding allowed)", () => {
+  assert.equal(isOnboardingLocked(null), false);
+  assert.equal(isOnboardingLocked(undefined), false);
+});
+
+test("P0-B: profile exists but onboarding not yet completed → not locked", () => {
+  assert.equal(isOnboardingLocked({ onboardingCompleted: false }), false);
+});
+
+test("P0-C: profile onboardingCompleted=true → locked (self-service reassignment blocked)", () => {
+  assert.equal(isOnboardingLocked({ onboardingCompleted: true }), true);
+});
+
+test(
+  "P0-D: an already-onboarded CLUB_MANAGER re-POSTs /api/profile/onboarding with " +
+    "another club's clubId → server returns 409 ALREADY_ONBOARDED, EmployeeProfile.clubId " +
+    "is not touched (the confirmed privilege-escalation path from the technical audit)",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
 
 /* --------------------------- J — server priority ------------------------- */
 

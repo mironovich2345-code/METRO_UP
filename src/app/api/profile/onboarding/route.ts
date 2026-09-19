@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/server/db";
 import { requireUser } from "@/lib/server/authz";
+import { isOnboardingLocked } from "@/lib/server/onboarding-logic";
 import { onboardingSchema, zodFieldErrors } from "@/lib/server/schemas";
 import {
   checkClubSelection,
@@ -44,6 +45,21 @@ function safeId(value: unknown): string {
 export async function POST(req: NextRequest) {
   try {
     const user = await requireUser();
+
+    // P0 SECURITY FIX: this endpoint is INITIAL ONBOARDING only. Once a profile
+    // has completed it, self-service calls must never be able to reassign
+    // cityId/clubId/positionId — a CLUB_MANAGER's (and, in the target RBAC
+    // model, a CITY_MANAGER's) authority is derived solely from
+    // EmployeeProfile.clubId, so allowing this update path to run again was a
+    // direct privilege-escalation vector (an already-onboarded manager could
+    // silently move themselves into another club's scope). Transfers / role
+    // changes go through an administrative flow (control/users, and — once
+    // built — the RBAC transfer flow), never through self-service onboarding.
+    if (isOnboardingLocked(user.employeeProfile)) {
+      return jsonError(409, "ALREADY_ONBOARDED", {
+        message: "Онбординг уже завершён. Смена клуба или должности выполняется управляющим.",
+      });
+    }
 
     const body = await req.json().catch(() => ({}));
     const raw = (body ?? {}) as Record<string, unknown>;
