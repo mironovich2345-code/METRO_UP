@@ -910,6 +910,14 @@ model WorkInstruction {
 }
 
 /* Sensitive administrative changes (role / club / position) audit trail. */
+/// Sensitive administrative changes audit trail — extended for the RBAC
+/// foundation (Sprint 1 / Phase 2A). All 4 new columns are nullable so every
+/// pre-existing row (action: "USER_UPDATE" / "ACCESS_GRANT") stays valid
+/// without a backfill. `action` remains a plain string (not an enum) — new
+/// RBAC event names (ROLE_ASSIGNED, ROLE_REVOKED, ACCESS_GRANTED,
+/// ACCESS_SUSPENDED, ACCESS_RESTORED, CITY_SCOPE_CHANGED,
+/// ONBOARDING_COMPLETED, and — Phase 2B — VIEW_AS_STARTED/VIEW_AS_ENDED) are
+/// added purely in application code, no migration required.
 model UserAuditLog {
   id           String   @id @default(uuid()) @db.Uuid
   actorUserId  String   @db.Uuid
@@ -917,10 +925,20 @@ model UserAuditLog {
   action       String
   before       Json?
   after        Json?
+  /// Club the action pertains to, when applicable (e.g. a scoped grant/revoke).
+  clubId       String?
+  /// City the action pertains to, when applicable (e.g. a CITY-scope change).
+  cityId       String?
+  /// Free-text reason supplied by the actor (e.g. why access was suspended).
+  reason       String?
+  /// Structured extra context that doesn't fit before/after (e.g. a View As
+  /// preview's previewRole/previewCityId/previewClubId in Phase 2B).
+  metadata     Json?
   createdAt    DateTime @default(now())
 
   @@index([targetUserId])
   @@index([actorUserId])
+  @@index([action, createdAt])
   @@map("user_audit_logs")
 }
 

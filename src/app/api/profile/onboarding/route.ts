@@ -130,6 +130,19 @@ export async function POST(req: NextRequest) {
         where: { id: user.id },
         data: { displayName: input.displayName },
       });
+      // Audit trail for initial onboarding (previously this endpoint made no
+      // audit entry at all — the first thing that ever set a business
+      // scope for this user is now recorded like every other scope change).
+      await tx.userAuditLog.create({
+        data: {
+          actorUserId: user.id,
+          targetUserId: user.id,
+          action: "ONBOARDING_COMPLETED",
+          clubId: input.clubId,
+          cityId: input.cityId,
+          after: { cityId: input.cityId, clubId: input.clubId, positionId: input.positionId },
+        },
+      });
     });
 
     const updated = await prisma.user.findUnique({
