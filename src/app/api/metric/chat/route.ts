@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
-import { requireEmployeeProfile, AuthError } from "@/lib/server/authz";
+import { requireFullAccess, AuthError } from "@/lib/server/authz";
 import { jsonError, handleError, readJson } from "@/lib/server/http";
 import { getMetricEnv, isMetricReady } from "@/lib/server/metric/env";
 import { checkMetricRate } from "@/lib/server/metric/rate-limit";
@@ -17,13 +17,15 @@ const bodySchema = z.object({
 /**
  * POST — ask Metric. Streams the answer as Server-Sent Events. The final answer
  * is persisted server-side exactly once (even if the client disconnects). The
- * OpenAI key never leaves the server.
+ * OpenAI key never leaves the server. Metric is explicitly named as
+ * SUSPENDED-blocked and is not on the approved LIMITED whitelist — requires
+ * FULL access.
  */
 export async function POST(req: NextRequest) {
-  let user: Awaited<ReturnType<typeof requireEmployeeProfile>>;
+  let user: Awaited<ReturnType<typeof requireFullAccess>>;
   let input: z.infer<typeof bodySchema>;
   try {
-    user = await requireEmployeeProfile();
+    user = await requireFullAccess();
     if (!isMetricReady(getMetricEnv())) return jsonError(503, "metric_unavailable");
     const rate = checkMetricRate(user.id);
     if (!rate.allowed) return jsonError(429, "rate_limited", { retryAfterSeconds: rate.retryAfterSeconds });

@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
-import { requireEmployeeProfile, AuthError } from "@/lib/server/authz";
+import { requireFullAccess, AuthError } from "@/lib/server/authz";
 import { jsonOk, jsonError, handleError, readJson } from "@/lib/server/http";
 import { getMetricEnv, isMetricReady } from "@/lib/server/metric/env";
 import { checkMetricRate } from "@/lib/server/metric/rate-limit";
@@ -11,10 +11,13 @@ export const dynamic = "force-dynamic";
 
 const bodySchema = z.object({ conversationId: z.string().uuid() });
 
-/** POST — continue the last truncated answer of the user's own conversation. */
+/**
+ * POST — continue the last truncated answer of the user's own conversation.
+ * Metric requires FULL access (see requireFullAccess).
+ */
 export async function POST(req: NextRequest) {
   try {
-    const user = await requireEmployeeProfile();
+    const user = await requireFullAccess();
     if (!isMetricReady(getMetricEnv())) return jsonError(503, "metric_unavailable");
     const rate = checkMetricRate(user.id);
     if (!rate.allowed) return jsonError(429, "rate_limited", { retryAfterSeconds: rate.retryAfterSeconds });

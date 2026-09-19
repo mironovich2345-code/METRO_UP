@@ -43,6 +43,62 @@ export async function requireEmployeeProfile(): Promise<CurrentUser> {
   return user;
 }
 
+/**
+ * ACCESS STATUS enforcement (Sprint 1 / Phase 2A). EmployeeProfile.accessStatus
+ * previously had zero server-side effect anywhere — a confirmed P1 in the
+ * technical audit (LIMITED/PENDING_APPROVAL/SUSPENDED were all functionally
+ * identical to FULL). These three primitives are the enforcement point; apply
+ * them ONLY to employee-facing Mini App routes (home/academy/plan/knowledge/
+ * metric/xp/rating/achievements) — never to /api/control/** or /api/spm/**,
+ * whose CLUB_MANAGER/SPM/ADMIN actors are gated by requireRole()/AppRole and
+ * typically carry no EmployeeProfile at all (accessStatus would be null for
+ * them, not a business signal).
+ *
+ * Public contract for SUSPENDED (approved spec): NEVER HTTP 503 — that reads
+ * as an infrastructure outage and pollutes monitoring/retry. A neutral
+ * HTTP 403 / "APP_TEMPORARILY_UNAVAILABLE" is returned instead; the real
+ * reason is known to the code path that throws it and is recorded in
+ * UserAuditLog at the moment access was actually suspended (the
+ * access-revoke API), never leaked to the client here. The Phase 2A scope is
+ * this backend contract only — the client-side "technical issues" screen is
+ * explicitly deferred.
+ */
+
+/** Blocks only SUSPENDED. PENDING_APPROVAL/LIMITED/FULL all pass — for
+ * endpoints every non-suspended business user must reach regardless of
+ * approval state (e.g. reading one's own profile so *some* screen can
+ * render). */
+export async function requireActiveAccess(): Promise<CurrentUser> {
+  const user = await requireEmployeeProfile();
+  if (user.employeeProfile!.accessStatus === "SUSPENDED") {
+    throw new AuthError(403, "APP_TEMPORARILY_UNAVAILABLE");
+  }
+  return user;
+}
+
+/** Blocks SUSPENDED and PENDING_APPROVAL. Allows LIMITED and FULL — the
+ * approved LIMITED whitelist (Academy content + its required tests). Do not
+ * widen this to a route outside that whitelist. */
+export async function requireLimitedOrFullAccess(): Promise<CurrentUser> {
+  const user = await requireEmployeeProfile();
+  const status = user.employeeProfile!.accessStatus;
+  if (status === "SUSPENDED") throw new AuthError(403, "APP_TEMPORARILY_UNAVAILABLE");
+  if (status === "PENDING_APPROVAL") throw new AuthError(403, "ACCESS_PENDING_APPROVAL");
+  return user;
+}
+
+/** Requires FULL. Blocks SUSPENDED, PENDING_APPROVAL, and LIMITED — the
+ * default for anything not on the LIMITED whitelist (Daily Plan, Metric,
+ * Scripts, Instructions, Ranking, XP, Achievements). */
+export async function requireFullAccess(): Promise<CurrentUser> {
+  const user = await requireEmployeeProfile();
+  const status = user.employeeProfile!.accessStatus;
+  if (status === "SUSPENDED") throw new AuthError(403, "APP_TEMPORARILY_UNAVAILABLE");
+  if (status === "PENDING_APPROVAL") throw new AuthError(403, "ACCESS_PENDING_APPROVAL");
+  if (status !== "FULL") throw new AuthError(403, "ACCESS_LIMITED", "Требуется полный доступ");
+  return user;
+}
+
 export const requireClubManager = () => requireRole("CLUB_MANAGER", "ADMIN");
 /** Strict SPM only. Prefer requireSPMAccess() for the SPM panel/APIs. */
 export const requireSPM = () => requireRole("SPM");

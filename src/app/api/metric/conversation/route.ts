@@ -1,4 +1,4 @@
-import { requireEmployeeProfile } from "@/lib/server/authz";
+import { requireFullAccess } from "@/lib/server/authz";
 import { jsonOk, handleError } from "@/lib/server/http";
 import { prisma } from "@/lib/server/db";
 import { getMetricEnv, isMetricReady } from "@/lib/server/metric/env";
@@ -9,10 +9,13 @@ import type { MetricConversationDTO } from "@/lib/api/metric-types";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** GET — the current user's latest conversation (own only). Never creates one. */
+/**
+ * GET — the current user's latest conversation (own only). Never creates one.
+ * Metric requires FULL access (see requireFullAccess).
+ */
 export async function GET() {
   try {
-    const user = await requireEmployeeProfile();
+    const user = await requireFullAccess();
     const ready = isMetricReady(getMetricEnv());
     const conv = await prisma.metricConversation.findFirst({
       where: { userId: user.id },

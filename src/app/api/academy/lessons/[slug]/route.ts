@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { requireAdmin, requireUser } from "@/lib/server/authz";
+import { requireAdmin, requireLimitedOrFullAccess } from "@/lib/server/authz";
 import { jsonOk, jsonError, handleError } from "@/lib/server/http";
 import { getLessonDetail } from "@/lib/server/lesson-detail";
 
@@ -9,6 +9,8 @@ export const dynamic = "force-dynamic";
 /**
  * GET /api/academy/lessons/:slug — the lesson for the player.
  * `?preview=1` is an ADMIN-only path (any status, no progress read/write).
+ * The employee path is on the approved LIMITED whitelist — see
+ * requireLimitedOrFullAccess.
  */
 export async function GET(req: NextRequest, ctx: { params: Promise<{ slug: string }> }) {
   try {
@@ -19,7 +21,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ slug: strin
     if (preview) {
       await requireAdmin(); // only admins may preview drafts
     } else {
-      const user = await requireUser();
+      const user = await requireLimitedOrFullAccess();
       userId = user.id;
     }
 
