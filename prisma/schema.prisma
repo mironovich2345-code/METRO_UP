@@ -64,6 +64,7 @@ model User {
   monthlyRatings  MonthlyRating[]
   achievements    UserAchievement[]
   metricConversations MetricConversation[]
+  roleAssignments RoleAssignment[]
 
   @@index([telegramId])
   @@map("users")
@@ -99,6 +100,7 @@ model City {
 
   clubs            Club[]
   employeeProfiles EmployeeProfile[]
+  roleAssignments  RoleAssignment[]
 
   @@map("cities")
 }
@@ -116,9 +118,86 @@ model Club {
   city             City              @relation(fields: [cityId], references: [id], onDelete: Cascade)
   employeeProfiles EmployeeProfile[]
   taskTemplates    ClubTaskTemplate[]
+  roleAssignments  RoleAssignment[]
 
   @@index([cityId])
   @@map("clubs")
+}
+
+/* =========================================================================
+ * RBAC foundation (Sprint 1 / Phase 2A) — network-wide role hierarchy.
+ * Additive, parallel to the legacy `AppRole` axis (see authz.ts comments):
+ * AppRole keeps gating session identity + existing CMS/content-admin routes
+ * (LEGACY authorization axis, preserved to avoid regressing SPM/content
+ * management). RoleAssignment is the target source of truth for the new
+ * PROJECT_ADMIN / OPERATIONS_DIRECTOR / CITY_MANAGER / CLUB_MANAGER / MANAGER
+ * hierarchy. A user may hold several concurrent RoleAssignment rows.
+ * ========================================================================= */
+
+enum NetworkRole {
+  PROJECT_ADMIN
+  OPERATIONS_DIRECTOR
+  CITY_MANAGER
+  CLUB_MANAGER
+  MANAGER
+}
+
+enum RoleScopeType {
+  SYSTEM // PROJECT_ADMIN — no cityId/clubId
+  NETWORK // OPERATIONS_DIRECTOR — no cityId/clubId
+  CITY // CITY_MANAGER's usual scope — cityId set, covers ALL of that city's
+  // clubs dynamically (including clubs added later); resolved at read time,
+  // never denormalized into per-club rows.
+  CLUB // CITY_MANAGER point exception, or CLUB_MANAGER / MANAGER — clubId set.
+}
+
+enum RoleAssignmentStatus {
+  PENDING_APPROVAL
+  ACTIVE
+  SUSPENDED
+  ENDED
+}
+
+/// One row = one (role, scope) grant for one user. Several rows per user are
+/// expected (multiple assignments, transfers, CITY-wide + a CLUB exception).
+/// Uniqueness of concurrently-ACTIVE identical grants is enforced by a partial
+/// unique index added by raw SQL in this model's migration (Prisma's schema
+/// language cannot express a partial/filtered unique index) — see
+/// prisma/migrations/20260817000000_role_assignment_foundation/migration.sql.
+model RoleAssignment {
+  id               String               @id @default(uuid()) @db.Uuid
+  userId           String               @db.Uuid
+  role             NetworkRole
+  scopeType        RoleScopeType
+  /// Set only when scopeType = CITY.
+  cityId           String?
+  /// Set only when scopeType = CLUB.
+  clubId           String?
+  status           RoleAssignmentStatus @default(ACTIVE)
+  /// Actor who created this assignment. Plain id (no relation), matching the
+  /// existing createdByUserId/actorUserId convention elsewhere in this schema
+  /// — null only for the one-time system bootstrap backfill.
+  assignedByUserId String?              @db.Uuid
+  reason           String?
+  startedAt        DateTime             @default(now())
+  endedAt          DateTime?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  // city/club onDelete explicitly Restrict (Prisma's implicit default for an
+  // OPTIONAL relation is SetNull, which would silently blank out which
+  // city/club a historical assignment was for — the opposite of what
+  // "не удалять историю" requires; matches EmployeeProfile's city/club
+  // relations, which use the same Restrict-by-omission pattern on their
+  // required equivalents).
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  city City? @relation(fields: [cityId], references: [id], onDelete: Restrict)
+  club Club? @relation(fields: [clubId], references: [id], onDelete: Restrict)
+
+  @@index([userId, status])
+  @@index([role, scopeType, cityId, status])
+  @@index([role, scopeType, clubId, status])
+  @@map("role_assignments")
 }
 
 // ----------------------- Content platform (LMS) --------------------
