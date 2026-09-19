@@ -65,6 +65,7 @@ model User {
   achievements    UserAchievement[]
   metricConversations MetricConversation[]
   roleAssignments RoleAssignment[]
+  employmentHistory EmploymentAssignment[]
 
   @@index([telegramId])
   @@map("users")
@@ -119,6 +120,7 @@ model Club {
   employeeProfiles EmployeeProfile[]
   taskTemplates    ClubTaskTemplate[]
   roleAssignments  RoleAssignment[]
+  employmentHistory EmploymentAssignment[]
 
   @@index([cityId])
   @@map("clubs")
@@ -198,6 +200,35 @@ model RoleAssignment {
   @@index([role, scopeType, cityId, status])
   @@index([role, scopeType, clubId, status])
   @@map("role_assignments")
+}
+
+/// Employment history ledger (club/position transfers). EmployeeProfile.
+/// clubId/positionId remain the CURRENT operational snapshot used by all
+/// existing code (daily plan, home, gating, etc.) — unchanged by this model.
+/// A future transfer service closes the current open row (endedAt = now())
+/// and opens a new one atomically alongside the EmployeeProfile update; no
+/// such service exists yet in this commit (foundation only, no UI/API).
+model EmploymentAssignment {
+  id              String           @id @default(uuid()) @db.Uuid
+  userId          String           @db.Uuid
+  clubId          String
+  positionId      EmployeePosition
+  startedAt       DateTime         @default(now())
+  /// NULL = currently open (this is the employee's active assignment).
+  endedAt         DateTime?
+  /// Actor who recorded this transfer. Plain id (no relation), matching the
+  /// existing createdByUserId/actorUserId convention elsewhere in this schema.
+  changedByUserId String?          @db.Uuid
+  reason          String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  club Club @relation(fields: [clubId], references: [id])
+
+  @@index([userId, endedAt])
+  @@index([clubId])
+  @@map("employment_assignments")
 }
 
 // ----------------------- Content platform (LMS) --------------------
