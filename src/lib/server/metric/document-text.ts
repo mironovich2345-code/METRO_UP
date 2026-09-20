@@ -30,6 +30,19 @@ const PDF_MAX_TEXT_CHARS = 5_000_000;   // total extracted text ceiling
 // linear even on adversarial binary (no O(n^2) from a group swallowing '[').
 const PDF_MAX_OP_CHARS = 2000;
 
+/*
+ * Sprint 1 / Phase 2B, section 19 — decompression bomb cap. `content.length >
+ * PDF_MAX_STREAM_CHARS` (below) truncated an already-decompressed buffer,
+ * which does nothing to stop a highly-compressed adversarial stream from
+ * fully inflating into a huge in-memory buffer FIRST. Node's zlib accepts a
+ * `maxOutputLength` option that throws once the decompressed size would
+ * exceed it, so the huge intermediate buffer is never allocated at all — the
+ * existing outer try/catch in extractDocumentText() already turns that throw
+ * into a safe { ok: false, reason: "no_text" } (see there), so no new
+ * error-handling path is needed, only the cap itself.
+ */
+const DOCX_MAX_XML_CHARS = 20 * 1024 * 1024; // matches DOC_MAX_BYTES; generous for any real document.xml
+
 const MIME: Record<string, DocFormat> = {
   "text/plain": "txt",
   "text/markdown": "md",
@@ -125,7 +138,12 @@ function extractDocx(buf: Buffer): string {
     const dataStart = off + 30 + nameLen + extraLen;
     if (name === "word/document.xml") {
       const comp = buf.subarray(dataStart, dataStart + compSize);
-      const xml = method === 8 ? inflateRawSync(comp).toString("utf8") : comp.toString("utf8");
+      // maxOutputLength: throws (caught by extractDocumentText's outer
+      // try/catch) instead of inflating an adversarial stream without bound.
+      const xml =
+        method === 8
+          ? inflateRawSync(comp, { maxOutputLength: DOCX_MAX_XML_CHARS }).toString("utf8")
+          : comp.toString("utf8");
       return docxXmlToText(xml);
     }
     off = dataStart + compSize;
@@ -185,7 +203,12 @@ function extractPdf(buf: Buffer): string {
     if (++streams > PDF_MAX_STREAMS || Date.now() > deadline) break;
     let content: string;
     try {
-      content = inflateSync(Buffer.from(m[1], "latin1")).toString("latin1");
+      // maxOutputLength: an adversarial stream that would inflate past the
+      // per-stream cap throws here (same as any other malformed stream) and
+      // falls back to the raw bytes below, instead of first allocating a huge
+      // decompressed buffer that PDF_MAX_STREAM_CHARS would only truncate
+      // AFTER the fact.
+      content = inflateSync(Buffer.from(m[1], "latin1"), { maxOutputLength: PDF_MAX_STREAM_CHARS }).toString("latin1");
     } catch {
       content = m[1];
     }

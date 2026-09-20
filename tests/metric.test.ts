@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { scopeForSource, positionAllows, retrievalFilter, normalizeScope } from "../src/lib/server/metric/access";
 import { buildScriptDoc, buildInstructionDoc, buildLessonDoc, buildDocumentDoc } from "../src/lib/server/metric/documents";
 import { parseResponsePayload } from "../src/lib/server/metric/openai-parse";
+import { deflateRawSync, deflateSync } from "node:zlib";
 import { extractDocumentText, detectFormat, docxXmlToText, sanitizeFilename, pdfContentToText, sanitizeExtractedText } from "../src/lib/server/metric/document-text";
 import { resolveMaxOutputTokens, DEFAULT_MAX_OUTPUT_TOKENS, MAX_OUTPUT_CEILING } from "../src/lib/server/metric/token-policy";
 import { isClickableSource } from "../src/lib/metric-source";
@@ -335,6 +336,72 @@ test("PDF-D: a malformed PDF (stream without endstream) does not hang", () => {
   const ms = performance.now() - t;
   assert.equal(res.ok, false); // no complete stream → no text
   assert.ok(ms < 2000, `malformed pdf must not hang; took ${ms.toFixed(0)}ms`);
+});
+
+/* -------- Decompression-bomb cap (Sprint 1 / Phase 2B, section 19) ------- */
+/*
+ * Regression for the confirmed audit finding: inflateSync/inflateRawSync were
+ * called with no maxOutputLength, so a highly-compressed adversarial stream
+ * would fully inflate into a huge in-memory buffer BEFORE PDF_MAX_STREAM_CHARS
+ * ever got a chance to truncate it. These fixtures use real zlib-compressed
+ * data (deflateSync/deflateRawSync of a long repeated run), not junk bytes —
+ * junk bytes fail to inflate at all and were already covered by PDF-C.
+ */
+
+test("PDF-E: a highly-compressed PDF stream that would inflate far past the per-stream cap is bounded — never allocates the full decompressed size", () => {
+  const bomb = deflateSync(Buffer.alloc(5_000_000, 0x41)); // 5MB of 'A', far above PDF_MAX_STREAM_CHARS (200_000)
+  const buf = Buffer.concat([Buffer.from("%PDF-1.4\nstream\n", "latin1"), bomb, Buffer.from("\nendstream\n%%EOF", "latin1")]);
+  const t = performance.now();
+  const res = extractDocumentText("application/pdf", "bomb.pdf", buf);
+  const ms = performance.now() - t;
+  // maxOutputLength throws once the cap is hit; extractPdf's existing catch
+  // falls back to the raw (still-compressed) bytes, which yields no real text.
+  assert.equal(res.ok, false);
+  assert.ok(ms < 2000, `must stay bounded, not allocate 5MB; took ${ms.toFixed(0)}ms`);
+});
+
+function buildDocxZip(xmlContent: string): Buffer {
+  const deflated = deflateRawSync(Buffer.from(xmlContent, "utf8"));
+  const nameBuf = Buffer.from("word/document.xml", "utf8");
+  const header = Buffer.alloc(30);
+  header.writeUInt32LE(0x04034b50, 0); // local file header signature
+  header.writeUInt16LE(20, 4); // version needed
+  header.writeUInt16LE(0, 6); // flags
+  header.writeUInt16LE(8, 8); // method = deflate
+  header.writeUInt32LE(0, 14); // crc32 (unchecked by extractDocx)
+  header.writeUInt32LE(deflated.length, 18); // compressed size
+  header.writeUInt32LE(Buffer.byteLength(xmlContent, "utf8"), 22); // uncompressed size (unchecked)
+  header.writeUInt16LE(nameBuf.length, 26); // filename length
+  header.writeUInt16LE(0, 28); // extra field length
+  return Buffer.concat([header, nameBuf, deflated]);
+}
+
+test("DOCX-A: a minimal real DOCX zip (deflate-compressed word/document.xml) extracts its text", () => {
+  const xml = "<w:document><w:body><w:p><w:r><w:t>Club rules: open 7 to 23</w:t></w:r></w:p></w:body></w:document>";
+  const res = extractDocumentText(
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "a.docx",
+    buildDocxZip(xml),
+  );
+  assert.equal(res.ok, true);
+  if (res.ok) assert.match(res.text, /Club rules/);
+});
+
+test("DOCX-B: a highly-compressed word/document.xml that would inflate past the cap yields no_text instead of allocating the full size", () => {
+  const bombXml = "A".repeat(25_000_000); // 25M chars, far above DOCX_MAX_XML_CHARS (20MB)
+  const buf = buildDocxZip(bombXml);
+  const t = performance.now();
+  const res = extractDocumentText(
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "bomb.docx",
+    buf,
+  );
+  const ms = performance.now() - t;
+  // extractDocx has no try/catch of its own — the maxOutputLength throw
+  // propagates to extractDocumentText's outer try/catch (see there), which
+  // turns it into a safe { ok: false, reason: "no_text" }, never a 500/hang.
+  assert.equal(res.ok, false);
+  assert.ok(ms < 2000, `must stay bounded, not allocate 25MB; took ${ms.toFixed(0)}ms`);
 });
 
 /* -------- PostgreSQL-safe sanitization of extracted text (NUL byte) ------ */
