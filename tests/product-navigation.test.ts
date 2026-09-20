@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { serverOnboardingComplete } from "../src/lib/onboarding-state";
 import { canSwitchClub, requestedClubForRole } from "../src/lib/club-scope";
 import { canManageClub, canAccessAdmin } from "../src/lib/roles";
-import { BOTTOM_NAV_ROUTES } from "../src/lib/nav-items";
+import { BOTTOM_NAV_ROUTES, visibleBottomNavRoutes } from "../src/lib/nav-items";
 import type { AppUserDTO } from "../src/lib/api/types";
 
 /**
@@ -87,11 +87,49 @@ test("L: bottom nav is Главная·Академия·Метрик·База�
   assert.equal(BOTTOM_NAV_ROUTES.some((r) => r.href === "/scripts" || r.href === "/instructions"), false);
 });
 
+/* ---- visibleBottomNavRoutes (Sprint 1 / Phase 2B, access-aware nav) ---- */
+
+test("M: visibleBottomNavRoutes — LIMITED sees only Академия", () => {
+  const routes = visibleBottomNavRoutes("LIMITED");
+  assert.deepEqual(routes.map((r) => r.href), ["/academy"]);
+});
+
+test("N: visibleBottomNavRoutes — FULL/null/undefined/PENDING_APPROVAL/SUSPENDED all see the full bar (server-side accessStatus enforcement is what actually blocks them, not the nav)", () => {
+  for (const status of ["FULL", null, undefined, "PENDING_APPROVAL", "SUSPENDED"]) {
+    assert.equal(visibleBottomNavRoutes(status).length, 5, `status=${status}`);
+  }
+});
+
 /* ------------------ integration scenarios (require Postgres/DOM) --------- */
 
 const skip = { skip: "integration: requires Postgres / DOM / Telegram runtime" } as const;
 test("C: existing profile + empty localStorage → Home (server truth)", skip, () => {});
 test("E: reopening Mini App does not re-trigger onboarding", skip, () => {});
+
+test(
+  "O: AccessStatusGate — a LIMITED employee opening /home, /metric, /plan, " +
+    "/ranking, /achievements, /scripts, or /instructions directly (typed URL, " +
+    "not nav) is client-redirected to /academy before any FULL-only fetch fires; " +
+    "/profile and /academy render normally",
+  skip,
+  () => {},
+);
+
+test(
+  "P: AccessStatusGate — a PENDING_APPROVAL employee sees PendingApprovalScreen " +
+    "on every Mini App route (including a direct deep link); /control, /admin, " +
+    "/spm, /welcome, /setup are unaffected by this gate",
+  skip,
+  () => {},
+);
+
+test(
+  "Q: AccessStatusGate — a SUSPENDED employee sees SuspendedScreen with the " +
+    "exact neutral copy from the approved spec (no mention of who suspended " +
+    "access or why) on every Mini App route",
+  skip,
+  () => {},
+);
 test("H(db): ADMIN with a club defaults to that club scope", skip, () => {});
 test("I(db): ADMIN without a club can select a valid club (server-validated)", skip, () => {});
 test("J(db): CLUB_MANAGER passing another clubId still gets only their club", skip, () => {});

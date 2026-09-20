@@ -6,8 +6,9 @@ import { motion } from "framer-motion";
 import { GraduationCap, Home, Library, Trophy, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { hapticSelection } from "@/lib/telegram";
-import { BOTTOM_NAV_ROUTES, type BottomNavRoute } from "@/lib/nav-items";
+import { visibleBottomNavRoutes, type BottomNavRoute } from "@/lib/nav-items";
 import { MetricCharacter } from "@/components/ui/metric-character";
+import { useApp } from "@/providers/app-provider";
 
 const ICONS: Record<string, LucideIcon> = {
   "/home": Home,
@@ -26,12 +27,14 @@ function isActive(pathname: string, item: BottomNavRoute): boolean {
 
 export function BottomNavigation() {
   const pathname = usePathname() ?? "";
+  const { profile } = useApp();
+  const routes = visibleBottomNavRoutes(profile?.accessStatus);
 
   return (
     <nav className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center pb-[calc(env(safe-area-inset-bottom)+12px)]">
       {/* overflow-visible so the raised Метрик button (and the mascot's marker) is never clipped */}
       <div className="pointer-events-auto mx-3 flex w-full max-w-[460px] items-center justify-around overflow-visible rounded-[26px] border border-[var(--glass-border)] bg-[var(--glass-bg)] px-1.5 py-2 shadow-[var(--shadow-float)] backdrop-blur-2xl">
-        {BOTTOM_NAV_ROUTES.map((item) => {
+        {routes.map((item) => {
           const active = isActive(pathname, item);
           return item.central ? (
             <MetricNavItem key={item.href} item={item} active={active} />

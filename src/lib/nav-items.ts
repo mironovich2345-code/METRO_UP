@@ -21,3 +21,15 @@ export const BOTTOM_NAV_ROUTES: BottomNavRoute[] = [
   { href: "/knowledge", label: "База", match: ["/scripts", "/instructions"] },
   { href: "/ranking", label: "Рейтинг" },
 ];
+
+/**
+ * accessStatus=LIMITED sees only Академия (the approved LIMITED whitelist —
+ * Home/Метрик/База/Рейтинг are FULL-only, see requireFullAccess in authz.ts).
+ * Sprint 1 / Phase 2B, section 9: access-aware navigation, not a nav that
+ * links to tabs the server will 403 the moment they're opened. Pure — no
+ * React import — so it is unit-testable like the rest of this file.
+ */
+export function visibleBottomNavRoutes(accessStatus: string | null | undefined): BottomNavRoute[] {
+  if (accessStatus === "LIMITED") return BOTTOM_NAV_ROUTES.filter((r) => r.href === "/academy");
+  return BOTTOM_NAV_ROUTES;
+}
