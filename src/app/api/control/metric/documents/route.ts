@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { requireSystemAccess } from "@/lib/server/authz";
 import { jsonOk, jsonError, handleError } from "@/lib/server/http";
+import { getRateLimiter } from "@/lib/server/rate-limit";
 import { listDocuments, createDocument } from "@/lib/server/metric/documents-admin";
 import { metaSchema } from "@/lib/server/metric/document-schemas";
 
@@ -20,6 +21,8 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const admin = await requireSystemAccess();
+    const rl = await getRateLimiter().check(`metric.document.upload:${admin.id}`, { max: 20, windowMs: 60_000 });
+    if (!rl.allowed) return jsonError(429, "rate_limited", { retryAfterSeconds: rl.retryAfterSeconds });
     const form = await req.formData();
     const file = form.get("file");
     if (!(file instanceof File)) return jsonError(400, "file_required");

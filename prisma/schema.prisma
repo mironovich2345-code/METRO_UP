@@ -942,6 +942,23 @@ model UserAuditLog {
   @@map("user_audit_logs")
 }
 
+/// Durable, fixed-window rate-limit counter (Sprint 1 / Phase 2B). Replaces
+/// the in-memory permissiveLimiter placeholder in src/lib/server/rate-limit.ts
+/// — one row per (key, windowStart); `count` increments via upsert, checked
+/// against a per-call-site max. Deliberately Postgres, not a new managed
+/// service (Redis/Upstash): this app already has exactly one durable store,
+/// and Sprint 1's traffic volume (a 50-club network, not a public API) does
+/// not justify a new infrastructure dependency — see the Sprint 1 plan,
+/// "Rate limiting" section, for the explicit trade-off and revisit trigger.
+model RateLimitHit {
+  key         String
+  windowStart DateTime
+  count       Int      @default(1)
+
+  @@id([key, windowStart])
+  @@map("rate_limit_hits")
+}
+
 /* =========================================================================
  * Metric AI v1 — knowledge sync state + employee conversations.
  * Additive only. No secrets are stored (never the OpenAI key or raw errors).
