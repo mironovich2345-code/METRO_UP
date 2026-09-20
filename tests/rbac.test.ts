@@ -12,6 +12,7 @@ import {
   canAssignRole,
   canRevokeRole,
   authorize,
+  isValidGrantShape,
 } from "../src/lib/server/rbac/authorize-core";
 import type { ActorContext, RoleGrant } from "../src/lib/server/rbac/types";
 
@@ -144,6 +145,46 @@ test("SYSTEM-C: a SUSPENDED PROJECT_ADMIN grant does not grant system access", (
 test("SYSTEM-D: an ordinary employee has no system access", () => {
   assert.equal(hasSystemAccess(actor()), false);
 });
+
+/* -------- isValidGrantShape (Sprint 1 / Phase 2B — role/scope shape) ------- */
+
+test("SHAPE-A: PROJECT_ADMIN must be SYSTEM scope with no city/club", () => {
+  assert.equal(isValidGrantShape({ role: "PROJECT_ADMIN", scopeType: "SYSTEM", cityId: null, clubId: null }), true);
+  assert.equal(isValidGrantShape({ role: "PROJECT_ADMIN", scopeType: "NETWORK", cityId: null, clubId: null }), false);
+  assert.equal(isValidGrantShape({ role: "PROJECT_ADMIN", scopeType: "SYSTEM", cityId: "voronezh", clubId: null }), false);
+});
+
+test("SHAPE-B: OPERATIONS_DIRECTOR must be NETWORK scope with no city/club", () => {
+  assert.equal(isValidGrantShape({ role: "OPERATIONS_DIRECTOR", scopeType: "NETWORK", cityId: null, clubId: null }), true);
+  assert.equal(isValidGrantShape({ role: "OPERATIONS_DIRECTOR", scopeType: "SYSTEM", cityId: null, clubId: null }), false);
+  assert.equal(isValidGrantShape({ role: "OPERATIONS_DIRECTOR", scopeType: "CITY", cityId: "voronezh", clubId: null }), false);
+});
+
+test("SHAPE-C: CITY_MANAGER may be CITY (cityId set) or CLUB (point exception, clubId set) — never both, never neither", () => {
+  assert.equal(isValidGrantShape({ role: "CITY_MANAGER", scopeType: "CITY", cityId: "voronezh", clubId: null }), true);
+  assert.equal(isValidGrantShape({ role: "CITY_MANAGER", scopeType: "CLUB", cityId: null, clubId: "club-1" }), true);
+  assert.equal(isValidGrantShape({ role: "CITY_MANAGER", scopeType: "CITY", cityId: null, clubId: null }), false);
+  assert.equal(isValidGrantShape({ role: "CITY_MANAGER", scopeType: "NETWORK", cityId: null, clubId: null }), false);
+});
+
+test("SHAPE-D: CLUB_MANAGER and MANAGER must be CLUB scope with clubId set and no cityId", () => {
+  assert.equal(isValidGrantShape({ role: "CLUB_MANAGER", scopeType: "CLUB", cityId: null, clubId: "club-1" }), true);
+  assert.equal(isValidGrantShape({ role: "MANAGER", scopeType: "CLUB", cityId: null, clubId: "club-1" }), true);
+  assert.equal(isValidGrantShape({ role: "CLUB_MANAGER", scopeType: "CITY", cityId: "voronezh", clubId: null }), false);
+  assert.equal(isValidGrantShape({ role: "MANAGER", scopeType: "CLUB", cityId: null, clubId: null }), false);
+});
+
+test(
+  "SHAPE-E: DIRECT ATTACK — a PROJECT_ADMIN (system access) request to create " +
+    "{role: CITY_MANAGER, scopeType: NETWORK} (right role, wrong/nonsense scope " +
+    "shape) is rejected by canAssignRole even though the top-level " +
+    "hasSystemAccess branch only inspects target.role",
+  () => {
+    const a = actor({ appRole: "ADMIN" });
+    assert.equal(canAssignRole(a, { role: "CITY_MANAGER", scopeType: "NETWORK", cityId: null, clubId: null }), false);
+    assert.equal(canAssignRole(a, { role: "OPERATIONS_DIRECTOR", scopeType: "CITY", cityId: "voronezh", clubId: null }), false);
+  },
+);
 
 /* ------------------------------- Assignment -------------------------------- */
 
@@ -344,5 +385,52 @@ test(
     "page shells render their content (not AccessDenied) for a PROJECT_ADMIN/SYSTEM grant " +
     "holder, and ControlShell shows the CMS nav items, exactly like legacy AppRole=ADMIN",
   { skip: "integration: requires Postgres + running server + DOM" },
+  () => {},
+);
+
+/* ------------------- Role Assignment API (Sprint 1 / Phase 2B) ------------- */
+
+test(
+  "API-A: GET /api/control/roles returns only assignments within the caller's " +
+    "visibility scope (visibilityFilter) — a CLUB_MANAGER sees only their club's " +
+    "rows, a CITY_MANAGER sees their city's CITY-scoped rows plus every CLUB-scoped " +
+    "row inside that city (including a club added to the city after the grant was " +
+    "made), and a plain MANAGER with no active grant gets 403, never an empty 200",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
+test(
+  "API-B: POST /api/control/roles rejects a body whose shape/hierarchy authorize() " +
+    "denies with 403 (never a 500), and a body creating a duplicate ACTIVE scope " +
+    "with 409 assignment_already_active (pre-check) — a forced race that reaches the " +
+    "DB anyway is still caught (P2002 -> 409, never a raw 500)",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
+test(
+  "API-C: POST /api/control/roles/[id]/revoke on a CITY_MANAGER's only active " +
+    "grant also flips EmployeeProfile.accessStatus to SUSPENDED (hasAnyActiveWorkingAssignment " +
+    "returns false) and audits a separate ACCESS_SUSPENDED entry in the same " +
+    "transaction; revoking one of TWO active grants leaves accessStatus untouched",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
+test(
+  "API-D: POST /api/control/roles/[id]/restore refuses (409) when an ACTIVE " +
+    "duplicate-scope row already exists (collision guard mirrors the partial " +
+    "unique index) and never touches EmployeeProfile.accessStatus even if the " +
+    "matching revoke had auto-suspended it",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
+test(
+  "API-E: DIRECT ATTACK — a CLUB_MANAGER POSTs /api/control/roles with " +
+    "{role: CITY_MANAGER, scopeType: CITY, cityId: <any>} (self-promotion via the " +
+    "raw API, bypassing any UI) -> 403, RoleAssignment table unchanged",
+  { skip: "integration: requires Postgres + running server" },
   () => {},
 );

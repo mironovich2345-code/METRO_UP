@@ -31,3 +31,23 @@ export async function cityIdForClub(clubId: string): Promise<string | null> {
   const club = await prisma.club.findUnique({ where: { id: clubId }, select: { cityId: true } });
   return club?.cityId ?? null;
 }
+
+/**
+ * Does this user hold ANY active RoleAssignment, of any role/scope? (Sprint 1
+ * / Phase 2B, section 21 — "global vs assignment suspension".)
+ *
+ * RoleAssignment.status and EmployeeProfile.accessStatus are deliberately
+ * separate axes (one specific grant's lifecycle vs. "can this person use the
+ * app at all") — revoking one grant must never silently flip the global
+ * accessStatus while another active grant remains. This is the ONE place
+ * that answers "does anything remain?" — callers (role-assignment-service's
+ * revoke/restore) decide what to DO with the answer; this function does not
+ * touch accessStatus itself, so the decision logic is never duplicated.
+ */
+export async function hasAnyActiveWorkingAssignment(userId: string): Promise<boolean> {
+  const row = await prisma.roleAssignment.findFirst({
+    where: { userId, status: "ACTIVE" },
+    select: { id: true },
+  });
+  return row !== null;
+}

@@ -5,6 +5,7 @@ import {
   isAccessPending,
   hasLimitedOrFullAccess,
   hasFullAccess,
+  resolveAccessAuditAction,
 } from "../src/lib/server/access-status-logic";
 
 /**
@@ -76,7 +77,77 @@ test("ACCESS-H: SUSPENDED — denied at every tier, including the most permissiv
   assert.equal(hasFullAccess("SUSPENDED"), false); // requireFullAccess -> denied
 });
 
+/* ------- resolveAccessAuditAction (Sprint 1 / Phase 2B section 10) --------- */
+
+test("ACCESS-M: resolveAccessAuditAction — anything -> SUSPENDED is always ACCESS_SUSPENDED", () => {
+  for (const before of [null, "PENDING_APPROVAL", "LIMITED", "FULL", "SUSPENDED"] as const) {
+    assert.equal(resolveAccessAuditAction(before, "SUSPENDED"), "ACCESS_SUSPENDED", `before=${before}`);
+  }
+});
+
+test("ACCESS-N: resolveAccessAuditAction — SUSPENDED -> anything else is ACCESS_RESTORED", () => {
+  assert.equal(resolveAccessAuditAction("SUSPENDED", "FULL"), "ACCESS_RESTORED");
+  assert.equal(resolveAccessAuditAction("SUSPENDED", "LIMITED"), "ACCESS_RESTORED");
+});
+
+test("ACCESS-O: resolveAccessAuditAction — a plain FULL<->LIMITED adjustment (never through SUSPENDED) is ACCESS_GRANTED", () => {
+  assert.equal(resolveAccessAuditAction("FULL", "LIMITED"), "ACCESS_GRANTED");
+  assert.equal(resolveAccessAuditAction("LIMITED", "FULL"), "ACCESS_GRANTED");
+  assert.equal(resolveAccessAuditAction(null, "FULL"), "ACCESS_GRANTED");
+});
+
 /* ----------------------- DB-level integration (route-level) ----------------- */
+
+test(
+  "ACCESS-M2: a brand-new employee's FIRST onboarding creates EmployeeProfile with " +
+    "accessStatus=PENDING_APPROVAL (not LIMITED) — Sprint 1 / Phase 2B corrected " +
+    "semantics; previously onboarding granted LIMITED directly, skipping the " +
+    "CLUB_MANAGER approval step entirely",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
+test(
+  "ACCESS-N2: PENDING_APPROVAL employee — /api/auth/me resolves (so a waiting " +
+    "screen can render) but every operational route (Academy included) returns " +
+    "403 ACCESS_PENDING_APPROVAL, never 200",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
+test(
+  "ACCESS-O2: POST /api/control/team/[id]/approve on a PENDING_APPROVAL employee " +
+    "of the manager's own club sets accessStatus to the requested FULL/LIMITED, " +
+    "creates an ACTIVE RoleAssignment{MANAGER, CLUB, that club}, and writes both " +
+    "ACCESS_GRANTED and ROLE_ASSIGNED to UserAuditLog",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
+test(
+  "ACCESS-P2: POST /api/control/team/[id]/approve on an already-FULL/LIMITED/" +
+    "SUSPENDED employee (not PENDING_APPROVAL) is rejected with 409 not_pending " +
+    "and changes nothing",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
+test(
+  "ACCESS-Q2: POST /api/control/team/[id]/access (setEmployeeAccess) on a " +
+    "PENDING_APPROVAL target is rejected with 409 pending_approval — the two " +
+    "flows never race into a contradictory state",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
+test(
+  "ACCESS-R2: POST /api/control/team/[id]/access with accessStatus=SUSPENDED on a " +
+    "FULL employee of the manager's own club sets accessStatus=SUSPENDED and " +
+    "audits ACCESS_SUSPENDED; a manager of a DIFFERENT club gets 403 " +
+    "employee_not_in_club (same cross-club protection as grant)",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
 
 test(
   "ACCESS-I: SUSPENDED employee calling Metric/Academy/Daily Plan/Scripts/Instructions/XP/Rating " +

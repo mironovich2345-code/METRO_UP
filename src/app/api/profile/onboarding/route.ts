@@ -9,6 +9,7 @@ import {
 } from "@/lib/server/network";
 import { jsonOk, jsonError, handleError } from "@/lib/server/http";
 import { meDTO } from "@/lib/server/dto";
+import { getRateLimiter } from "@/lib/server/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,6 +46,9 @@ function safeId(value: unknown): string {
 export async function POST(req: NextRequest) {
   try {
     const user = await requireUser();
+
+    const rl = await getRateLimiter().check(`onboarding:${user.id}`, { max: 10, windowMs: 60_000 });
+    if (!rl.allowed) return jsonError(429, "rate_limited", { retryAfterSeconds: rl.retryAfterSeconds });
 
     // P0 SECURITY FIX: this endpoint is INITIAL ONBOARDING only. Once a profile
     // has completed it, self-service calls must never be able to reassign
@@ -122,7 +126,13 @@ export async function POST(req: NextRequest) {
           clubId: input.clubId,
           positionId: input.positionId,
           careerLevel: "NEWCOMER",
-          accessStatus: "LIMITED",
+          // Sprint 1 / Phase 2B approved semantics: a brand-new registrant is
+          // NOT yet confirmed by their CLUB_MANAGER — that is exactly what
+          // PENDING_APPROVAL means (see approveManagerAccess in club-plan.ts,
+          // and the Sprint 1 plan's "Access status" section). Previously this
+          // created LIMITED directly, which skipped the approval step
+          // entirely (there was nothing left for a manager to approve).
+          accessStatus: "PENDING_APPROVAL",
           onboardingCompleted: true,
         },
       });

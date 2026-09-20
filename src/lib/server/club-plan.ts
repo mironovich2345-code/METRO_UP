@@ -6,6 +6,7 @@ import { appDay } from "./time";
 import { materializeDailyPlan } from "./daily-plan";
 import { templatesForPosition } from "./daily-plan-catalog";
 import { normalizeChecklist, type ChecklistInput } from "./club-plan-schemas";
+import { resolveAccessAuditAction } from "./access-status-logic";
 import type { CurrentUser } from "./session";
 import { canSwitchClub, requestedClubForRole } from "@/lib/club-scope";
 import { getPositionById } from "@/content/positions";
@@ -417,10 +418,18 @@ export async function getClubTeam(user: CurrentUser, requestedClubId?: string | 
 }
 
 /**
- * Manager grant/revoke of an employee's full METRO UP access. Club-scoped exactly
- * like task assignment: the target MUST be a real EMPLOYEE of the actor's OWN club
- * (a CLUB_MANAGER can never touch another club; ADMIN operates on the club they
- * scoped into). The change is persisted on EmployeeProfile.accessStatus and audited.
+ * Manager grant/suspend/restore of an employee's METRO UP access level.
+ * Club-scoped exactly like task assignment: the target MUST be a real
+ * EMPLOYEE of the actor's OWN club (a CLUB_MANAGER can never touch another
+ * club; ADMIN operates on the club they scoped into). The change is
+ * persisted on EmployeeProfile.accessStatus and audited under the approved
+ * ACCESS_GRANTED/ACCESS_SUSPENDED/ACCESS_RESTORED vocabulary (previously a
+ * single generic "ACCESS_GRANT" regardless of direction).
+ *
+ * Deliberately rejects a PENDING_APPROVAL target (409) — that specific
+ * transition is approveManagerAccess()'s job, not this function's, so the two
+ * flows can never race into a contradictory state (see that function's doc
+ * comment for why it also creates a RoleAssignment, which this one does not).
  */
 export async function setEmployeeAccess(
   actor: CurrentUser,
@@ -435,17 +444,99 @@ export async function setEmployeeAccess(
     throw new AuthError(403, "employee_not_in_club", "Сотрудник не из вашего клуба");
   }
   const before = target.employeeProfile?.accessStatus ?? null;
+  if (before === "PENDING_APPROVAL") {
+    throw new AuthError(409, "pending_approval", "Сотрудник ожидает первичного подтверждения — используйте approve");
+  }
+  const action = resolveAccessAuditAction(before, accessStatus);
   await prisma.$transaction(async (tx) => {
     await tx.employeeProfile.update({ where: { userId: targetUserId }, data: { accessStatus } });
     await tx.userAuditLog.create({
       data: {
         actorUserId: actor.id,
         targetUserId,
-        action: "ACCESS_GRANT",
+        action,
+        clubId,
         before: { accessStatus: before },
         after: { accessStatus },
       },
     });
   });
   return { userId: targetUserId, accessStatus };
+}
+
+/**
+ * Approve a PENDING_APPROVAL employee's first working access (Sprint 1 /
+ * Phase 2B section 6). This is the ONLY place PENDING_APPROVAL ever leaves
+ * that state — setEmployeeAccess refuses to touch a pending target so the two
+ * flows can't disagree about what "approved" means.
+ *
+ * Bridges EmployeeProfile.accessStatus (the base app-access axis) and
+ * RoleAssignment (the target RBAC source of truth, see rbac/authorize-core.ts)
+ * atomically: approval both lifts accessStatus to FULL/LIMITED AND grants a
+ * real, auditable, revocable RoleAssignment{MANAGER, CLUB} — going forward,
+ * every manager approved through this flow has a proper RoleAssignment from
+ * day one, even though Phase 2A's backfill deliberately did not bulk-create
+ * one for pre-existing employees (see prisma/backfill-role-assignments.ts).
+ * Idempotent on the RoleAssignment side: re-running this after a later
+ * accessStatus adjustment never creates a duplicate ACTIVE grant.
+ */
+export async function approveManagerAccess(
+  actor: CurrentUser,
+  targetUserId: string,
+  toStatus: "FULL" | "LIMITED",
+  scopeClubId?: string | null,
+  reason?: string | null,
+): Promise<{ userId: string; accessStatus: AccessStatus }> {
+  const clubId = await resolveScopedClubId(actor, scopeClubId);
+  const target = await prisma.user.findUnique({ where: { id: targetUserId }, include: { employeeProfile: true } });
+  if (!target || target.role !== "EMPLOYEE" || target.employeeProfile?.clubId !== clubId) {
+    throw new AuthError(403, "employee_not_in_club", "Сотрудник не из вашего клуба");
+  }
+  if (target.employeeProfile?.accessStatus !== "PENDING_APPROVAL") {
+    throw new AuthError(409, "not_pending", "Заявка уже обработана");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.employeeProfile.update({ where: { userId: targetUserId }, data: { accessStatus: toStatus } });
+    await tx.userAuditLog.create({
+      data: {
+        actorUserId: actor.id,
+        targetUserId,
+        action: "ACCESS_GRANTED",
+        clubId,
+        reason: reason ?? null,
+        before: { accessStatus: "PENDING_APPROVAL" },
+        after: { accessStatus: toStatus },
+      },
+    });
+
+    const existingGrant = await tx.roleAssignment.findFirst({
+      where: { userId: targetUserId, role: "MANAGER", scopeType: "CLUB", clubId, status: "ACTIVE" },
+      select: { id: true },
+    });
+    if (!existingGrant) {
+      await tx.roleAssignment.create({
+        data: {
+          userId: targetUserId,
+          role: "MANAGER",
+          scopeType: "CLUB",
+          clubId,
+          status: "ACTIVE",
+          assignedByUserId: actor.id,
+          reason: reason ?? "manager_approval",
+        },
+      });
+      await tx.userAuditLog.create({
+        data: {
+          actorUserId: actor.id,
+          targetUserId,
+          action: "ROLE_ASSIGNED",
+          clubId,
+          after: { role: "MANAGER", scopeType: "CLUB", clubId, status: "ACTIVE" },
+        },
+      });
+    }
+  });
+
+  return { userId: targetUserId, accessStatus: toStatus };
 }

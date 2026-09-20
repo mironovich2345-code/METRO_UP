@@ -35,6 +35,33 @@ export interface RoleAssignmentTarget {
 }
 
 /**
+ * Canonical (role -> scope shape) rules, checked BEFORE any hierarchy branch
+ * in canAssignRole. Without this, the hasSystemAccess() branch below would
+ * accept a request like {role: "CITY_MANAGER", scopeType: "NETWORK"} — the
+ * role name is right but the scope shape is nonsense — because that branch
+ * only ever inspected `target.role`. Centralized here instead of duplicated
+ * per branch so a future 6th role/scope can't reintroduce the same gap.
+ */
+export function isValidGrantShape(target: RoleAssignmentTarget): boolean {
+  switch (target.role) {
+    case "PROJECT_ADMIN":
+      return target.scopeType === "SYSTEM" && target.cityId === null && target.clubId === null;
+    case "OPERATIONS_DIRECTOR":
+      return target.scopeType === "NETWORK" && target.cityId === null && target.clubId === null;
+    case "CITY_MANAGER":
+      // CITY (the usual case, dynamic — see RoleScopeType.CITY in schema.prisma)
+      // OR CLUB (a point exception/override for one club) — never both set.
+      return (
+        (target.scopeType === "CITY" && !!target.cityId && !target.clubId) ||
+        (target.scopeType === "CLUB" && !!target.clubId && !target.cityId)
+      );
+    case "CLUB_MANAGER":
+    case "MANAGER":
+      return target.scopeType === "CLUB" && !!target.clubId && !target.cityId;
+  }
+}
+
+/**
  * May `actor` create a RoleAssignment shaped like `target`? Structured so
  * that self-promotion and scope-jumping are impossible BY CONSTRUCTION, not
  * by a special-cased check: an actor who is not a PROJECT_ADMIN simply has no
@@ -45,8 +72,12 @@ export function canAssignRole(
   target: RoleAssignmentTarget,
   opts: { targetClubCityId?: string | null } = {},
 ): boolean {
+  if (!isValidGrantShape(target)) return false;
+
   if (hasSystemAccess(actor)) {
-    // PROJECT_ADMIN appoints the two top business tiers only.
+    // PROJECT_ADMIN appoints the two top business tiers only. CITY_MANAGER
+    // may be created with either CITY or CLUB scope here (isValidGrantShape
+    // already confirmed the shape is one of the two legal ones).
     return target.role === "OPERATIONS_DIRECTOR" || target.role === "CITY_MANAGER";
   }
 

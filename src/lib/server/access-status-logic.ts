@@ -35,3 +35,21 @@ export function hasLimitedOrFullAccess(status: AccessStatus | null | undefined):
 export function hasFullAccess(status: AccessStatus | null | undefined): boolean {
   return status === "FULL";
 }
+
+/**
+ * Which UserAuditLog action name a before -> after accessStatus transition
+ * gets (Sprint 1 / Phase 2B section 10's approved event vocabulary):
+ * SUSPENDED is always ACCESS_SUSPENDED regardless of what it came from;
+ * leaving SUSPENDED for anything else is a restore; everything else (a plain
+ * FULL<->LIMITED adjustment, or the very first grant) is a generic grant.
+ * One function so setEmployeeAccess and approveManagerAccess (club-plan.ts)
+ * never disagree on naming.
+ */
+export function resolveAccessAuditAction(
+  before: AccessStatus | null,
+  after: AccessStatus,
+): "ACCESS_SUSPENDED" | "ACCESS_RESTORED" | "ACCESS_GRANTED" {
+  if (after === "SUSPENDED") return "ACCESS_SUSPENDED";
+  if (before === "SUSPENDED") return "ACCESS_RESTORED";
+  return "ACCESS_GRANTED";
+}
