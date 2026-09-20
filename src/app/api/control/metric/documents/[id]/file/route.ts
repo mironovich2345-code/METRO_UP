@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { requireAdmin } from "@/lib/server/authz";
+import { requireSystemAccess } from "@/lib/server/authz";
 import { jsonOk, jsonError, handleError } from "@/lib/server/http";
 import { replaceDocumentFile } from "@/lib/server/metric/documents-admin";
 
@@ -10,7 +10,7 @@ export const maxDuration = 120;
 /** POST — replace the file of a DRAFT document (multipart). */
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
-    const admin = await requireAdmin();
+    const admin = await requireSystemAccess();
     const { id } = await ctx.params;
     const form = await req.formData();
     const file = form.get("file");

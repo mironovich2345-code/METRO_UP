@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { requireAdmin } from "@/lib/server/authz";
+import { requireSystemAccess } from "@/lib/server/authz";
 import { jsonOk, jsonError, handleError } from "@/lib/server/http";
 import { listDocuments, createDocument } from "@/lib/server/metric/documents-admin";
 import { metaSchema } from "@/lib/server/metric/document-schemas";
@@ -10,7 +10,7 @@ export const maxDuration = 120;
 
 export async function GET() {
   try {
-    await requireAdmin();
+    await requireSystemAccess();
     return jsonOk(await listDocuments());
   } catch (e) {
     return handleError(e);
@@ -19,7 +19,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    const admin = await requireAdmin();
+    const admin = await requireSystemAccess();
     const form = await req.formData();
     const file = form.get("file");
     if (!(file instanceof File)) return jsonError(400, "file_required");

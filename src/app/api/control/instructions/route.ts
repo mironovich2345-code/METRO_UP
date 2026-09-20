@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { requireAdmin } from "@/lib/server/authz";
+import { requireSystemAccess } from "@/lib/server/authz";
 import { jsonOk, handleError, readJson } from "@/lib/server/http";
 import { instructionCreateSchema } from "@/lib/server/knowledge-schemas";
 import { listInstructions, listInstructionCategories, createInstruction } from "@/lib/server/knowledge-admin";
@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
-    await requireAdmin();
+    await requireSystemAccess();
     const url = new URL(req.url);
     const [instructions, categories] = await Promise.all([
       listInstructions({
@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const admin = await requireAdmin();
+    const admin = await requireSystemAccess();
     const input = instructionCreateSchema.parse(await readJson(req));
     const instruction = await createInstruction(admin.id, input);
     return jsonOk({ instruction }, 201);

@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { requireAdmin } from "@/lib/server/authz";
+import { requireSystemAccess } from "@/lib/server/authz";
 import { jsonOk, handleError } from "@/lib/server/http";
 import { userFilterSchema } from "@/lib/server/user-admin-schemas";
 import { listUsers, getUserFacets } from "@/lib/server/user-admin";
@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
-    await requireAdmin();
+    await requireSystemAccess();
     const url = new URL(req.url);
     const filter = userFilterSchema.parse({
       cityId: url.searchParams.get("cityId") ?? undefined,

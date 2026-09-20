@@ -316,3 +316,33 @@ test(
   { skip: "integration: requires Postgres + generated client" },
   () => {},
 );
+
+/* ------------- SYSTEM/CMS compatibility gate (Sprint 1 / Phase 2B) --------- */
+/* hasSystemAccess() itself is exhaustively covered above (SYSTEM-A..D) — these
+ * document the route/page-level wiring that composes it with a live session,
+ * which needs a DB (getActorContext queries RoleAssignment). */
+
+test(
+  "SYSTEM-E: every former requireAdmin()-only CMS route (Academy/Scripts/Instructions/" +
+    "Metric documents+sync/control/users) now accepts requireSystemAccess() — a " +
+    "PROJECT_ADMIN/SYSTEM RoleAssignment holder with legacy AppRole=EMPLOYEE succeeds " +
+    "exactly like AppRole=ADMIN did before",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
+test(
+  "SYSTEM-F: requireSPMAccess()/requireSPM() are unaffected by an active PROJECT_ADMIN " +
+    "grant — a PROJECT_ADMIN without legacy AppRole=ADMIN or SPM still gets 403 from " +
+    "every /api/spm/** route (SPM stays a separate, untouched legacy axis)",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
+test(
+  "SYSTEM-G: the /admin and /control/{scripts,instructions,metric,metric/documents,users} " +
+    "page shells render their content (not AccessDenied) for a PROJECT_ADMIN/SYSTEM grant " +
+    "holder, and ControlShell shows the CMS nav items, exactly like legacy AppRole=ADMIN",
+  { skip: "integration: requires Postgres + running server + DOM" },
+  () => {},
+);

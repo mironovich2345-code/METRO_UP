@@ -4,8 +4,16 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, BarChart3, BookOpen, Bot, Eye, GraduationCap, ListChecks, ScrollText, Trophy, UserCog, Users } from "lucide-react";
 import type { AppRole } from "@prisma/client";
-import { canAccessAdmin, canAccessSpm, canManageClub } from "@/lib/roles";
+import { canAccessSpm, canManageClub } from "@/lib/roles";
 import { adminApi, type AdminDashboard } from "@/lib/api/content-client";
+
+interface CardCtx {
+  role: AppRole;
+  /** Legacy AppRole=ADMIN OR an active PROJECT_ADMIN/SYSTEM RoleAssignment
+   * (Sprint 1 / Phase 2B) — computed once server-side, never re-derived from
+   * `role` alone here. */
+  hasSystemAccess: boolean;
+}
 
 interface CardDef {
   key: string;
@@ -14,33 +22,40 @@ interface CardDef {
   href: string;
   cta: string;
   icon: typeof BarChart3;
-  can: (role: AppRole) => boolean;
+  can: (ctx: CardCtx) => boolean;
 }
 
 const CARDS: CardDef[] = [
-  { key: "learning", title: "Обучение", description: "Создание уроков, видео, материалов и тестов", href: "/admin/content", cta: "Открыть обучение", icon: GraduationCap, can: canAccessAdmin },
-  { key: "scripts", title: "Скрипты", description: "Рабочие сценарии разговоров для менеджеров", href: "/control/scripts", cta: "Открыть скрипты", icon: ScrollText, can: canAccessAdmin },
-  { key: "instructions", title: "Инструкции", description: "Регламенты и рабочие инструкции для смены", href: "/control/instructions", cta: "Открыть инструкции", icon: BookOpen, can: canAccessAdmin },
-  { key: "users", title: "Сотрудники", description: "Роли, должности и клубы сотрудников", href: "/control/users", cta: "Открыть сотрудников", icon: UserCog, can: canAccessAdmin },
-  { key: "metric", title: "Метрик", description: "Статус синхронизации базы знаний с ИИ-помощником", href: "/control/metric", cta: "Открыть Метрик", icon: Bot, can: canAccessAdmin },
-  { key: "plan", title: "План дня", description: "Операционные задачи сотрудников вашего клуба", href: "/control/plan", cta: "Открыть план дня", icon: ListChecks, can: canManageClub },
-  { key: "team", title: "Команда", description: "Сотрудники клуба и их прогресс", href: "/control/team", cta: "Открыть команду", icon: Users, can: canManageClub },
-  { key: "sales", title: "Продажи", description: "Личные планы и фактические продажи менеджеров", href: "/spm/sales", cta: "Открыть продажи", icon: BarChart3, can: canAccessSpm },
-  { key: "mystery", title: "Тайный покупатель", description: "Результаты проверок и обратная связь", href: "/spm/mystery", cta: "Открыть проверки", icon: Eye, can: canAccessSpm },
-  { key: "rating", title: "Рейтинг", description: "Расчёт и публикация месячного рейтинга", href: "/spm/rating", cta: "Открыть рейтинг", icon: Trophy, can: canAccessSpm },
+  { key: "learning", title: "Обучение", description: "Создание уроков, видео, материалов и тестов", href: "/admin/content", cta: "Открыть обучение", icon: GraduationCap, can: (c) => c.hasSystemAccess },
+  { key: "scripts", title: "Скрипты", description: "Рабочие сценарии разговоров для менеджеров", href: "/control/scripts", cta: "Открыть скрипты", icon: ScrollText, can: (c) => c.hasSystemAccess },
+  { key: "instructions", title: "Инструкции", description: "Регламенты и рабочие инструкции для смены", href: "/control/instructions", cta: "Открыть инструкции", icon: BookOpen, can: (c) => c.hasSystemAccess },
+  { key: "users", title: "Сотрудники", description: "Роли, должности и клубы сотрудников", href: "/control/users", cta: "Открыть сотрудников", icon: UserCog, can: (c) => c.hasSystemAccess },
+  { key: "metric", title: "Метрик", description: "Статус синхронизации базы знаний с ИИ-помощником", href: "/control/metric", cta: "Открыть Метрик", icon: Bot, can: (c) => c.hasSystemAccess },
+  { key: "plan", title: "План дня", description: "Операционные задачи сотрудников вашего клуба", href: "/control/plan", cta: "Открыть план дня", icon: ListChecks, can: (c) => canManageClub(c.role) },
+  { key: "team", title: "Команда", description: "Сотрудники клуба и их прогресс", href: "/control/team", cta: "Открыть команду", icon: Users, can: (c) => canManageClub(c.role) },
+  { key: "sales", title: "Продажи", description: "Личные планы и фактические продажи менеджеров", href: "/spm/sales", cta: "Открыть продажи", icon: BarChart3, can: (c) => canAccessSpm(c.role) },
+  { key: "mystery", title: "Тайный покупатель", description: "Результаты проверок и обратная связь", href: "/spm/mystery", cta: "Открыть проверки", icon: Eye, can: (c) => canAccessSpm(c.role) },
+  { key: "rating", title: "Рейтинг", description: "Расчёт и публикация месячного рейтинга", href: "/spm/rating", cta: "Открыть рейтинг", icon: Trophy, can: (c) => canAccessSpm(c.role) },
 ];
 
 const ROLE_LABEL: Record<string, string> = { ADMIN: "Администратор", SPM: "СПМ", CLUB_MANAGER: "Управляющий" };
 
-export function ControlDashboard({ displayName, role }: { displayName: string; role: AppRole }) {
-  const isAdmin = canAccessAdmin(role);
+export function ControlDashboard({
+  displayName,
+  role,
+  hasSystemAccess,
+}: {
+  displayName: string;
+  role: AppRole;
+  hasSystemAccess: boolean;
+}) {
   const [dash, setDash] = useState<AdminDashboard | null>(null);
 
   useEffect(() => {
-    if (isAdmin) adminApi.dashboard().then(setDash).catch(() => setDash(null));
-  }, [isAdmin]);
+    if (hasSystemAccess) adminApi.dashboard().then(setDash).catch(() => setDash(null));
+  }, [hasSystemAccess]);
 
-  const cards = CARDS.filter((c) => c.can(role));
+  const cards = CARDS.filter((c) => c.can({ role, hasSystemAccess }));
 
   return (
     <div>

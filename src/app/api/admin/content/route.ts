@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/server/db";
-import { requireAdmin } from "@/lib/server/authz";
+import { requireSystemAccess } from "@/lib/server/authz";
 import { jsonOk, handleError } from "@/lib/server/http";
 
 export const runtime = "nodejs";
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 /** GET /api/admin/content — CMS dashboard summary (counts + program list). */
 export async function GET() {
   try {
-    await requireAdmin();
+    await requireSystemAccess();
     const [programs, lessonsByStatus, mediaCount, draftPrograms] = await Promise.all([
       prisma.trainingProgram.findMany({
         orderBy: { order: "asc" },

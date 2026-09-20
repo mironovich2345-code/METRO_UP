@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
-import { requireAdmin } from "@/lib/server/authz";
+import { requireSystemAccess } from "@/lib/server/authz";
 import { jsonOk, handleError, readJson } from "@/lib/server/http";
 import { BLOCK_TYPES } from "@/lib/server/content-schemas";
 import { createBlock } from "@/lib/server/content-admin";
@@ -17,7 +17,7 @@ const bodySchema = z.object({
 /** POST /api/admin/lessons/:id/blocks — append a block to the lesson. */
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
-    const admin = await requireAdmin();
+    const admin = await requireSystemAccess();
     const { id } = await ctx.params;
     const input = bodySchema.parse(await readJson(req));
     const block = await createBlock(admin.id, id, input.type, input.data, input.order);

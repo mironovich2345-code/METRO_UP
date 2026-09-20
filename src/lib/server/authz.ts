@@ -2,6 +2,8 @@ import "server-only";
 import type { AppRole } from "@prisma/client";
 import { getCurrentUser, type CurrentUser } from "./session";
 import { isAccessSuspended, isAccessPending, hasFullAccess } from "./access-status-logic";
+import { getActorContext } from "./rbac/context";
+import { hasSystemAccess } from "./rbac/authorize-core";
 
 /**
  * Server-side authorization helpers. Authorization is ALWAYS enforced on the
@@ -98,6 +100,40 @@ export async function requireFullAccess(): Promise<CurrentUser> {
   if (isAccessPending(status)) throw new AuthError(403, "ACCESS_PENDING_APPROVAL");
   if (!hasFullAccess(status)) throw new AuthError(403, "ACCESS_LIMITED", "Требуется полный доступ");
   return user;
+}
+
+/**
+ * SYSTEM/CMS compatibility gate (Sprint 1 / Phase 2B). The ONE bridge for every
+ * route that used to be requireAdmin()-only and is in scope for PROJECT_ADMIN
+ * per the approved spec: Academy CMS, Scripts CMS, Instructions CMS, Metric
+ * document management/sync, and control/users (role/club/position
+ * management). Legacy AppRole=ADMIN OR an active PROJECT_ADMIN/SYSTEM
+ * RoleAssignment — see hasSystemAccess() in rbac/authorize-core.ts, which is
+ * the actual decision logic (pure, unit-tested). Do not inline
+ * "legacyAdmin || projectAdmin" anywhere else — every CMS/system route calls
+ * THIS function instead of requireAdmin(). requireAdmin() itself is
+ * untouched and stays reserved for legacy-AppRole-only semantics (e.g. the
+ * SPM bridge in requireSPMAccess, which is explicitly NOT extended to
+ * PROJECT_ADMIN — SPM is a separate, do-not-touch legacy axis).
+ */
+export async function requireSystemAccess(): Promise<CurrentUser> {
+  const user = await requireUser();
+  const actor = await getActorContext(user);
+  if (!hasSystemAccess(actor)) {
+    throw new AuthError(403, "forbidden", "Insufficient permissions");
+  }
+  return user;
+}
+
+/**
+ * Non-throwing sibling of requireSystemAccess() for Server Component page
+ * gates (control/(portal)/{scripts,instructions,metric,metric/documents,
+ * users}/page.tsx and admin/layout.tsx), which render an <AccessDenied/>
+ * rather than catch a thrown AuthError. Same decision (hasSystemAccess) —
+ * do not reimplement the "legacyAdmin || projectAdmin" check inline.
+ */
+export async function hasSystemAccessForUser(user: CurrentUser): Promise<boolean> {
+  return hasSystemAccess(await getActorContext(user));
 }
 
 export const requireClubManager = () => requireRole("CLUB_MANAGER", "ADMIN");

@@ -1,4 +1,4 @@
-import { requireAdmin, AuthError } from "@/lib/server/authz";
+import { requireSystemAccess, AuthError } from "@/lib/server/authz";
 import { jsonOk, jsonError, handleError } from "@/lib/server/http";
 import { getMetricEnv } from "@/lib/server/metric/env";
 import { httpTransport } from "@/lib/server/metric/openai";
@@ -11,7 +11,7 @@ export const maxDuration = 300;
 /** POST — ADMIN full knowledge re-sync. Needs an API key + a vector store id. */
 export async function POST() {
   try {
-    await requireAdmin();
+    await requireSystemAccess();
     const env = getMetricEnv();
     if (!env.apiKey) return jsonError(409, "no_api_key");
     if (!env.vectorStoreId) return jsonError(409, "no_vector_store");

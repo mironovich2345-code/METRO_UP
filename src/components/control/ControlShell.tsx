@@ -17,7 +17,7 @@ import {
   Users,
 } from "lucide-react";
 import type { AppRole } from "@prisma/client";
-import { canAccessAdmin, canAccessSpm, canManageClub } from "@/lib/roles";
+import { canAccessSpm, canManageClub } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 import { ThemeSegmented, ThemeSwitcher } from "@/components/ui/theme-switcher";
 
@@ -27,19 +27,28 @@ const ROLE_LABEL: Record<string, string> = { ADMIN: "Администратор"
  * Single desktop web shell for the whole control portal (/control, /admin/*,
  * /spm/*). One sidebar, role-based nav — the user never feels like they moved
  * between two products. Access itself is enforced server-side per layout.
+ *
+ * `hasSystemAccess` (Sprint 1 / Phase 2B) — legacy AppRole=ADMIN OR an active
+ * PROJECT_ADMIN/SYSTEM RoleAssignment, computed ONCE server-side by the
+ * calling layout via hasSystemAccessForUser() and passed down as a plain
+ * boolean. Gates the CMS nav items exactly like the pages/APIs behind them —
+ * never recompute this from `role` alone here (that would silently regress
+ * back to legacy-only visibility for a PROJECT_ADMIN without AppRole=ADMIN).
  */
 export function ControlShell({
   displayName,
   role,
+  hasSystemAccess,
   children,
 }: {
   displayName: string;
   role: AppRole;
+  hasSystemAccess: boolean;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const isAdmin = canAccessAdmin(role);
+  const isAdmin = hasSystemAccess;
 
   const nav = [
     { href: "/control", label: "Главная", icon: Home, exact: true },

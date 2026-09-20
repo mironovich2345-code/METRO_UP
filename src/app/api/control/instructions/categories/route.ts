@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { requireAdmin } from "@/lib/server/authz";
+import { requireSystemAccess } from "@/lib/server/authz";
 import { jsonOk, handleError, readJson } from "@/lib/server/http";
 import { categoryCreateSchema } from "@/lib/server/knowledge-schemas";
 import { createInstructionCategory, listInstructionCategories } from "@/lib/server/knowledge-admin";
@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    await requireAdmin();
+    await requireSystemAccess();
     return jsonOk({ categories: await listInstructionCategories() });
   } catch (e) {
     return handleError(e);
@@ -18,7 +18,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    const admin = await requireAdmin();
+    const admin = await requireSystemAccess();
     const input = categoryCreateSchema.parse(await readJson(req));
     return jsonOk({ category: await createInstructionCategory(admin.id, input) }, 201);
   } catch (e) {

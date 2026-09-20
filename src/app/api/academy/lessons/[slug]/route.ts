@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { requireAdmin, requireLimitedOrFullAccess } from "@/lib/server/authz";
+import { requireSystemAccess, requireLimitedOrFullAccess } from "@/lib/server/authz";
 import { jsonOk, jsonError, handleError } from "@/lib/server/http";
 import { getLessonDetail } from "@/lib/server/lesson-detail";
 
@@ -19,7 +19,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ slug: strin
 
     let userId: string | null = null;
     if (preview) {
-      await requireAdmin(); // only admins may preview drafts
+      await requireSystemAccess(); // only admins may preview drafts
     } else {
       const user = await requireLimitedOrFullAccess();
       userId = user.id;
