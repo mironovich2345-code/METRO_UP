@@ -375,11 +375,18 @@ export async function getClubPlan(user: CurrentUser, dateStr?: string, requested
   };
 }
 
-export async function getClubTeam(user: CurrentUser, requestedClubId?: string | null): Promise<ClubTeamDTO> {
-  const scope = await getManagerScope(user, requestedClubId);
-  const { clubId, clubName } = scope;
-  if (!clubId) return { clubId: null, clubName: null, members: [], scope };
-
+/**
+ * Sprint 1 / Phase 2B — build a ClubTeamDTO for an ALREADY-AUTHORIZED clubId.
+ * Callers are responsible for authorization: the legacy getClubTeam() below
+ * (CLUB_MANAGER/ADMIN via resolveScopedClubId), a CITY_MANAGER's own direct
+ * read (authorize({action:"club.read"}), see control/team/route.ts), and a
+ * View As effective read context (an already-validated preview, see
+ * rbac/view-as.ts) all funnel through this one function so their DTOs never
+ * drift apart. `scope` defaults to a non-switchable single-club scope —
+ * getClubTeam() overrides it with the real ADMIN-selector scope.
+ */
+export async function getClubTeamForClub(clubId: string): Promise<ClubTeamDTO> {
+  const clubName = getClubById(clubId)?.name ?? null;
   const employees = await getClubEmployees(clubId);
   const date = appDay();
   await Promise.all(
@@ -413,8 +420,15 @@ export async function getClubTeam(user: CurrentUser, requestedClubId?: string | 
       onboardingCompleted: e.employeeProfile?.onboardingCompleted ?? false,
       accessStatus: (e.employeeProfile?.accessStatus ?? "LIMITED") as AccessStatus,
     })),
-    scope,
+    scope: { clubId, clubName, canSwitch: false, clubs: [] },
   };
+}
+
+export async function getClubTeam(user: CurrentUser, requestedClubId?: string | null): Promise<ClubTeamDTO> {
+  const scope = await getManagerScope(user, requestedClubId);
+  if (!scope.clubId) return { clubId: null, clubName: null, members: [], scope };
+  const base = await getClubTeamForClub(scope.clubId);
+  return { ...base, scope }; // scope carries the ADMIN club-selector (canSwitch/clubs); base's is a stub
 }
 
 /**

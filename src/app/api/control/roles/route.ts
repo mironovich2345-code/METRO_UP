@@ -7,6 +7,7 @@ import {
   listRoleAssignmentsQuerySchema,
 } from "@/lib/server/rbac/role-assignment-schemas";
 import { createRoleAssignment, listRoleAssignments } from "@/lib/server/rbac/role-assignment-service";
+import { requireNoActiveViewAs } from "@/lib/server/rbac/view-as";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,6 +40,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const user = await requireUser();
+    await requireNoActiveViewAs(user);
     const rl = await getRateLimiter().check(`role.assign:${user.id}`, { max: 30, windowMs: 60_000 });
     if (!rl.allowed) return jsonError(429, "rate_limited", { retryAfterSeconds: rl.retryAfterSeconds });
 

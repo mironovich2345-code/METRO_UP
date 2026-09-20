@@ -13,6 +13,7 @@ import {
   canRevokeRole,
   authorize,
   isValidGrantShape,
+  canStartViewAs,
 } from "../src/lib/server/rbac/authorize-core";
 import type { ActorContext, RoleGrant } from "../src/lib/server/rbac/types";
 
@@ -431,6 +432,109 @@ test(
   "API-E: DIRECT ATTACK — a CLUB_MANAGER POSTs /api/control/roles with " +
     "{role: CITY_MANAGER, scopeType: CITY, cityId: <any>} (self-promotion via the " +
     "raw API, bypassing any UI) -> 403, RoleAssignment table unchanged",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
+/* ------------------ canReadClub (club.read, Sprint 1 / Phase 2B) ---------- */
+
+test("READ-A: SYSTEM access (legacy AppRole=ADMIN) may read any club", () => {
+  const a = actor({ appRole: "ADMIN" });
+  assert.equal(authorize(a, { action: "club.read", targetClubId: "club-1", targetClubCityId: "city-1" }), true);
+});
+
+test("READ-B: an active OPERATIONS_DIRECTOR grant may read any club", () => {
+  const a = actor({ grants: [grant({ role: "OPERATIONS_DIRECTOR", scopeType: "NETWORK" })] });
+  assert.equal(authorize(a, { action: "club.read", targetClubId: "club-1", targetClubCityId: "city-1" }), true);
+});
+
+test("READ-C: a CITY_MANAGER may read a club inside their city, not one outside it", () => {
+  const a = actor({ grants: [grant({ role: "CITY_MANAGER", scopeType: "CITY", cityId: "voronezh" })] });
+  assert.equal(authorize(a, { action: "club.read", targetClubId: "club-1", targetClubCityId: "voronezh" }), true);
+  assert.equal(authorize(a, { action: "club.read", targetClubId: "club-2", targetClubCityId: "other-city" }), false);
+});
+
+test("READ-D: a CLUB_MANAGER may read only their own club", () => {
+  const a = actor({ grants: [grant({ role: "CLUB_MANAGER", scopeType: "CLUB", clubId: "club-1" })] });
+  assert.equal(authorize(a, { action: "club.read", targetClubId: "club-1", targetClubCityId: "any" }), true);
+  assert.equal(authorize(a, { action: "club.read", targetClubId: "club-2", targetClubCityId: "any" }), false);
+});
+
+test("READ-E: a plain MANAGER (no grants) cannot read club data via this action", () => {
+  assert.equal(authorize(actor(), { action: "club.read", targetClubId: "club-1", targetClubCityId: "any" }), false);
+});
+
+/* --------------------- canStartViewAs (Sprint 1 / Phase 2B) --------------- */
+
+test("VIEWAS-A: only an active CITY_MANAGER grant may start a preview — SYSTEM access alone does not", () => {
+  const admin = actor({ appRole: "ADMIN" });
+  assert.equal(canStartViewAs(admin, { role: "MANAGER", clubId: "club-1", cityId: null }), false);
+  const opsDirector = actor({ grants: [grant({ role: "OPERATIONS_DIRECTOR", scopeType: "NETWORK" })] });
+  assert.equal(canStartViewAs(opsDirector, { role: "MANAGER", clubId: "club-1", cityId: null }), false);
+});
+
+test("VIEWAS-B: a CITY_MANAGER may preview MANAGER/CLUB_MANAGER of a club inside their city", () => {
+  const a = actor({ grants: [grant({ role: "CITY_MANAGER", scopeType: "CITY", cityId: "voronezh" })] });
+  assert.equal(canStartViewAs(a, { role: "MANAGER", clubId: "club-1", cityId: null }, { targetClubCityId: "voronezh" }), true);
+  assert.equal(canStartViewAs(a, { role: "CLUB_MANAGER", clubId: "club-1", cityId: null }, { targetClubCityId: "voronezh" }), true);
+});
+
+test("VIEWAS-C: DIRECT ATTACK — a CITY_MANAGER cannot preview a club OUTSIDE their city scope", () => {
+  const a = actor({ grants: [grant({ role: "CITY_MANAGER", scopeType: "CITY", cityId: "voronezh" })] });
+  assert.equal(canStartViewAs(a, { role: "MANAGER", clubId: "club-99", cityId: null }, { targetClubCityId: "other-city" }), false);
+});
+
+test("VIEWAS-D: DIRECT ATTACK — a CITY_MANAGER cannot preview OPERATIONS_DIRECTOR or PROJECT_ADMIN (not in the allowed preview role set at all)", () => {
+  const a = actor({ grants: [grant({ role: "CITY_MANAGER", scopeType: "CITY", cityId: "voronezh" })] });
+  // @ts-expect-error — OPERATIONS_DIRECTOR/PROJECT_ADMIN are not valid ViewAsRole values by construction
+  assert.equal(canStartViewAs(a, { role: "OPERATIONS_DIRECTOR", clubId: null, cityId: null }), false);
+});
+
+test("VIEWAS-E: a CITY_MANAGER may preview CITY_MANAGER (themselves) with no specific scope — jump back to the top-level view", () => {
+  const a = actor({ grants: [grant({ role: "CITY_MANAGER", scopeType: "CITY", cityId: "voronezh" })] });
+  assert.equal(canStartViewAs(a, { role: "CITY_MANAGER", clubId: null, cityId: null }), true);
+});
+
+/* --------------- View As token + route integration (Sprint 1 / 2B) -------- */
+
+test(
+  "VIEWAS-G: resolveViewContext returns null (not the stale preview) when the " +
+    "cookie's realUserId does not match the current session's user id — a token " +
+    "left over from a previous login in the same browser is never honored",
+  { skip: "integration: requires Postgres + running server (cookies())" },
+  () => {},
+);
+
+test(
+  "VIEWAS-H: resolveViewContext re-validates scope on EVERY call — if a " +
+    "PROJECT_ADMIN revokes the CITY_MANAGER's grant while a preview is active, " +
+    "the very next request sees the preview end (returns null), not a stale grant",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
+test(
+  "VIEWAS-I: POST /api/control/roles (and .../revoke, .../restore) return 403 " +
+    "VIEW_AS_READ_ONLY while a preview is active, even for a CITY_MANAGER acting " +
+    "within their real scope — requireNoActiveViewAs() runs before authorize()",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
+test(
+  "VIEWAS-J: GET /api/control/team with an active View-As-MANAGER-of-club-X " +
+    "context returns club X's team data (getClubTeamForClub) regardless of the " +
+    "real CITY_MANAGER's own broader scope — the effective read context, not the " +
+    "real one, drives what this specific endpoint returns",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
+test(
+  "VIEWAS-K: starting and ending a preview writes VIEW_AS_STARTED/VIEW_AS_ENDED " +
+    "to UserAuditLog with targetUserId = actorUserId and metadata.previewRole/" +
+    "previewClubId/previewCityId — never a nullable targetUserId (Sprint 1 plan's " +
+    "explicit 'View-as audit detail' decision)",
   { skip: "integration: requires Postgres + running server" },
   () => {},
 );

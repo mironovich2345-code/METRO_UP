@@ -9,6 +9,12 @@ import {
   buildSessionCookieOptions,
   SESSION_MAX_AGE_SECONDS,
 } from "../src/lib/server/session-token";
+import {
+  signViewAsToken,
+  verifyViewAsToken,
+  buildViewAsCookieOptions,
+  VIEW_AS_MAX_AGE_SECONDS,
+} from "../src/lib/server/view-as-token";
 import { isClubInCity, getClubById } from "../src/content/cities";
 import { resolveProfileSource } from "../src/lib/api/profile-source";
 import { isOnboardingLocked } from "../src/lib/server/onboarding-logic";
@@ -132,6 +138,46 @@ test("session: cookie flags (HttpOnly, Secure in prod, SameSite, Max-Age)", () =
   assert.equal(prod.path, "/");
   assert.ok(prod.maxAge > 0 && prod.maxAge <= 60 * 60 * 24 * 31);
   assert.equal(buildSessionCookieOptions(false).secure, false);
+});
+
+/* --------------- View As token (Sprint 1 / Phase 2B, separate cookie) ---- */
+
+test("view-as: sign/verify round-trip carries realUserId/role/clubId/cityId", () => {
+  const token = signViewAsToken({ realUserId: "user-123", role: "CLUB_MANAGER", clubId: "club-1", cityId: null }, SECRET);
+  const payload = verifyViewAsToken(token, SECRET);
+  assert.deepEqual(payload, { realUserId: "user-123", role: "CLUB_MANAGER", clubId: "club-1", cityId: null });
+});
+
+test("view-as: tampered token / wrong secret / garbage all verify to null", () => {
+  const token = signViewAsToken({ realUserId: "user-123", role: "MANAGER", clubId: "club-1", cityId: null }, SECRET);
+  assert.equal(verifyViewAsToken(token.slice(0, -2) + "xx", SECRET), null);
+  assert.equal(verifyViewAsToken(token, "another-secret-xxxxxxxx"), null);
+  assert.equal(verifyViewAsToken(undefined, SECRET), null);
+  assert.equal(verifyViewAsToken("garbage", SECRET), null);
+});
+
+test("view-as: expired token → null (30-minute window — much shorter than the 30-day session)", () => {
+  const past = now() - VIEW_AS_MAX_AGE_SECONDS - 10;
+  const token = signViewAsToken({ realUserId: "u", role: "CITY_MANAGER", clubId: null, cityId: "voronezh" }, SECRET, past);
+  assert.equal(verifyViewAsToken(token, SECRET), null);
+});
+
+test("view-as: an invalid/unexpected role value in the payload is rejected, not silently trusted", () => {
+  // Hand-craft a token with a role outside the ViewAsRole union — verifyViewAsToken
+  // must not trust JSON.parse's output at face value just because the signature checks out.
+  const payloadB64 = Buffer.from(JSON.stringify({ realUserId: "u", role: "SUPER_ADMIN", iat: now(), exp: now() + 60 })).toString("base64url");
+  const sig = crypto.createHmac("sha256", SECRET).update(payloadB64).digest("base64url");
+  assert.equal(verifyViewAsToken(`${payloadB64}.${sig}`, SECRET), null);
+});
+
+test("view-as: cookie flags (HttpOnly, Secure in prod, SameSite=lax, 30-minute Max-Age)", () => {
+  const prod = buildViewAsCookieOptions(true);
+  assert.equal(prod.httpOnly, true);
+  assert.equal(prod.secure, true);
+  assert.equal(prod.sameSite, "lax");
+  assert.equal(prod.path, "/");
+  assert.equal(prod.maxAge, VIEW_AS_MAX_AGE_SECONDS);
+  assert.equal(buildViewAsCookieOptions(false).secure, false);
 });
 
 /* ------------------------- F / G / H — onboarding ------------------------ */

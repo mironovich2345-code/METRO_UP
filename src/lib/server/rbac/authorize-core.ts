@@ -146,10 +146,66 @@ export function canRevokeRole(
   return false;
 }
 
+/**
+ * May `actor` read team/plan data for `targetClubId`? SYSTEM/NETWORK read
+ * everything; a CITY_MANAGER or CLUB_MANAGER grant covering the club reads
+ * it. Used both by CITY_MANAGER's own direct club reads (control/team) and,
+ * transitively, by nothing else yet — View As reads go through the
+ * already-validated view context instead (see rbac/view-as.ts), never
+ * through this function a second time.
+ */
+function canReadClub(actor: ActorContext, targetClubId: string, targetClubCityId: string | null): boolean {
+  if (hasSystemAccess(actor)) return true;
+  const grants = activeGrants(actor);
+  if (grants.some((g) => g.role === "OPERATIONS_DIRECTOR")) return true;
+  return grants.some(
+    (g) => (g.role === "CITY_MANAGER" || g.role === "CLUB_MANAGER") && grantCoversClub(g, targetClubId, targetClubCityId),
+  );
+}
+
+export interface ViewAsTarget {
+  role: "MANAGER" | "CLUB_MANAGER" | "CITY_MANAGER";
+  clubId: string | null;
+  cityId: string | null;
+}
+
+/**
+ * May `actor` START a View As preview shaped like `target`? Sprint 1 / Phase
+ * 2B section 12: ONLY an active CITY_MANAGER grant may use View As at all
+ * (not PROJECT_ADMIN/OPERATIONS_DIRECTOR — the approved spec scopes this
+ * feature to CITY_MANAGER specifically), and only within that same grant's
+ * own scope — a CITY_MANAGER can never preview a club/city outside what they
+ * could otherwise read or manage for real.
+ */
+export function canStartViewAs(
+  actor: ActorContext,
+  target: ViewAsTarget,
+  opts: { targetClubCityId?: string | null } = {},
+): boolean {
+  const cityManagerGrants = activeGrants(actor).filter((g) => g.role === "CITY_MANAGER");
+  if (cityManagerGrants.length === 0) return false;
+  const targetClubCityId = opts.targetClubCityId ?? null;
+
+  if (target.role === "CITY_MANAGER") {
+    // "Preview as myself" — a way to jump back to the top-level view from
+    // deeper in the preview flow. Only within a scope this actor actually holds.
+    if (target.clubId) return cityManagerGrants.some((g) => grantCoversClub(g, target.clubId!, targetClubCityId));
+    if (target.cityId) return cityManagerGrants.some((g) => g.scopeType === "CITY" && g.cityId === target.cityId);
+    return true;
+  }
+  if (target.role === "CLUB_MANAGER" || target.role === "MANAGER") {
+    if (!target.clubId) return false;
+    return cityManagerGrants.some((g) => grantCoversClub(g, target.clubId!, targetClubCityId));
+  }
+  return false;
+}
+
 export type AuthorizeRequest =
   | { action: "role.assign"; target: RoleAssignmentTarget; targetClubCityId?: string | null }
   | { action: "role.revoke"; target: RoleGrant; targetClubCityId?: string | null }
-  | { action: "system.access" };
+  | { action: "system.access" }
+  | { action: "club.read"; targetClubId: string; targetClubCityId?: string | null }
+  | { action: "view_as.start"; target: ViewAsTarget; targetClubCityId?: string | null };
 
 /**
  * The single entry point every caller uses — routes/services never inline
@@ -164,5 +220,9 @@ export function authorize(actor: ActorContext, request: AuthorizeRequest): boole
       return canRevokeRole(actor, request.target, { targetClubCityId: request.targetClubCityId });
     case "system.access":
       return hasSystemAccess(actor);
+    case "club.read":
+      return canReadClub(actor, request.targetClubId, request.targetClubCityId ?? null);
+    case "view_as.start":
+      return canStartViewAs(actor, request.target, { targetClubCityId: request.targetClubCityId });
   }
 }
