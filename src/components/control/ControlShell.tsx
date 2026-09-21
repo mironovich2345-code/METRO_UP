@@ -20,30 +20,42 @@ import type { AppRole } from "@prisma/client";
 import { canAccessSpm, canManageClub } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 import { ThemeSegmented, ThemeSwitcher } from "@/components/ui/theme-switcher";
+import { ViewAsBanner } from "./ViewAsBanner";
+import { Building2, Globe2 } from "lucide-react";
 
 const ROLE_LABEL: Record<string, string> = { ADMIN: "Администратор", SPM: "СПМ", CLUB_MANAGER: "Управляющий" };
+
+export interface ViewContextInfo {
+  previewRole: string;
+}
 
 /**
  * Single desktop web shell for the whole control portal (/control, /admin/*,
  * /spm/*). One sidebar, role-based nav — the user never feels like they moved
  * between two products. Access itself is enforced server-side per layout.
  *
- * `hasSystemAccess` (Sprint 1 / Phase 2B) — legacy AppRole=ADMIN OR an active
- * PROJECT_ADMIN/SYSTEM RoleAssignment, computed ONCE server-side by the
- * calling layout via hasSystemAccessForUser() and passed down as a plain
- * boolean. Gates the CMS nav items exactly like the pages/APIs behind them —
- * never recompute this from `role` alone here (that would silently regress
- * back to legacy-only visibility for a PROJECT_ADMIN without AppRole=ADMIN).
+ * `hasSystemAccess` / `isCityManager` / `isOperationsDirector` (Sprint 1 /
+ * Phase 2B) are computed ONCE server-side by the calling layout (via
+ * hasSystemAccessForUser() / getActorContext() + hasActiveRole()) and passed
+ * down as plain booleans — never recomputed from `role` alone here, which
+ * only knows the LEGACY AppRole axis and would miss anyone whose authority
+ * comes from a RoleAssignment instead.
  */
 export function ControlShell({
   displayName,
   role,
   hasSystemAccess,
+  isCityManager = false,
+  isOperationsDirector = false,
+  viewContext = null,
   children,
 }: {
   displayName: string;
   role: AppRole;
   hasSystemAccess: boolean;
+  isCityManager?: boolean;
+  isOperationsDirector?: boolean;
+  viewContext?: ViewContextInfo | null;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -58,6 +70,7 @@ export function ControlShell({
           { href: "/control/scripts", label: "Скрипты", icon: ScrollText, exact: false },
           { href: "/control/instructions", label: "Инструкции", icon: BookOpen, exact: false },
           { href: "/control/users", label: "Сотрудники", icon: UserCog, exact: false },
+          { href: "/control/roles", label: "Роли", icon: UserCog, exact: false },
         ]
       : []),
     ...(canManageClub(role)
@@ -65,6 +78,12 @@ export function ControlShell({
           { href: "/control/plan", label: "План дня", icon: ListChecks, exact: false },
           { href: "/control/team", label: "Команда", icon: Users, exact: false },
         ]
+      : []),
+    ...(isCityManager
+      ? [{ href: "/control/city", label: "Мои клубы", icon: Building2, exact: false }]
+      : []),
+    ...(isOperationsDirector
+      ? [{ href: "/control/network", label: "Сеть", icon: Globe2, exact: false }]
       : []),
     ...(canAccessSpm(role)
       ? [
@@ -84,7 +103,9 @@ export function ControlShell({
   };
 
   return (
-    <div className="flex min-h-[100dvh] bg-background text-foreground">
+    <>
+      {viewContext && <ViewAsBanner previewRole={viewContext.previewRole} realRoleLabel={ROLE_LABEL[role] ?? role} />}
+      <div className="flex min-h-[100dvh] bg-background text-foreground">
       <aside className="sticky top-0 hidden h-[100dvh] w-64 shrink-0 grow-0 basis-64 flex-col border-r border-border bg-card px-4 py-6 md:flex">
         <Link href="/control" className="flex items-center gap-2 px-2">
           <span className="flex size-9 items-center justify-center rounded-xl bg-brand text-brand-foreground font-black">M</span>
@@ -175,6 +196,7 @@ export function ControlShell({
 
         <div className="mx-auto w-full max-w-[1440px] px-5 py-6 sm:px-6 lg:px-8 lg:py-8">{children}</div>
       </main>
-    </div>
+      </div>
+    </>
   );
 }

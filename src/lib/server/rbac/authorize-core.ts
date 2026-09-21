@@ -155,12 +155,18 @@ export function canRevokeRole(
  * through this function a second time.
  */
 function canReadClub(actor: ActorContext, targetClubId: string, targetClubCityId: string | null): boolean {
-  if (hasSystemAccess(actor)) return true;
-  const grants = activeGrants(actor);
-  if (grants.some((g) => g.role === "OPERATIONS_DIRECTOR")) return true;
-  return grants.some(
+  if (hasNetworkAccess(actor)) return true;
+  return activeGrants(actor).some(
     (g) => (g.role === "CITY_MANAGER" || g.role === "CLUB_MANAGER") && grantCoversClub(g, targetClubId, targetClubCityId),
   );
+}
+
+/** SYSTEM access OR an active OPERATIONS_DIRECTOR grant — NETWORK-wide read
+ * scope (control/network's cities/clubs tree, and the "read everything"
+ * branch every scoped read/list function starts with). */
+export function hasNetworkAccess(actor: ActorContext): boolean {
+  if (hasSystemAccess(actor)) return true;
+  return activeGrants(actor).some((g) => g.role === "OPERATIONS_DIRECTOR");
 }
 
 export interface ViewAsTarget {
@@ -205,6 +211,7 @@ export type AuthorizeRequest =
   | { action: "role.revoke"; target: RoleGrant; targetClubCityId?: string | null }
   | { action: "system.access" }
   | { action: "club.read"; targetClubId: string; targetClubCityId?: string | null }
+  | { action: "network.read" }
   | { action: "view_as.start"; target: ViewAsTarget; targetClubCityId?: string | null };
 
 /**
@@ -222,6 +229,8 @@ export function authorize(actor: ActorContext, request: AuthorizeRequest): boole
       return hasSystemAccess(actor);
     case "club.read":
       return canReadClub(actor, request.targetClubId, request.targetClubCityId ?? null);
+    case "network.read":
+      return hasNetworkAccess(actor);
     case "view_as.start":
       return canStartViewAs(actor, request.target, { targetClubCityId: request.targetClubCityId });
   }

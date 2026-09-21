@@ -14,6 +14,7 @@ import {
   authorize,
   isValidGrantShape,
   canStartViewAs,
+  hasNetworkAccess,
 } from "../src/lib/server/rbac/authorize-core";
 import type { ActorContext, RoleGrant } from "../src/lib/server/rbac/types";
 
@@ -463,6 +464,52 @@ test("READ-D: a CLUB_MANAGER may read only their own club", () => {
 test("READ-E: a plain MANAGER (no grants) cannot read club data via this action", () => {
   assert.equal(authorize(actor(), { action: "club.read", targetClubId: "club-1", targetClubCityId: "any" }), false);
 });
+
+/* --------------------- hasNetworkAccess (Sprint 1 / Phase 2B) ------------- */
+
+test("NET-A: SYSTEM access (legacy AppRole=ADMIN) has network access", () => {
+  assert.equal(hasNetworkAccess(actor({ appRole: "ADMIN" })), true);
+});
+
+test("NET-B: an active OPERATIONS_DIRECTOR grant has network access", () => {
+  assert.equal(hasNetworkAccess(actor({ grants: [grant({ role: "OPERATIONS_DIRECTOR", scopeType: "NETWORK" })] })), true);
+});
+
+test("NET-C: a SUSPENDED OPERATIONS_DIRECTOR grant does NOT have network access", () => {
+  assert.equal(hasNetworkAccess(actor({ grants: [grant({ role: "OPERATIONS_DIRECTOR", scopeType: "NETWORK", status: "SUSPENDED" })] })), false);
+});
+
+test("NET-D: CITY_MANAGER/CLUB_MANAGER grants alone do NOT grant network access", () => {
+  assert.equal(hasNetworkAccess(actor({ grants: [grant({ role: "CITY_MANAGER", scopeType: "CITY", cityId: "voronezh" })] })), false);
+  assert.equal(hasNetworkAccess(actor({ grants: [grant({ role: "CLUB_MANAGER", scopeType: "CLUB", clubId: "club-1" })] })), false);
+});
+
+test(
+  "NET-E: GET /api/control/city/clubs resolves a CITY-scoped grant to every " +
+    "active club currently in that city (including one added after the grant was " +
+    "made) and a CLUB-scoped grant to just that one club, de-duplicated",
+  { skip: "integration: requires Postgres" },
+  () => {},
+);
+
+test(
+  "NET-F: GET /api/control/network returns every active city's active clubs " +
+    "with an accurate employeeCount (EmployeeProfile groupBy) for SYSTEM access " +
+    "and an active OPERATIONS_DIRECTOR grant; a CITY_MANAGER/CLUB_MANAGER (no " +
+    "network access) gets 403",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
+test(
+  "NET-G: the /control portal outer gate (control/(portal)/layout.tsx) admits a " +
+    "CITY_MANAGER/OPERATIONS_DIRECTOR/PROJECT_ADMIN whose ONLY authority is a " +
+    "RoleAssignment (legacy AppRole=EMPLOYEE, canAccessControl would reject them " +
+    "alone) — the outer gate checks hasSystemAccess/isCityManager/" +
+    "isOperationsDirector in addition to the legacy canAccessControl(role)",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
 
 /* --------------------- canStartViewAs (Sprint 1 / Phase 2B) --------------- */
 

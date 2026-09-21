@@ -51,3 +51,68 @@ export async function hasAnyActiveWorkingAssignment(userId: string): Promise<boo
   });
   return row !== null;
 }
+
+export interface ClubSummary {
+  id: string;
+  name: string;
+  cityId: string;
+  cityName: string | null;
+}
+
+/**
+ * Resolve the concrete list of clubs a CITY_MANAGER's active grants cover
+ * (Sprint 1 / Phase 2B, "Мои клубы" — control/city). A CITY-scoped grant
+ * expands to every active club currently in that city (dynamic, matches
+ * RoleScopeType.CITY's schema.prisma contract — "including clubs added
+ * later"); a CLUB-scoped grant (the point-exception case) resolves to just
+ * that one club. De-duplicated by club id in case of overlapping grants.
+ */
+export async function resolveCityManagerClubs(actor: ActorContext): Promise<ClubSummary[]> {
+  const grants = actor.grants.filter((g) => g.role === "CITY_MANAGER" && g.status === "ACTIVE");
+  const cityIds = grants.filter((g) => g.scopeType === "CITY" && g.cityId).map((g) => g.cityId!);
+  const clubIds = grants.filter((g) => g.scopeType === "CLUB" && g.clubId).map((g) => g.clubId!);
+
+  const byId = new Map<string, ClubSummary>();
+  if (cityIds.length) {
+    const clubs = await prisma.club.findMany({
+      where: { cityId: { in: cityIds }, isActive: true },
+      include: { city: { select: { name: true } } },
+      orderBy: { name: "asc" },
+    });
+    for (const c of clubs) byId.set(c.id, { id: c.id, name: c.name, cityId: c.cityId, cityName: c.city?.name ?? null });
+  }
+  if (clubIds.length) {
+    const clubs = await prisma.club.findMany({
+      where: { id: { in: clubIds } },
+      include: { city: { select: { name: true } } },
+    });
+    for (const c of clubs) byId.set(c.id, { id: c.id, name: c.name, cityId: c.cityId, cityName: c.city?.name ?? null });
+  }
+  return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, "ru"));
+}
+
+export interface NetworkCitySummary {
+  id: string;
+  name: string;
+  clubs: { id: string; name: string; employeeCount: number }[];
+}
+
+/** Sprint 1 / Phase 2B, section 20 — OPERATIONS_DIRECTOR's minimal network
+ * read-path: cities -> clubs -> employee count. No deeper analytics by
+ * design ("не делать пока сложную аналитику"). */
+export async function resolveNetworkTree(): Promise<NetworkCitySummary[]> {
+  const [cities, counts] = await Promise.all([
+    prisma.city.findMany({
+      where: { isActive: true },
+      include: { clubs: { where: { isActive: true }, orderBy: { name: "asc" } } },
+      orderBy: { name: "asc" },
+    }),
+    prisma.employeeProfile.groupBy({ by: ["clubId"], _count: { _all: true } }),
+  ]);
+  const countByClub = new Map(counts.map((c) => [c.clubId, c._count._all]));
+  return cities.map((city) => ({
+    id: city.id,
+    name: city.name,
+    clubs: city.clubs.map((club) => ({ id: club.id, name: club.name, employeeCount: countByClub.get(club.id) ?? 0 })),
+  }));
+}

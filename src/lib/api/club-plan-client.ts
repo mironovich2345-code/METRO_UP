@@ -30,6 +30,12 @@ export const managerApi = {
     request<{ userId: string; accessStatus: AccessStatusDTO }>(`/api/control/team/${userId}/access${scopeQs(clubId)}`, {
       method: "POST", body: JSON.stringify({ accessStatus }),
     }),
+  /** Sprint 1 / Phase 2B — approve a PENDING_APPROVAL employee (the ONLY way
+   * that status ever changes; setAccess refuses a pending target, 409). */
+  approve: (userId: string, accessStatus: "FULL" | "LIMITED", clubId?: string | null, reason?: string | null) =>
+    request<{ userId: string; accessStatus: AccessStatusDTO }>(`/api/control/team/${userId}/approve${scopeQs(clubId)}`, {
+      method: "POST", body: JSON.stringify({ accessStatus, reason }),
+    }),
 
   createTask: (
     body: {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Clock, RotateCw } from "lucide-react";
 import { managerApi } from "@/lib/api/club-plan-client";
 import { ApiError } from "@/lib/api/client";
 import type { AccessStatusDTO, ClubTeamDTO } from "@/lib/api/club-plan-types";
@@ -13,6 +13,29 @@ const ACCESS_LABEL: Record<AccessStatusDTO, string> = {
   FULL: "Полный доступ",
   SUSPENDED: "Доступ приостановлен",
 };
+
+/**
+ * Sprint 1 / Phase 2B — one action per accessStatus, matching what the
+ * server actually allows: PENDING_APPROVAL can ONLY be moved by approve()
+ * (setEmployeeAccess refuses a pending target, 409); everything else goes
+ * through the existing setAccess(). Never offer an action the server will
+ * reject — that was the previous bug (the old single "Предоставить полный
+ * доступ" button called setAccess on a PENDING_APPROVAL row and 409'd).
+ */
+function nextAction(
+  status: AccessStatusDTO,
+): { label: string; icon: typeof CheckCircle2; approve: boolean; target: "FULL" | "SUSPENDED" } | null {
+  switch (status) {
+    case "PENDING_APPROVAL":
+      return { label: "Подтвердить", icon: Clock, approve: true, target: "FULL" };
+    case "LIMITED":
+      return { label: "Выдать полный доступ", icon: CheckCircle2, approve: false, target: "FULL" };
+    case "FULL":
+      return { label: "Приостановить", icon: RotateCw, approve: false, target: "SUSPENDED" };
+    case "SUSPENDED":
+      return { label: "Восстановить", icon: RotateCw, approve: false, target: "FULL" };
+  }
+}
 
 export default function ControlTeamPage() {
   const [team, setTeam] = useState<ClubTeamDTO | null>(null);
@@ -29,10 +52,12 @@ export default function ControlTeamPage() {
   }, [clubId]);
   useEffect(() => { load(); }, [load]);
 
-  const grantFull = async (userId: string) => {
+  const applyAccessChange = async (userId: string, action: NonNullable<ReturnType<typeof nextAction>>) => {
     setBusyId(userId); setMsg(null);
     try {
-      const res = await managerApi.setAccess(userId, "FULL", clubId);
+      const res = action.approve
+        ? await managerApi.approve(userId, action.target === "SUSPENDED" ? "FULL" : action.target, clubId)
+        : await managerApi.setAccess(userId, action.target, clubId);
       setTeam((t) => t ? { ...t, members: t.members.map((m) => (m.userId === userId ? { ...m, accessStatus: res.accessStatus } : m)) } : t);
     } catch (e) {
       setMsg(e instanceof ApiError ? "Не удалось изменить доступ." : "Ошибка.");
@@ -102,15 +127,20 @@ export default function ControlTeamPage() {
                     </span>
                   </td>
                   <td className="px-4 py-2.5 text-right">
-                    {m.accessStatus !== "FULL" && (
-                      <button
-                        onClick={() => grantFull(m.userId)}
-                        disabled={busyId === m.userId}
-                        className="rounded-xl bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground disabled:opacity-50"
-                      >
-                        {busyId === m.userId ? "…" : "Предоставить полный доступ"}
-                      </button>
-                    )}
+                    {(() => {
+                      const action = nextAction(m.accessStatus);
+                      if (!action) return null;
+                      const Icon = action.icon;
+                      return (
+                        <button
+                          onClick={() => applyAccessChange(m.userId, action)}
+                          disabled={busyId === m.userId}
+                          className="inline-flex items-center gap-1.5 rounded-xl bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground disabled:opacity-50"
+                        >
+                          {busyId === m.userId ? "…" : <><Icon className="size-3.5" />{action.label}</>}
+                        </button>
+                      );
+                    })()}
                   </td>
                 </tr>
               ))}

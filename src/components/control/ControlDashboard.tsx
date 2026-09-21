@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, BarChart3, BookOpen, Bot, Eye, GraduationCap, ListChecks, ScrollText, Trophy, UserCog, Users } from "lucide-react";
+import { ArrowRight, BarChart3, BookOpen, Bot, Building2, Eye, Globe2, GraduationCap, ListChecks, ScrollText, Trophy, UserCog, Users } from "lucide-react";
 import type { AppRole } from "@prisma/client";
 import { canAccessSpm, canManageClub } from "@/lib/roles";
 import { adminApi, type AdminDashboard } from "@/lib/api/content-client";
@@ -13,6 +13,8 @@ interface CardCtx {
    * (Sprint 1 / Phase 2B) — computed once server-side, never re-derived from
    * `role` alone here. */
   hasSystemAccess: boolean;
+  isCityManager: boolean;
+  isOperationsDirector: boolean;
 }
 
 interface CardDef {
@@ -30,9 +32,12 @@ const CARDS: CardDef[] = [
   { key: "scripts", title: "Скрипты", description: "Рабочие сценарии разговоров для менеджеров", href: "/control/scripts", cta: "Открыть скрипты", icon: ScrollText, can: (c) => c.hasSystemAccess },
   { key: "instructions", title: "Инструкции", description: "Регламенты и рабочие инструкции для смены", href: "/control/instructions", cta: "Открыть инструкции", icon: BookOpen, can: (c) => c.hasSystemAccess },
   { key: "users", title: "Сотрудники", description: "Роли, должности и клубы сотрудников", href: "/control/users", cta: "Открыть сотрудников", icon: UserCog, can: (c) => c.hasSystemAccess },
+  { key: "roles", title: "Роли", description: "Назначение и отзыв ролей новой RBAC-иерархии", href: "/control/roles", cta: "Открыть роли", icon: UserCog, can: (c) => c.hasSystemAccess },
   { key: "metric", title: "Метрик", description: "Статус синхронизации базы знаний с ИИ-помощником", href: "/control/metric", cta: "Открыть Метрик", icon: Bot, can: (c) => c.hasSystemAccess },
   { key: "plan", title: "План дня", description: "Операционные задачи сотрудников вашего клуба", href: "/control/plan", cta: "Открыть план дня", icon: ListChecks, can: (c) => canManageClub(c.role) },
   { key: "team", title: "Команда", description: "Сотрудники клуба и их прогресс", href: "/control/team", cta: "Открыть команду", icon: Users, can: (c) => canManageClub(c.role) },
+  { key: "city", title: "Мои клубы", description: "Клубы вашего города: управляющие и команды", href: "/control/city", cta: "Открыть клубы", icon: Building2, can: (c) => c.isCityManager },
+  { key: "network", title: "Сеть", description: "Города и клубы сети METRO UP", href: "/control/network", cta: "Открыть сеть", icon: Globe2, can: (c) => c.isOperationsDirector },
   { key: "sales", title: "Продажи", description: "Личные планы и фактические продажи менеджеров", href: "/spm/sales", cta: "Открыть продажи", icon: BarChart3, can: (c) => canAccessSpm(c.role) },
   { key: "mystery", title: "Тайный покупатель", description: "Результаты проверок и обратная связь", href: "/spm/mystery", cta: "Открыть проверки", icon: Eye, can: (c) => canAccessSpm(c.role) },
   { key: "rating", title: "Рейтинг", description: "Расчёт и публикация месячного рейтинга", href: "/spm/rating", cta: "Открыть рейтинг", icon: Trophy, can: (c) => canAccessSpm(c.role) },
@@ -44,10 +49,14 @@ export function ControlDashboard({
   displayName,
   role,
   hasSystemAccess,
+  isCityManager = false,
+  isOperationsDirector = false,
 }: {
   displayName: string;
   role: AppRole;
   hasSystemAccess: boolean;
+  isCityManager?: boolean;
+  isOperationsDirector?: boolean;
 }) {
   const [dash, setDash] = useState<AdminDashboard | null>(null);
 
@@ -55,7 +64,7 @@ export function ControlDashboard({
     if (hasSystemAccess) adminApi.dashboard().then(setDash).catch(() => setDash(null));
   }, [hasSystemAccess]);
 
-  const cards = CARDS.filter((c) => c.can({ role, hasSystemAccess }));
+  const cards = CARDS.filter((c) => c.can({ role, hasSystemAccess, isCityManager, isOperationsDirector }));
 
   return (
     <div>
