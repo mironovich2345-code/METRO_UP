@@ -511,6 +511,38 @@ test(
   () => {},
 );
 
+/* ----------------------- Audit API (Sprint 1 / Phase 2B) ------------------ */
+
+test(
+  "AUDIT-A: GET /api/control/audit — PROJECT_ADMIN/OPERATIONS_DIRECTOR see every " +
+    "row; a CITY_MANAGER sees only rows whose clubId/cityId falls in their zone " +
+    "(including a club whose event recorded only clubId, resolved via an explicit " +
+    "club lookup — UserAuditLog.clubId is a plain column, not a Prisma relation); " +
+    "a legacy CLUB_MANAGER (AppRole, no RoleAssignment) sees only their own club; " +
+    "a plain MANAGER gets 403, never an empty 200",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
+test(
+  "AUDIT-B: REGRESSION GUARD — combining a scope restriction with an additional " +
+    "filter (e.g. ?actorUserId=x) ANDs them (Prisma { AND: [scope, ...filters] }) " +
+    "rather than overwriting scope's OR clause; a CITY_MANAGER passing " +
+    "?actorUserId=<self> must NOT see every actorUserId=<self> row network-wide — " +
+    "only the ones also inside their own zone (caught and fixed during Phase 2B " +
+    "review before this ever shipped as a scope-bypass)",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
+test(
+  "AUDIT-C: pagination — page/limit are respected (limit clamped to [1,200], " +
+    "default 50), `total` reflects the full scoped count independent of the " +
+    "current page, and results are ordered createdAt desc (newest first)",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
 /* --------------------- canStartViewAs (Sprint 1 / Phase 2B) --------------- */
 
 test("VIEWAS-A: only an active CITY_MANAGER grant may start a preview — SYSTEM access alone does not", () => {
