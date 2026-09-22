@@ -52,10 +52,45 @@ test(
 test(
   "RL-F: durable limits are now enforced (a real 429, not always-allowed) on " +
     "auth/telegram, auth/telegram-web, profile/onboarding (10/min per user), " +
-    "control/roles create/revoke/restore (30/min per acting user), " +
-    "admin/media/upload, and control/metric/documents upload — metric/chat and " +
-    "metric/chat/continue keep their existing, separate, already-tested " +
-    "per-user in-memory limiter (metric/rate-limit.ts) unchanged",
+    "control/roles create/revoke/restore (30/min per acting user), and " +
+    "admin/media/upload + control/metric/documents upload (20/min per user each)",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
+/* -------- Metric chat (Sprint 1 / Phase 2C, Blocker #2) ------------------- */
+/*
+ * metric/rate-limit.ts (the in-memory per-instance checkMetricRate(), tested
+ * as "L" in tests/metric.test.ts) is REMOVED this phase — /api/metric/chat
+ * and /chat/continue now call the SAME durable getRateLimiter() as every
+ * other rate-limited route, with metric/tuning.ts's METRIC_RATE_MAX=10 /
+ * METRIC_RATE_WINDOW_MS=60_000 (unchanged values, new backend).
+ */
+
+test(
+  "RL-G: 10 requests within 60s for one userId to /api/metric/chat succeed; the " +
+    "11th returns 429 rate_limited with retryAfterSeconds > 0; a DIFFERENT " +
+    "userId is unaffected (separate key, metric.chat:<userId>); a request in the " +
+    "NEXT window is allowed again",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
+test(
+  "RL-H: /api/metric/chat and /api/metric/chat/continue for the SAME user SHARE " +
+    "one 10/60s budget (both key on metric.chat:<userId> — this matches the " +
+    "removed in-memory limiter's own behavior, which keyed purely on userId with " +
+    "no per-route split; splitting them would double effective throughput, not " +
+    "asked for)",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
+test(
+  "RL-I: the rate check runs BEFORE the request body is parsed and BEFORE " +
+    "metricChatStream()/continueMetric() are called — a rejected (429) request " +
+    "never reaches OpenAI; SSE streaming for an ALLOWED request is unaffected " +
+    "(the check is a single fast DB round-trip ahead of the stream, not inside it)",
   { skip: "integration: requires Postgres + running server" },
   () => {},
 );

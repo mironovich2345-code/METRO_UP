@@ -3,8 +3,9 @@ import { z } from "zod";
 import { requireFullAccess, AuthError } from "@/lib/server/authz";
 import { jsonError, handleError, readJson } from "@/lib/server/http";
 import { getMetricEnv, isMetricReady } from "@/lib/server/metric/env";
-import { checkMetricRate } from "@/lib/server/metric/rate-limit";
+import { getRateLimiter } from "@/lib/server/rate-limit";
 import { metricChatStream } from "@/lib/server/metric/chat";
+import { METRIC_RATE_MAX, METRIC_RATE_WINDOW_MS } from "@/lib/server/metric/tuning";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,7 +28,7 @@ export async function POST(req: NextRequest) {
   try {
     user = await requireFullAccess();
     if (!isMetricReady(getMetricEnv())) return jsonError(503, "metric_unavailable");
-    const rate = checkMetricRate(user.id);
+    const rate = await getRateLimiter().check(`metric.chat:${user.id}`, { max: METRIC_RATE_MAX, windowMs: METRIC_RATE_WINDOW_MS });
     if (!rate.allowed) return jsonError(429, "rate_limited", { retryAfterSeconds: rate.retryAfterSeconds });
     input = bodySchema.parse(await readJson(req));
   } catch (e) {

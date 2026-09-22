@@ -19,3 +19,13 @@ export const HISTORY_LIMIT = 6;
  * regression set (see the sprint report) passes on production data.
  */
 export const MAX_SEARCH_RESULTS = 4;
+
+/**
+ * Sprint 1 / Phase 2C — Metric's per-user rate limit, enforced via the
+ * durable (Postgres-backed) getRateLimiter() in both /api/metric/chat and
+ * /chat/continue. Same 10 requests / 60 seconds the previous in-memory
+ * per-instance limiter (removed this phase) used — no stated reason to
+ * change the number, only the backend it's checked against.
+ */
+export const METRIC_RATE_MAX = 10;
+export const METRIC_RATE_WINDOW_MS = 60_000;

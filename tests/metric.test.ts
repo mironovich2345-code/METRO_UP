@@ -7,7 +7,6 @@ import { deflateRawSync, deflateSync } from "node:zlib";
 import { extractDocumentText, detectFormat, docxXmlToText, sanitizeFilename, pdfContentToText, sanitizeExtractedText } from "../src/lib/server/metric/document-text";
 import { resolveMaxOutputTokens, DEFAULT_MAX_OUTPUT_TOKENS, MAX_OUTPUT_CEILING } from "../src/lib/server/metric/token-policy";
 import { isClickableSource } from "../src/lib/metric-source";
-import { checkMetricRate, _resetMetricRate } from "../src/lib/server/metric/rate-limit";
 import { buildSystemInstructions } from "../src/lib/server/metric/instructions";
 import {
   classifyMode, needsRetrieval, nextRolePlayState,
@@ -137,18 +136,15 @@ test("empty output yields empty text (caller rejects → safe error, no fake ans
 });
 
 /* ------------------------------ rate limit ------------------------------ */
-
-test("L: rate limit allows a burst then blocks within the window", () => {
-  _resetMetricRate();
-  const now = 1_000_000;
-  for (let i = 0; i < 10; i++) assert.equal(checkMetricRate("u1", now).allowed, true);
-  const blocked = checkMetricRate("u1", now);
-  assert.equal(blocked.allowed, false);
-  assert.ok(blocked.retryAfterSeconds > 0);
-  // A different user is unaffected; the window slides.
-  assert.equal(checkMetricRate("u2", now).allowed, true);
-  assert.equal(checkMetricRate("u1", now + 61_000).allowed, true);
-});
+/*
+ * Sprint 1 / Phase 2C, Blocker #2: the in-memory per-instance limiter that
+ * used to live in metric/rate-limit.ts (checkMetricRate/_resetMetricRate,
+ * previously tested here as "L") has been REMOVED — /api/metric/chat and
+ * /chat/continue now call the same durable, Postgres-backed
+ * getRateLimiter().check() every other rate-limited route uses (10/60s per
+ * user, matching the removed limiter's own values). See tests/rate-limit.test.ts
+ * (RL-G/H) for the Metric-specific scenarios.
+ */
 
 /* --------------------------- system instructions ------------------------ */
 
