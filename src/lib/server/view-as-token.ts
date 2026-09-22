@@ -25,6 +25,11 @@ export const VIEW_AS_MAX_AGE_SECONDS = 30 * 60; // 30 minutes — short-lived by
 
 export type ViewAsRole = "MANAGER" | "CLUB_MANAGER" | "CITY_MANAGER";
 
+/** Sprint 1 / Phase 2D — mirrors prisma.EmployeePosition. Not imported from
+ * @prisma/client here on purpose: this file is also loaded by Edge-runtime
+ * middleware, which cannot pull in the full Prisma client. */
+export type ViewAsPosition = "CLIENT_MANAGER" | "NIGHT_MANAGER" | "ADMINISTRATOR";
+
 export interface ViewAsPayload {
   /** The REAL user's id (from the actual session) — never trusted from the
    * client; resolveViewContext() cross-checks this against getCurrentUser(). */
@@ -32,6 +37,21 @@ export interface ViewAsPayload {
   role: ViewAsRole;
   clubId: string | null;
   cityId: string | null;
+  /**
+   * Sprint 1 / Phase 2D — which EmployeePosition the synthetic Mini-App
+   * persona reads as, for position-gated content (Scripts —
+   * knowledge-access.ts's SCRIPT_POSITIONS). EmployeePosition has no
+   * canonical "this is what a manager sees" value (CLIENT_MANAGER,
+   * NIGHT_MANAGER, and ADMINISTRATOR are three distinct, non-overlapping
+   * employee positions — see src/content/positions.ts), so this is never
+   * guessed: role=MANAGER requires the caller to pass one explicitly
+   * (startViewAsSchema); role=CLUB_MANAGER/CITY_MANAGER default it to
+   * ADMINISTRATOR (their preview surface is Team/Control, not
+   * position-gated Mini-App content, but the persona object still needs a
+   * concrete value). Set once at startViewAs() and signed into the token —
+   * never re-suppliable per-request, so it can't drift mid-preview.
+   */
+  previewPositionId: ViewAsPosition;
 }
 
 function b64url(input: ArrayBuffer | string): string {
@@ -101,11 +121,18 @@ export async function verifyViewAsToken(
     if (typeof payload.realUserId !== "string") return null;
     if (payload.role !== "MANAGER" && payload.role !== "CLUB_MANAGER" && payload.role !== "CITY_MANAGER") return null;
     if (typeof payload.exp !== "number" || payload.exp < nowSeconds) return null;
+    const previewPositionId: ViewAsPosition =
+      payload.previewPositionId === "CLIENT_MANAGER" ||
+      payload.previewPositionId === "NIGHT_MANAGER" ||
+      payload.previewPositionId === "ADMINISTRATOR"
+        ? payload.previewPositionId
+        : "ADMINISTRATOR"; // tokens signed before this field existed fall back safely
     return {
       realUserId: payload.realUserId,
       role: payload.role,
       clubId: typeof payload.clubId === "string" ? payload.clubId : null,
       cityId: typeof payload.cityId === "string" ? payload.cityId : null,
+      previewPositionId,
     };
   } catch {
     return null;

@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { prisma } from "../db";
 import { getServerEnv, isProduction } from "../env";
 import { AuthError } from "../authz";
+import { isAccessSuspended, isAccessPending, hasFullAccess } from "../access-status-logic";
 import type { CurrentUser } from "../session";
 import {
   VIEW_AS_COOKIE,
@@ -10,6 +11,7 @@ import {
   signViewAsToken,
   verifyViewAsToken,
   type ViewAsRole,
+  type ViewAsPosition,
 } from "../view-as-token";
 import { getActorContext, cityIdForClub } from "./context";
 import { canStartViewAs, type ViewAsTarget } from "./authorize-core";
@@ -29,19 +31,41 @@ export interface ViewContext {
   previewRole: ViewAsRole;
   previewClubId: string | null;
   previewCityId: string | null;
+  /** Sprint 1 / Phase 2D — see ViewAsPayload.previewPositionId. */
+  previewPositionId: ViewAsPosition;
 }
 
 export interface StartViewAsInput {
   role: ViewAsRole;
   clubId?: string | null;
   cityId?: string | null;
+  /** Required for role="MANAGER" (enforced by startViewAsSchema before this
+   * is ever called); ignored otherwise (defaulted below). */
+  previewPositionId?: ViewAsPosition | null;
   reason?: string | null;
 }
 
+/** CLUB_MANAGER/CITY_MANAGER previews don't gate content by position — a
+ * fixed, non-Scripts-eligible default keeps the persona object well-formed
+ * without implying any actual sales-script access for those roles. */
+const DEFAULT_PREVIEW_POSITION: ViewAsPosition = "ADMINISTRATOR";
+
 export async function startViewAs(realUser: CurrentUser, input: StartViewAsInput): Promise<ViewContext> {
+  // Sprint 1 / Phase 2D, section 9 — the REAL actor's own accessStatus must
+  // be FULL to start a preview, exactly like starting any other FULL-gated
+  // action. Network-tier roles (CITY_MANAGER via RoleAssignment) commonly
+  // have no EmployeeProfile at all (they're not floor employees) — that's
+  // not a restriction, so only a PRESENT, non-FULL profile blocks this.
+  const ownStatus = realUser.employeeProfile?.accessStatus;
+  if (ownStatus && (isAccessSuspended(ownStatus) || isAccessPending(ownStatus) || !hasFullAccess(ownStatus))) {
+    throw new AuthError(403, "ACCESS_LIMITED", "Просмотр недоступен при вашем текущем статусе доступа");
+  }
+
   const actor = await getActorContext(realUser);
   const clubId = input.clubId ?? null;
   const cityId = input.cityId ?? null;
+  const previewPositionId: ViewAsPosition =
+    input.role === "MANAGER" ? (input.previewPositionId ?? DEFAULT_PREVIEW_POSITION) : DEFAULT_PREVIEW_POSITION;
 
   let targetClubCityId: string | null = null;
   if (clubId) {
@@ -54,7 +78,10 @@ export async function startViewAs(realUser: CurrentUser, input: StartViewAsInput
     throw new AuthError(403, "forbidden", "Просмотр в этой роли/зоне недоступен");
   }
 
-  const token = await signViewAsToken({ realUserId: realUser.id, role: input.role, clubId, cityId }, getServerEnv().AUTH_SECRET);
+  const token = await signViewAsToken(
+    { realUserId: realUser.id, role: input.role, clubId, cityId, previewPositionId },
+    getServerEnv().AUTH_SECRET,
+  );
   const store = await cookies();
   store.set(VIEW_AS_COOKIE, token, buildViewAsCookieOptions(isProduction()));
 
@@ -69,11 +96,11 @@ export async function startViewAs(realUser: CurrentUser, input: StartViewAsInput
       clubId,
       cityId,
       reason: input.reason ?? null,
-      metadata: { previewRole: input.role, previewClubId: clubId, previewCityId: cityId },
+      metadata: { previewRole: input.role, previewClubId: clubId, previewCityId: cityId, previewPositionId },
     },
   });
 
-  return { realUserId: realUser.id, previewRole: input.role, previewClubId: clubId, previewCityId: cityId };
+  return { realUserId: realUser.id, previewRole: input.role, previewClubId: clubId, previewCityId: cityId, previewPositionId };
 }
 
 export async function endViewAs(realUser: CurrentUser): Promise<void> {
@@ -117,7 +144,13 @@ export async function resolveViewContext(realUser: CurrentUser): Promise<ViewCon
   );
   if (!stillValid) return null;
 
-  return { realUserId: realUser.id, previewRole: payload.role, previewClubId: payload.clubId, previewCityId: payload.cityId };
+  return {
+    realUserId: realUser.id,
+    previewRole: payload.role,
+    previewClubId: payload.clubId,
+    previewCityId: payload.cityId,
+    previewPositionId: payload.previewPositionId,
+  };
 }
 
 /**
