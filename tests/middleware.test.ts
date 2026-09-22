@@ -23,7 +23,10 @@ function req(url: string, opts: { method?: string; cookie?: string } = {}): Next
 }
 
 async function viewAsCookie(): Promise<string> {
-  const token = await signViewAsToken({ realUserId: "city-mgr-1", role: "CLUB_MANAGER", clubId: "club-1", cityId: null }, SECRET);
+  const token = await signViewAsToken(
+    { realUserId: "city-mgr-1", role: "CLUB_MANAGER", clubId: "club-1", cityId: null, previewPositionId: "ADMINISTRATOR" },
+    SECRET,
+  );
   return `${VIEW_AS_COOKIE}=${token}`;
 }
 
@@ -76,13 +79,20 @@ test("MW-E: the allowlist is honored — view-as/end and /start stay reachable, 
 
 test("MW-F: an expired View As cookie does not block mutations (nothing active to guard)", async () => {
   const past = Math.floor(Date.now() / 1000) - 60 * 60; // 1h ago, well past the 30-minute max-age
-  const token = await signViewAsToken({ realUserId: "u", role: "MANAGER", clubId: "club-1", cityId: null }, SECRET, past);
+  const token = await signViewAsToken(
+    { realUserId: "u", role: "MANAGER", clubId: "club-1", cityId: null, previewPositionId: "CLIENT_MANAGER" },
+    SECRET,
+    past,
+  );
   const res = await middleware(req("/api/control/plan/tasks", { method: "POST", cookie: `${VIEW_AS_COOKIE}=${token}` }));
   assert.equal(res.status, 200);
 });
 
 test("MW-G: a tampered/foreign-secret View As cookie does not block mutations (fails closed on the TOKEN, open on the BLOCK — never mistakes garbage for an active preview)", async () => {
-  const token = await signViewAsToken({ realUserId: "u", role: "MANAGER", clubId: "club-1", cityId: null }, "a-completely-different-secret!!");
+  const token = await signViewAsToken(
+    { realUserId: "u", role: "MANAGER", clubId: "club-1", cityId: null, previewPositionId: "CLIENT_MANAGER" },
+    "a-completely-different-secret!!",
+  );
   const res = await middleware(req("/api/control/plan/tasks", { method: "POST", cookie: `${VIEW_AS_COOKIE}=${token}` }));
   assert.equal(res.status, 200);
 });

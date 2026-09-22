@@ -578,10 +578,17 @@ test("VIEWAS-E: a CITY_MANAGER may preview CITY_MANAGER (themselves) with no spe
 /* -------- startViewAsSchema (Sprint 1 / Phase 2C, section 7) -------------- */
 
 test("SCHEMA-A: MANAGER/CLUB_MANAGER require clubId and reject cityId", () => {
-  assert.equal(startViewAsSchema.safeParse({ role: "MANAGER", clubId: "club-1" }).success, true);
+  // MANAGER also requires previewPositionId as of Phase 2D — see SCHEMA-E.
+  assert.equal(
+    startViewAsSchema.safeParse({ role: "MANAGER", clubId: "club-1", previewPositionId: "CLIENT_MANAGER" }).success,
+    true,
+  );
   assert.equal(startViewAsSchema.safeParse({ role: "CLUB_MANAGER", clubId: "club-1" }).success, true);
-  assert.equal(startViewAsSchema.safeParse({ role: "MANAGER" }).success, false); // missing clubId
-  assert.equal(startViewAsSchema.safeParse({ role: "MANAGER", cityId: "voronezh" }).success, false); // cityId not allowed
+  assert.equal(startViewAsSchema.safeParse({ role: "MANAGER" }).success, false); // missing clubId (and previewPositionId)
+  assert.equal(
+    startViewAsSchema.safeParse({ role: "MANAGER", cityId: "voronezh", previewPositionId: "CLIENT_MANAGER" }).success,
+    false,
+  ); // cityId not allowed
   assert.equal(startViewAsSchema.safeParse({ role: "CLUB_MANAGER", clubId: "club-1", cityId: "voronezh" }).success, false); // both
 });
 
@@ -600,6 +607,43 @@ test("SCHEMA-C: a rejected ambiguous request reports which field(s) are the prob
 
 test("SCHEMA-D: unknown extra fields are rejected (.strict())", () => {
   assert.equal(startViewAsSchema.safeParse({ role: "MANAGER", clubId: "club-1", extra: "x" }).success, false);
+});
+
+/* -------- previewPositionId (Sprint 1 / Phase 2D, section 5) -------------- */
+
+test("SCHEMA-E: MANAGER requires an explicit previewPositionId — never defaulted/guessed", () => {
+  assert.equal(startViewAsSchema.safeParse({ role: "MANAGER", clubId: "club-1" }).success, false);
+  assert.equal(
+    startViewAsSchema.safeParse({ role: "MANAGER", clubId: "club-1", previewPositionId: "CLIENT_MANAGER" }).success,
+    true,
+  );
+  assert.equal(
+    startViewAsSchema.safeParse({ role: "MANAGER", clubId: "club-1", previewPositionId: "NIGHT_MANAGER" }).success,
+    true,
+  );
+  assert.equal(
+    startViewAsSchema.safeParse({ role: "MANAGER", clubId: "club-1", previewPositionId: "ADMINISTRATOR" }).success,
+    true,
+  );
+});
+
+test("SCHEMA-F: an invalid previewPositionId value (outside EmployeePosition) is rejected, not coerced", () => {
+  const r = startViewAsSchema.safeParse({ role: "MANAGER", clubId: "club-1", previewPositionId: "SUPER_MANAGER" });
+  assert.equal(r.success, false);
+});
+
+test("SCHEMA-G: CLUB_MANAGER and CITY_MANAGER must NOT send previewPositionId — same 'reject ambiguity, don't silently resolve' contract as clubId/cityId", () => {
+  assert.equal(
+    startViewAsSchema.safeParse({ role: "CLUB_MANAGER", clubId: "club-1", previewPositionId: "ADMINISTRATOR" }).success,
+    false,
+  );
+  assert.equal(
+    startViewAsSchema.safeParse({ role: "CITY_MANAGER", previewPositionId: "ADMINISTRATOR" }).success,
+    false,
+  );
+  // Without it, both are still valid (previewPositionId is optional for these roles).
+  assert.equal(startViewAsSchema.safeParse({ role: "CLUB_MANAGER", clubId: "club-1" }).success, true);
+  assert.equal(startViewAsSchema.safeParse({ role: "CITY_MANAGER" }).success, true);
 });
 
 /* --------------- View As token + route integration (Sprint 1 / 2B) -------- */

@@ -142,14 +142,26 @@ test("session: cookie flags (HttpOnly, Secure in prod, SameSite, Max-Age)", () =
 
 /* --------------- View As token (Sprint 1 / Phase 2B, separate cookie) ---- */
 
-test("view-as: sign/verify round-trip carries realUserId/role/clubId/cityId", async () => {
-  const token = await signViewAsToken({ realUserId: "user-123", role: "CLUB_MANAGER", clubId: "club-1", cityId: null }, SECRET);
+test("view-as: sign/verify round-trip carries realUserId/role/clubId/cityId/previewPositionId", async () => {
+  const token = await signViewAsToken(
+    { realUserId: "user-123", role: "CLUB_MANAGER", clubId: "club-1", cityId: null, previewPositionId: "ADMINISTRATOR" },
+    SECRET,
+  );
   const payload = await verifyViewAsToken(token, SECRET);
-  assert.deepEqual(payload, { realUserId: "user-123", role: "CLUB_MANAGER", clubId: "club-1", cityId: null });
+  assert.deepEqual(payload, {
+    realUserId: "user-123",
+    role: "CLUB_MANAGER",
+    clubId: "club-1",
+    cityId: null,
+    previewPositionId: "ADMINISTRATOR",
+  });
 });
 
 test("view-as: tampered token / wrong secret / garbage all verify to null", async () => {
-  const token = await signViewAsToken({ realUserId: "user-123", role: "MANAGER", clubId: "club-1", cityId: null }, SECRET);
+  const token = await signViewAsToken(
+    { realUserId: "user-123", role: "MANAGER", clubId: "club-1", cityId: null, previewPositionId: "CLIENT_MANAGER" },
+    SECRET,
+  );
   assert.equal(await verifyViewAsToken(token.slice(0, -2) + "xx", SECRET), null);
   assert.equal(await verifyViewAsToken(token, "another-secret-xxxxxxxx"), null);
   assert.equal(await verifyViewAsToken(undefined, SECRET), null);
@@ -158,8 +170,23 @@ test("view-as: tampered token / wrong secret / garbage all verify to null", asyn
 
 test("view-as: expired token → null (30-minute window — much shorter than the 30-day session)", async () => {
   const past = now() - VIEW_AS_MAX_AGE_SECONDS - 10;
-  const token = await signViewAsToken({ realUserId: "u", role: "CITY_MANAGER", clubId: null, cityId: "voronezh" }, SECRET, past);
+  const token = await signViewAsToken(
+    { realUserId: "u", role: "CITY_MANAGER", clubId: null, cityId: "voronezh", previewPositionId: "ADMINISTRATOR" },
+    SECRET,
+    past,
+  );
   assert.equal(await verifyViewAsToken(token, SECRET), null);
+});
+
+test("view-as: a token signed before previewPositionId existed still verifies, defaulting to ADMINISTRATOR", async () => {
+  // Simulates a token issued by an older deploy — the field didn't exist yet.
+  // verifyViewAsToken must fail safe (a well-formed, non-Scripts-eligible
+  // default), never throw or silently coerce to something more permissive.
+  const full = { realUserId: "user-123", role: "MANAGER", clubId: "club-1", cityId: null, iat: now(), exp: now() + 1800 };
+  const payloadB64 = Buffer.from(JSON.stringify(full)).toString("base64url");
+  const sig = crypto.createHmac("sha256", SECRET).update(payloadB64).digest("base64url");
+  const payload = await verifyViewAsToken(`${payloadB64}.${sig}`, SECRET);
+  assert.equal(payload?.previewPositionId, "ADMINISTRATOR");
 });
 
 test("view-as: an invalid/unexpected role value in the payload is rejected, not silently trusted", async () => {
