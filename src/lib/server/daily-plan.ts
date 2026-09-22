@@ -199,6 +199,23 @@ function toDTO(task: DailyTask, actionSlug: string | null, checklistItems: Daily
   };
 }
 
+/**
+ * Sprint 1 / Phase 2D — View As entry point for /api/plan/today. Mirrors
+ * home.ts's getHomeDashboardFor: when NOT previewing this is exactly
+ * getPlanToday(effectiveUser) (effectiveUser === realUser in that case) —
+ * zero behavior change for real users. When previewing, it deliberately
+ * skips getPlanToday() entirely rather than calling it with the synthetic
+ * persona's id: ensureTodayTasks() -> materializeDailyPlan() INSERTs
+ * DailyTask rows with a NOT NULL foreign key to `users.id`, which the
+ * synthetic id does not satisfy. An honest empty plan (no materialized rows
+ * exist for a persona that isn't persisted) is returned instead — never
+ * fabricated content, never a write.
+ */
+export async function getPlanTodayFor(effectiveUser: CurrentUser, isPreviewing: boolean): Promise<DailyPlanDTO> {
+  if (!isPreviewing) return getPlanToday(effectiveUser);
+  return { date: appDay().toISOString().slice(0, 10), total: 0, completed: 0, tasks: [] };
+}
+
 export async function getPlanToday(user: CurrentUser): Promise<DailyPlanDTO> {
   const date = appDay();
   await ensureTodayTasks(user, date);

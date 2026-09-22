@@ -14,6 +14,17 @@ export type AccessStatusDTO =
   | "FULL"
   | "SUSPENDED";
 
+export type ViewAsRoleDTO = "MANAGER" | "CLUB_MANAGER" | "CITY_MANAGER";
+
+/** Sprint 1 / Phase 2D — present only when GET /api/auth/me was served
+ * during an active View As preview (control/(portal)'s ViewAsBanner uses
+ * the same shape, driven server-side by resolveViewContext there; this is
+ * the Mini-App-side twin so the same banner can render on /home etc). */
+export interface ViewContextDTO {
+  previewRole: ViewAsRoleDTO;
+  realRoleLabel: string;
+}
+
 export interface AppUserDTO {
   displayName: string;
   role: AppRoleDTO;
@@ -31,6 +42,9 @@ export interface AppUserDTO {
     careerLevel: CareerLevelDTO;
     accessStatus: AccessStatusDTO;
   };
+  /** Non-null only while previewing (see ViewContextDTO). Absent/null under
+   * normal (non-preview) use. */
+  viewContext?: ViewContextDTO | null;
 }
 
 export interface OnboardingInputDTO {

@@ -2,15 +2,18 @@ import type { NextRequest } from "next/server";
 import { requireSystemAccess, requireLimitedOrFullAccess } from "@/lib/server/authz";
 import { jsonOk, jsonError, handleError } from "@/lib/server/http";
 import { getLessonDetail } from "@/lib/server/lesson-detail";
+import { resolveEffectiveReadContext } from "@/lib/server/rbac/effective-context";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
  * GET /api/academy/lessons/:slug — the lesson for the player.
- * `?preview=1` is an ADMIN-only path (any status, no progress read/write).
+ * `?preview=1` is an ADMIN-only CMS draft-preview path (any status, no
+ * progress read/write) — unrelated to View As "preview"; requires real
+ * system access and is never View-As-aware.
  * The employee path is on the approved LIMITED whitelist — see
- * requireLimitedOrFullAccess.
+ * requireLimitedOrFullAccess. Sprint 1 / Phase 2D — View-As-aware there.
  */
 export async function GET(req: NextRequest, ctx: { params: Promise<{ slug: string }> }) {
   try {
@@ -22,7 +25,8 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ slug: strin
       await requireSystemAccess(); // only admins may preview drafts
     } else {
       const user = await requireLimitedOrFullAccess();
-      userId = user.id;
+      const { effectiveUser } = await resolveEffectiveReadContext(user);
+      userId = effectiveUser.id;
     }
 
     const lesson = await getLessonDetail(slug, { userId, preview });
