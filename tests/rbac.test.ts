@@ -17,6 +17,7 @@ import {
   hasNetworkAccess,
 } from "../src/lib/server/rbac/authorize-core";
 import type { ActorContext, RoleGrant } from "../src/lib/server/rbac/types";
+import { startViewAsSchema } from "../src/lib/server/rbac/view-as-schemas";
 
 /**
  * RBAC foundation — pure domain logic (scope-core.ts / authorize-core.ts).
@@ -572,6 +573,33 @@ test("VIEWAS-D: DIRECT ATTACK — a CITY_MANAGER cannot preview OPERATIONS_DIREC
 test("VIEWAS-E: a CITY_MANAGER may preview CITY_MANAGER (themselves) with no specific scope — jump back to the top-level view", () => {
   const a = actor({ grants: [grant({ role: "CITY_MANAGER", scopeType: "CITY", cityId: "voronezh" })] });
   assert.equal(canStartViewAs(a, { role: "CITY_MANAGER", clubId: null, cityId: null }), true);
+});
+
+/* -------- startViewAsSchema (Sprint 1 / Phase 2C, section 7) -------------- */
+
+test("SCHEMA-A: MANAGER/CLUB_MANAGER require clubId and reject cityId", () => {
+  assert.equal(startViewAsSchema.safeParse({ role: "MANAGER", clubId: "club-1" }).success, true);
+  assert.equal(startViewAsSchema.safeParse({ role: "CLUB_MANAGER", clubId: "club-1" }).success, true);
+  assert.equal(startViewAsSchema.safeParse({ role: "MANAGER" }).success, false); // missing clubId
+  assert.equal(startViewAsSchema.safeParse({ role: "MANAGER", cityId: "voronezh" }).success, false); // cityId not allowed
+  assert.equal(startViewAsSchema.safeParse({ role: "CLUB_MANAGER", clubId: "club-1", cityId: "voronezh" }).success, false); // both
+});
+
+test("SCHEMA-B: CITY_MANAGER accepts clubId XOR cityId XOR neither, never both", () => {
+  assert.equal(startViewAsSchema.safeParse({ role: "CITY_MANAGER", clubId: "club-1" }).success, true);
+  assert.equal(startViewAsSchema.safeParse({ role: "CITY_MANAGER", cityId: "voronezh" }).success, true);
+  assert.equal(startViewAsSchema.safeParse({ role: "CITY_MANAGER" }).success, true); // "preview as myself"
+  assert.equal(startViewAsSchema.safeParse({ role: "CITY_MANAGER", clubId: "club-1", cityId: "voronezh" }).success, false);
+});
+
+test("SCHEMA-C: a rejected ambiguous request reports which field(s) are the problem (zodFieldErrors-compatible path)", () => {
+  const r = startViewAsSchema.safeParse({ role: "CITY_MANAGER", clubId: "club-1", cityId: "voronezh" });
+  assert.equal(r.success, false);
+  if (!r.success) assert.equal(r.error.issues[0]?.path.join("."), "cityId");
+});
+
+test("SCHEMA-D: unknown extra fields are rejected (.strict())", () => {
+  assert.equal(startViewAsSchema.safeParse({ role: "MANAGER", clubId: "club-1", extra: "x" }).success, false);
 });
 
 /* --------------- View As token + route integration (Sprint 1 / 2B) -------- */
