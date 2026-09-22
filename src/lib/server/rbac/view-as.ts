@@ -54,7 +54,7 @@ export async function startViewAs(realUser: CurrentUser, input: StartViewAsInput
     throw new AuthError(403, "forbidden", "Просмотр в этой роли/зоне недоступен");
   }
 
-  const token = signViewAsToken({ realUserId: realUser.id, role: input.role, clubId, cityId }, getServerEnv().AUTH_SECRET);
+  const token = await signViewAsToken({ realUserId: realUser.id, role: input.role, clubId, cityId }, getServerEnv().AUTH_SECRET);
   const store = await cookies();
   store.set(VIEW_AS_COOKIE, token, buildViewAsCookieOptions(isProduction()));
 
@@ -78,7 +78,7 @@ export async function startViewAs(realUser: CurrentUser, input: StartViewAsInput
 
 export async function endViewAs(realUser: CurrentUser): Promise<void> {
   const store = await cookies();
-  const existing = verifyViewAsToken(store.get(VIEW_AS_COOKIE)?.value, getServerEnv().AUTH_SECRET);
+  const existing = await verifyViewAsToken(store.get(VIEW_AS_COOKIE)?.value, getServerEnv().AUTH_SECRET);
   store.delete(VIEW_AS_COOKIE);
   if (!existing || existing.realUserId !== realUser.id) return; // nothing active for this session
   await prisma.userAuditLog.create({
@@ -103,7 +103,7 @@ export async function endViewAs(realUser: CurrentUser): Promise<void> {
  */
 export async function resolveViewContext(realUser: CurrentUser): Promise<ViewContext | null> {
   const store = await cookies();
-  const payload = verifyViewAsToken(store.get(VIEW_AS_COOKIE)?.value, getServerEnv().AUTH_SECRET);
+  const payload = await verifyViewAsToken(store.get(VIEW_AS_COOKIE)?.value, getServerEnv().AUTH_SECRET);
   if (!payload) return null;
   if (payload.realUserId !== realUser.id) return null;
 
@@ -121,13 +121,13 @@ export async function resolveViewContext(realUser: CurrentUser): Promise<ViewCon
 }
 
 /**
- * Mutation guard (Sprint 1 / Phase 2B section 14 — "View As = read only",
- * centralized rather than a manual per-route check). Call this FIRST, right
- * after the route's normal auth check, in every mutating (POST/PATCH/PUT/
- * DELETE) endpoint that a View-As-capable role (today: CITY_MANAGER) could
- * plausibly reach. Wired into control/roles/** (create/revoke/restore) as of
- * this commit — see the Phase 2B final report for which routes remain to be
- * covered as View-As-effective-context expands to more of the app.
+ * Mutation guard — Phase 2C's src/middleware.ts is now the PRIMARY enforcement
+ * point (every POST/PUT/PATCH/DELETE under /api/**, whole app, not just the
+ * routes below). This function's remaining callers (control/roles' create/
+ * revoke/restore, wired in Phase 2B) are redundant defense-in-depth after
+ * that — kept because removing a passing safety check for no functional
+ * gain is not a good trade, not because it's still load-bearing. New routes
+ * should rely on the middleware and do NOT need to call this individually.
  */
 export async function requireNoActiveViewAs(realUser: CurrentUser): Promise<void> {
   const ctx = await resolveViewContext(realUser);

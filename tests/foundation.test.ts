@@ -142,32 +142,35 @@ test("session: cookie flags (HttpOnly, Secure in prod, SameSite, Max-Age)", () =
 
 /* --------------- View As token (Sprint 1 / Phase 2B, separate cookie) ---- */
 
-test("view-as: sign/verify round-trip carries realUserId/role/clubId/cityId", () => {
-  const token = signViewAsToken({ realUserId: "user-123", role: "CLUB_MANAGER", clubId: "club-1", cityId: null }, SECRET);
-  const payload = verifyViewAsToken(token, SECRET);
+test("view-as: sign/verify round-trip carries realUserId/role/clubId/cityId", async () => {
+  const token = await signViewAsToken({ realUserId: "user-123", role: "CLUB_MANAGER", clubId: "club-1", cityId: null }, SECRET);
+  const payload = await verifyViewAsToken(token, SECRET);
   assert.deepEqual(payload, { realUserId: "user-123", role: "CLUB_MANAGER", clubId: "club-1", cityId: null });
 });
 
-test("view-as: tampered token / wrong secret / garbage all verify to null", () => {
-  const token = signViewAsToken({ realUserId: "user-123", role: "MANAGER", clubId: "club-1", cityId: null }, SECRET);
-  assert.equal(verifyViewAsToken(token.slice(0, -2) + "xx", SECRET), null);
-  assert.equal(verifyViewAsToken(token, "another-secret-xxxxxxxx"), null);
-  assert.equal(verifyViewAsToken(undefined, SECRET), null);
-  assert.equal(verifyViewAsToken("garbage", SECRET), null);
+test("view-as: tampered token / wrong secret / garbage all verify to null", async () => {
+  const token = await signViewAsToken({ realUserId: "user-123", role: "MANAGER", clubId: "club-1", cityId: null }, SECRET);
+  assert.equal(await verifyViewAsToken(token.slice(0, -2) + "xx", SECRET), null);
+  assert.equal(await verifyViewAsToken(token, "another-secret-xxxxxxxx"), null);
+  assert.equal(await verifyViewAsToken(undefined, SECRET), null);
+  assert.equal(await verifyViewAsToken("garbage", SECRET), null);
 });
 
-test("view-as: expired token → null (30-minute window — much shorter than the 30-day session)", () => {
+test("view-as: expired token → null (30-minute window — much shorter than the 30-day session)", async () => {
   const past = now() - VIEW_AS_MAX_AGE_SECONDS - 10;
-  const token = signViewAsToken({ realUserId: "u", role: "CITY_MANAGER", clubId: null, cityId: "voronezh" }, SECRET, past);
-  assert.equal(verifyViewAsToken(token, SECRET), null);
+  const token = await signViewAsToken({ realUserId: "u", role: "CITY_MANAGER", clubId: null, cityId: "voronezh" }, SECRET, past);
+  assert.equal(await verifyViewAsToken(token, SECRET), null);
 });
 
-test("view-as: an invalid/unexpected role value in the payload is rejected, not silently trusted", () => {
+test("view-as: an invalid/unexpected role value in the payload is rejected, not silently trusted", async () => {
   // Hand-craft a token with a role outside the ViewAsRole union — verifyViewAsToken
-  // must not trust JSON.parse's output at face value just because the signature checks out.
+  // must not trust JSON.parse's output at face value just because the signature checks
+  // out. Signed with node:crypto's HMAC-SHA256 on purpose: it must interoperate with
+  // Web Crypto's HMAC-SHA256 verify (same standard algorithm, byte-identical output) —
+  // this doubles as a cross-implementation regression check for the Phase 2C rewrite.
   const payloadB64 = Buffer.from(JSON.stringify({ realUserId: "u", role: "SUPER_ADMIN", iat: now(), exp: now() + 60 })).toString("base64url");
   const sig = crypto.createHmac("sha256", SECRET).update(payloadB64).digest("base64url");
-  assert.equal(verifyViewAsToken(`${payloadB64}.${sig}`, SECRET), null);
+  assert.equal(await verifyViewAsToken(`${payloadB64}.${sig}`, SECRET), null);
 });
 
 test("view-as: cookie flags (HttpOnly, Secure in prod, SameSite=lax, 30-minute Max-Age)", () => {
