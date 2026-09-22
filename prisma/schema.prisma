@@ -154,6 +154,29 @@ enum RoleScopeType {
 }
 
 enum RoleAssignmentStatus {
+  // Sprint 1 / Phase 2C identified this value as defined but never produced
+  // by any code path (canAssignRole/role-assignment-service always create
+  // grants directly as ACTIVE — there is no two-step "propose, then
+  // confirm" flow for a RoleAssignment today). Phase 2D decision: KEEP,
+  // documented, not removed. Reasoning:
+  // (1) Dropping a Postgres enum value is a genuinely destructive-shaped
+  //     migration (RENAME the type, CREATE a replacement without the value,
+  //     ALTER every column to it, DROP the old type) — this project's live
+  //     Postgres was unreachable this phase (network-unresolvable
+  //     `postgres.railway.internal`), so no new migration of ANY kind could
+  //     be validated live this phase, and per this phase's own instructions
+  //     an unvalidated migration must not ship, destructive-shaped ones
+  //     least of all.
+  // (2) There IS a concrete plausible future use, not a vague placeholder:
+  //     a two-step "CLUB_MANAGER proposes a MANAGER grant, CITY_MANAGER (or
+  //     the target's own eventual accessStatus onboarding) confirms it"
+  //     flow — mirroring EmployeeProfile.accessStatus's PENDING_APPROVAL,
+  //     which gates the *employee's own app access*, a DIFFERENT axis from
+  //     this value, which would gate a *specific grant's* confirmation
+  //     state. Do not confuse the two.
+  // If a future phase confirms this is genuinely dead (no such flow is ever
+  // planned), remove it via a NEW forward-safe migration with live
+  // validation — never by editing an already-published migration.
   PENDING_APPROVAL
   ACTIVE
   SUSPENDED
