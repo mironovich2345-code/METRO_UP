@@ -15,9 +15,27 @@ const ROLE_LABEL: Record<string, string> = {
  * Rendered by ControlShell whenever the server resolved an active View As
  * context for this request (see control/(portal)/layout.tsx) — never
  * computed from client state alone, so it can't drift from what the server
- * is actually honoring.
+ * is actually honoring. Sprint 1 / Phase 2D also renders it from the
+ * Mini-App shell (app-shell-frame.tsx), driven by /api/auth/me's
+ * `viewContext` field instead — same component, same "can't hide the fact
+ * of preview" guarantee, different data source.
+ *
+ * `onEnded` — the control portal (Server Components) needs `router.refresh()`
+ * to re-run the layout/page and pick up the now-absent viewContext; the
+ * Mini App is entirely client-rendered (AppUserProvider's fetch-based state),
+ * where a router refresh has nothing server-rendered to re-run, so it passes
+ * its own `appUser.refresh()` here instead. Defaults to router.refresh() so
+ * existing control-portal callers are unchanged.
  */
-export function ViewAsBanner({ previewRole, realRoleLabel }: { previewRole: string; realRoleLabel: string }) {
+export function ViewAsBanner({
+  previewRole,
+  realRoleLabel,
+  onEnded,
+}: {
+  previewRole: string;
+  realRoleLabel: string;
+  onEnded?: () => void;
+}) {
   const router = useRouter();
   const [ending, setEnding] = useState(false);
 
@@ -26,7 +44,8 @@ export function ViewAsBanner({ previewRole, realRoleLabel }: { previewRole: stri
     try {
       await fetch("/api/control/view-as/end", { method: "POST", credentials: "same-origin" });
     } finally {
-      router.refresh();
+      if (onEnded) onEnded();
+      else router.refresh();
     }
   };
 

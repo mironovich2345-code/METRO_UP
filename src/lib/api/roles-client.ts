@@ -48,8 +48,14 @@ export const rolesApi = {
 
 /** Sprint 1 / Phase 2B — src/app/api/control/view-as/**. */
 export const viewAsApi = {
-  start: (body: { role: "MANAGER" | "CLUB_MANAGER" | "CITY_MANAGER"; clubId?: string | null; cityId?: string | null; reason?: string | null }) =>
-    request<{ viewContext: unknown }>(`/api/control/view-as/start`, { method: "POST", body: JSON.stringify(body) }),
+  start: (body: {
+    role: "MANAGER" | "CLUB_MANAGER" | "CITY_MANAGER";
+    clubId?: string | null;
+    cityId?: string | null;
+    /** Required when role === "MANAGER" — see view-as-schemas.ts. */
+    previewPositionId?: "CLIENT_MANAGER" | "NIGHT_MANAGER" | "ADMINISTRATOR" | null;
+    reason?: string | null;
+  }) => request<{ viewContext: unknown }>(`/api/control/view-as/start`, { method: "POST", body: JSON.stringify(body) }),
   end: () => request<{ ended: true }>(`/api/control/view-as/end`, { method: "POST" }),
 };
 

@@ -6,6 +6,9 @@ import { Building2, Eye, Users } from "lucide-react";
 import Link from "next/link";
 import { ApiError } from "@/lib/api/client";
 import { cityApi, viewAsApi, type ClubSummaryDTO } from "@/lib/api/roles-client";
+import { POSITIONS } from "@/content/positions";
+
+type PreviewPosition = "CLIENT_MANAGER" | "NIGHT_MANAGER" | "ADMINISTRATOR";
 
 /**
  * Sprint 1 / Phase 2B, section 18 — minimal CITY_MANAGER UI: "Мои клубы" list
@@ -16,12 +19,21 @@ import { cityApi, viewAsApi, type ClubSummaryDTO } from "@/lib/api/roles-client"
  * on control/team itself (reused, not rebuilt) once the CITY_MANAGER is
  * looking at a specific club's team, matching "Использовать существующий
  * Team там, где возможно" from the Phase 2B plan.
+ *
+ * Sprint 1 / Phase 2D — a second trigger previews the club as a MANAGER (the
+ * Mini App employee experience: Home/Academy/Scripts/Ranking/…), navigating
+ * to /home. EmployeePosition has no canonical "MANAGER" mapping (three
+ * distinct positions — src/content/positions.ts — with Scripts visibility
+ * genuinely differing by position), so the position is an EXPLICIT selector
+ * here, never guessed/defaulted; the API rejects the request without one
+ * (startViewAsSchema).
  */
 export function CityManagerClubs() {
   const router = useRouter();
   const [clubs, setClubs] = useState<ClubSummaryDTO[] | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error" | "denied">("loading");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [positionByClub, setPositionByClub] = useState<Record<string, PreviewPosition | "">>({});
 
   useEffect(() => {
     cityApi.clubs()
@@ -29,11 +41,23 @@ export function CityManagerClubs() {
       .catch((e) => setStatus(e instanceof ApiError && (e.status === 403 || e.status === 401) ? "denied" : "error"));
   }, []);
 
-  const viewAsManager = async (clubId: string) => {
+  const viewAsClubManager = async (clubId: string) => {
     setBusyId(clubId);
     try {
       await viewAsApi.start({ role: "CLUB_MANAGER", clubId });
       router.push("/control/team");
+    } catch {
+      setBusyId(null);
+    }
+  };
+
+  const viewAsManager = async (clubId: string) => {
+    const previewPositionId = positionByClub[clubId];
+    if (!previewPositionId) return; // selector required — nothing to guess
+    setBusyId(clubId);
+    try {
+      await viewAsApi.start({ role: "MANAGER", clubId, previewPositionId });
+      router.push("/home");
     } catch {
       setBusyId(null);
     }
@@ -64,11 +88,32 @@ export function CityManagerClubs() {
                   <Users className="size-3.5" /> Команда
                 </Link>
                 <button
-                  onClick={() => viewAsManager(c.id)}
+                  onClick={() => viewAsClubManager(c.id)}
                   disabled={busyId === c.id}
                   className="inline-flex items-center gap-1.5 rounded-xl bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground disabled:opacity-50"
                 >
                   <Eye className="size-3.5" /> {busyId === c.id ? "…" : "Просмотреть как управляющий"}
+                </button>
+              </div>
+
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <select
+                  value={positionByClub[c.id] ?? ""}
+                  onChange={(e) => setPositionByClub((m) => ({ ...m, [c.id]: e.target.value as PreviewPosition }))}
+                  className="rounded-xl border border-border bg-background px-2.5 py-1.5 text-xs font-medium"
+                  aria-label="Должность для предпросмотра"
+                >
+                  <option value="">Должность…</option>
+                  {POSITIONS.map((p) => (
+                    <option key={p.id} value={p.id}>{p.title}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => viewAsManager(c.id)}
+                  disabled={busyId === c.id || !positionByClub[c.id]}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+                >
+                  <Eye className="size-3.5" /> {busyId === c.id ? "…" : "Просмотреть как менеджер"}
                 </button>
               </div>
             </div>
