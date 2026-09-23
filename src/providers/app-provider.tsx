@@ -23,6 +23,7 @@ import {
 } from "@/lib/profile";
 import { trackEvent } from "@/lib/analytics";
 import { serverOnboardingComplete } from "@/lib/onboarding-state";
+import { onboardingPersistTarget } from "@/lib/boot-state";
 import type { AppUserDTO } from "@/lib/api/types";
 import type { TelegramUser } from "@/lib/types";
 
@@ -199,9 +200,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return null;
       }
 
+      const target = onboardingPersistTarget({
+        isInsideTelegram,
+        isAuthenticated: appUser.isAuthenticated,
+      });
+
+      // Inside real Telegram but auth not ready: NEVER write a local/demo profile
+      // (it would be ignored, since Telegram mode uses only the server profile) and
+      // NEVER navigate to a route that can't obtain the profile. Keep the draft and
+      // let the caller surface a retry. This is the black-screen fallthrough fix.
+      if (target === "blocked") {
+        console.info(`[app-bootstrap] ${JSON.stringify({ phase: "onboarding-blocked", reason: "telegram_not_authenticated" })}`);
+        return null;
+      }
+
       // Inside Telegram: persist to the server (source of truth). Only the four
       // allowed fields are sent — role/accessStatus/careerLevel are server-set.
-      if (isInsideTelegram && appUser.isAuthenticated) {
+      if (target === "server") {
         const saved = await appUser.saveOnboarding({
           displayName: draft.displayName,
           cityId: draft.cityId,
@@ -218,7 +233,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return next;
       }
 
-      // Browser demo: keep the existing local flow.
+      // Browser demo (outside Telegram): keep the existing local flow.
       const next = createProfile({
         telegramId: realTelegramUser ? String(realTelegramUser.id) : null,
         telegramUsername: user.username ?? null,
