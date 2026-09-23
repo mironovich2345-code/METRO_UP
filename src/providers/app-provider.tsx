@@ -24,6 +24,7 @@ import {
 import { trackEvent } from "@/lib/analytics";
 import { serverOnboardingComplete } from "@/lib/onboarding-state";
 import { onboardingPersistTarget } from "@/lib/boot-state";
+import { sendBootstrapDiag } from "@/lib/bootstrap-diag";
 import type { AppUserDTO } from "@/lib/api/types";
 import type { TelegramUser } from "@/lib/types";
 
@@ -129,13 +130,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // When a server profile resolves, prefill the draft from it (server wins).
   useEffect(() => {
     if (!serverProfile) return;
+    sendBootstrapDiag({ phase: "profile_received", attemptId: appUser.attemptId });
     setDraft({
       displayName: serverProfile.displayName,
       cityId: serverProfile.cityId,
       clubId: serverProfile.clubId,
       positionId: serverProfile.positionId,
     });
-  }, [serverProfile]);
+  }, [serverProfile, appUser.attemptId]);
 
   // Bootstrap resolution: inside Telegram we wait for auth; in demo for "demo".
   const bootstrapDecided =

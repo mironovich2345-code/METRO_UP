@@ -4,8 +4,10 @@ import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { Loader2, RotateCw, WifiOff } from "lucide-react";
 import { useApp } from "@/providers/app-provider";
+import { useAppUser } from "@/providers/AppUserProvider";
 import { useTelegram } from "@/providers/TelegramProvider";
 import { bootPhase } from "@/lib/boot-state";
+import { sendBootstrapDiag } from "@/lib/bootstrap-diag";
 
 /**
  * Single recovery gate for the employee Mini App (P0 black-screen fix). Before an
@@ -20,6 +22,7 @@ import { bootPhase } from "@/lib/boot-state";
 export function EmployeeBootGate({ children }: { children: React.ReactNode }) {
   const { hydrated, bootstrapError, retryBootstrap, profile } = useApp();
   const { isInsideTelegram } = useTelegram();
+  const { attemptId } = useAppUser();
   const pathname = usePathname();
   const phase = bootPhase({ bootstrapError, hydrated });
 
@@ -33,6 +36,15 @@ export function EmployeeBootGate({ children }: { children: React.ReactNode }) {
       `[app-bootstrap] ${JSON.stringify({ phase, hasServerProfile: Boolean(profile), isInsideTelegram, pathname })}`,
     );
   }, [phase, pathname, profile, isInsideTelegram]);
+
+  // Beacon gate_ready once per attempt (proves the gate actually rendered content).
+  const gateReadyFor = useRef<string>("");
+  useEffect(() => {
+    if (phase === "ready" && gateReadyFor.current !== attemptId) {
+      gateReadyFor.current = attemptId;
+      sendBootstrapDiag({ phase: "gate_ready", attemptId });
+    }
+  }, [phase, attemptId]);
 
   if (phase === "error") {
     return (
