@@ -16,7 +16,16 @@ import {
   logout as apiLogout,
   submitOnboarding,
 } from "@/lib/api/client";
+import { runWithTimeout, TimeoutError } from "@/lib/async-timeout";
 import type { AppUserDTO, OnboardingInputDTO } from "@/lib/api/types";
+
+/** Hard ceiling for the Telegram bootstrap; production must never load forever. */
+const BOOTSTRAP_TIMEOUT_MS = 9000;
+
+/** Safe bootstrap diagnostics — phase + duration only. No initData/token/PII. */
+function logBoot(phase: string, startedAt: number) {
+  console.info(`[app-bootstrap] ${JSON.stringify({ phase, durationMs: Math.round(performance.now() - startedAt) })}`);
+}
 
 /**
  * Server-session bootstrap. Inside Telegram it verifies initData server-side,
@@ -50,23 +59,36 @@ export function AppUserProvider({ children }: { children: React.ReactNode }) {
   const started = useRef(false);
 
   const bootstrap = useCallback(async () => {
+    const startedAt = performance.now();
     if (!isInsideTelegram || !initData) {
+      logBoot("demo", startedAt);
       setStatus("demo");
       setUser(null);
       return;
     }
+    logBoot("auth_request_start", startedAt);
     try {
       // The auth response IS the authoritative user (same meDTO as /api/auth/me,
       // incl. onboardingCompleted + profile) and it opens the session. We use it
       // directly — a second /api/auth/me round-trip here can transiently miss the
       // just-set session cookie in some Telegram WebViews, which would misread an
       // onboarded user as anonymous and wrongly force onboarding again.
-      const authed = await authenticateTelegram(initData);
+      //
+      // HARD TIMEOUT: if the request hangs (server cold start, network stall in the
+      // iOS WebView, a hung upstream) the AbortSignal cancels the fetch and this
+      // rejects with TimeoutError, so we always leave "loading" for a recoverable
+      // "error" state instead of an infinite spinner.
+      const authed = await runWithTimeout(
+        (signal) => authenticateTelegram(initData, signal),
+        BOOTSTRAP_TIMEOUT_MS,
+      );
+      logBoot("auth_request_success", startedAt);
       setUser(authed);
       setStatus("authenticated");
-    } catch {
-      // No backend reachable — surface an error (retry UI); never fabricate a
-      // "needs onboarding" state from a failed bootstrap.
+    } catch (e) {
+      logBoot(e instanceof TimeoutError ? "auth_timeout" : "auth_request_error", startedAt);
+      // Backend unreachable / too slow — surface a retryable error; never fabricate
+      // a "needs onboarding" state from a failed bootstrap.
       setStatus("error");
       setUser(null);
     }

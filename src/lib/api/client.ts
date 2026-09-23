@@ -29,13 +29,19 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
-/** Verify Telegram initData server-side and open a session. */
+/**
+ * Verify Telegram initData server-side and open a session. Accepts an AbortSignal
+ * so the caller can enforce a hard bootstrap timeout (the request is aborted, not
+ * left as an orphan) — see AppUserProvider.
+ */
 export async function authenticateTelegram(
   initData: string,
+  signal?: AbortSignal,
 ): Promise<AppUserDTO> {
   const { user } = await apiFetch<{ user: AppUserDTO }>("/api/auth/telegram", {
     method: "POST",
     body: JSON.stringify({ initData }),
+    signal,
   });
   return user;
 }
