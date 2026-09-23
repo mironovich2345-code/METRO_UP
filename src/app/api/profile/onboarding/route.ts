@@ -30,7 +30,11 @@ function logOnboardingDecision(fields: {
   outcome: string;
   diagnostics: ClubSelectionDiagnostics | null;
 }) {
-  console.warn("[onboarding][diag]", JSON.stringify(fields));
+  // A successful decision is informational, not an error — logging it via
+  // console.error/warn made healthy onboarding show up as level=error on Railway.
+  const line = `[onboarding][diag] ${JSON.stringify(fields)}`;
+  if (fields.outcome === "OK") console.info(line);
+  else console.warn(line);
 }
 
 /** Shorten an unknown request value to a safe, non-secret label for logging. */
@@ -118,7 +122,11 @@ export async function POST(req: NextRequest) {
           cityId: input.cityId,
           clubId: input.clubId,
           positionId: input.positionId,
-          // careerLevel / accessStatus / onboardingCompleted are server-owned.
+          // A successful onboarding upsert must ALWAYS mark completion — the create
+          // branch set it, but the update branch previously omitted it, so a
+          // pre-existing profile could stay onboardingCompleted=false forever.
+          // careerLevel / accessStatus stay server-owned and are not reset here.
+          onboardingCompleted: true,
         },
         create: {
           userId: user.id,
