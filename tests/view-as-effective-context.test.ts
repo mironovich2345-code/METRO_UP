@@ -127,3 +127,26 @@ test(
   { skip: "integration: requires a running server + browser/DOM (component behavior)" },
   () => {},
 );
+
+/* -------- Home widget isolation ported into Phase 2D (role-cabinets step) - */
+/*
+ * home-resolve.ts's settleWidget() is generic and context-free — it doesn't
+ * know or care whether its caller is getHomeDashboard(realUser) or
+ * getHomeDashboardFor(effectiveUser, true). home-widget-isolation.test.ts's
+ * A-G already prove the mechanism itself degrades safely regardless of
+ * caller. EFFCTX-K below is the specific end-to-end claim for the View As
+ * path that those pure tests can't reach on their own (they don't call
+ * either home.ts entry point, only settleWidget directly).
+ */
+
+test(
+  "EFFCTX-K: GET /api/home during an active MANAGER/CLUB_MANAGER preview " +
+    "degrades the same way a real user's does when one widget fails — e.g. a " +
+    "rating-table read error still returns 200 with rating.hasData=false and " +
+    "every other card (xp/mystery/achievements) populated from the synthetic " +
+    "persona's id, never a 500 — because getHomeDashboardFor's preview branch " +
+    "wraps each of its 5 live widgets in the same settleWidget() as " +
+    "getHomeDashboard's real path (home.ts)",
+  { skip: "integration: requires Postgres + running server + failure injection" },
+  () => {},
+);
