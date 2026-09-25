@@ -5,6 +5,7 @@ import { AuthError } from "../authz";
 import type { CurrentUser } from "../session";
 import { getActorContext, cityIdForClub, hasAnyActiveWorkingAssignment } from "./context";
 import { authorize, canRevokeRole, hasSystemAccess, type RoleAssignmentTarget } from "./authorize-core";
+import { hasOperationsDirectorCapacity, OPERATIONS_DIRECTOR_MAX_ACTIVE } from "./scope-core";
 import type { ActorContext, NetworkRole, RoleAssignmentStatus, RoleGrant, RoleScopeType } from "./types";
 
 /**
@@ -115,6 +116,51 @@ export async function listRoleAssignments(
   return rows.map(toRowDTO);
 }
 
+/**
+ * Sprint: role-cabinets, section 4 — server-enforced, race-safe cap: at most
+ * OPERATIONS_DIRECTOR_MAX_ACTIVE (2) ACTIVE OPERATIONS_DIRECTOR assignments
+ * system-wide. Postgres's partial unique index (migration
+ * 20260817000000_role_assignment_foundation) can only express "at most 1 per
+ * (user, role, scope) key" — it has no shape for "at most N across ALL
+ * users/rows", so this cross-row cardinality invariant needs a different
+ * mechanism: a session-scoped Postgres advisory lock
+ * (pg_advisory_xact_lock), taken FIRST, serializes every concurrent
+ * create/restore that could affect this specific count against each other —
+ * two racing requests queue on the lock instead of both reading count=1 and
+ * both proceeding. The lock is released automatically when the surrounding
+ * transaction commits or rolls back, so it MUST be called from inside the
+ * same `tx` that performs the create/restore — calling it standalone (its
+ * own transaction) provides no protection at all.
+ *
+ * hashtextextended(<literal>, 0) turns a readable, unique-in-this-codebase
+ * string into a stable bigint lock key (verified with grep before adding
+ * this: no other advisory lock exists anywhere in this codebase, so there is
+ * no collision to guard against).
+ *
+ * `excludeAssignmentId` — restoring a SUSPENDED/ENDED row back to ACTIVE
+ * must not count that same row against its own future state.
+ */
+async function assertOperationsDirectorCapacity(
+  tx: Prisma.TransactionClient,
+  excludeAssignmentId?: string,
+): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('metro_up:role_assignments:operations_director_cap', 0))`;
+  const activeCount = await tx.roleAssignment.count({
+    where: {
+      role: "OPERATIONS_DIRECTOR",
+      status: "ACTIVE",
+      ...(excludeAssignmentId ? { id: { not: excludeAssignmentId } } : {}),
+    },
+  });
+  if (!hasOperationsDirectorCapacity(activeCount)) {
+    throw new AuthError(
+      409,
+      "operations_director_limit_reached",
+      `Максимум ${OPERATIONS_DIRECTOR_MAX_ACTIVE} действующих Операционных директоров одновременно`,
+    );
+  }
+}
+
 export interface CreateRoleAssignmentInput {
   userId: string;
   role: NetworkRole;
@@ -161,6 +207,9 @@ export async function createRoleAssignment(
 
   try {
     const created = await prisma.$transaction(async (tx) => {
+      if (input.role === "OPERATIONS_DIRECTOR") {
+        await assertOperationsDirectorCapacity(tx);
+      }
       const row = await tx.roleAssignment.create({
         data: {
           userId: input.userId,
@@ -323,6 +372,13 @@ export async function restoreRoleAssignment(
 
   try {
     const updated = await prisma.$transaction(async (tx) => {
+      // Restoring a SUSPENDED/ENDED OPERATIONS_DIRECTOR back to ACTIVE is the
+      // other mutation (besides create) that can push the system-wide count
+      // to 3 — the same cap applies here, excluding this row's own (not yet
+      // updated) id from the count.
+      if (row.role === "OPERATIONS_DIRECTOR") {
+        await assertOperationsDirectorCapacity(tx, assignmentId);
+      }
       const next = await tx.roleAssignment.update({
         where: { id: assignmentId },
         data: { status: "ACTIVE", endedAt: null },

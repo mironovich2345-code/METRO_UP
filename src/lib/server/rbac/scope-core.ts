@@ -70,3 +70,22 @@ export function anyGrantCoversClub(
 export function hasActiveRole(grants: RoleGrant[], role: NetworkRole): boolean {
   return grants.some((g) => g.role === role && isGrantActive(g));
 }
+
+/**
+ * Sprint: role-cabinets, section 4 — hard business cap, system-wide: at most
+ * this many ACTIVE OPERATIONS_DIRECTOR RoleAssignment rows may exist at once
+ * (ENDED/SUSPENDED rows never count — see isGrantActive). This is the pure
+ * decision the DB-touching side (role-assignment-service.ts's
+ * assertOperationsDirectorCapacity) enforces race-safely via a Postgres
+ * advisory lock; kept here, separate and directly unit-testable, so the
+ * BUSINESS number itself (currently 2) is never duplicated or drifted
+ * between the two.
+ */
+export const OPERATIONS_DIRECTOR_MAX_ACTIVE = 2;
+
+/** Is there room for one more ACTIVE OPERATIONS_DIRECTOR, given the current
+ * count (system-wide, excluding whichever row — if any — is about to become
+ * ACTIVE)? */
+export function hasOperationsDirectorCapacity(currentActiveCount: number): boolean {
+  return currentActiveCount < OPERATIONS_DIRECTOR_MAX_ACTIVE;
+}
