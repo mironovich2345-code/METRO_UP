@@ -6,6 +6,8 @@ import {
   grantCoversCity,
   anyGrantCoversClub,
   hasActiveRole,
+  hasOperationsDirectorCapacity,
+  OPERATIONS_DIRECTOR_MAX_ACTIVE,
 } from "../src/lib/server/rbac/scope-core";
 import {
   hasSystemAccess,
@@ -189,6 +191,12 @@ test(
   },
 );
 
+test("SHAPE-F: Sprint: role-cabinets, section 13 — the three named malformed combinations are rejected (400/403-worthy, never a 500 — isValidGrantShape returning false is what canAssignRole checks FIRST, before any hierarchy branch, so the request never reaches a code path that could throw)", () => {
+  assert.equal(isValidGrantShape({ role: "CLUB_MANAGER", scopeType: "NETWORK", cityId: null, clubId: "club-1" }), false);
+  assert.equal(isValidGrantShape({ role: "CITY_MANAGER", scopeType: "SYSTEM", cityId: "voronezh", clubId: null }), false);
+  assert.equal(isValidGrantShape({ role: "OPERATIONS_DIRECTOR", scopeType: "CLUB", cityId: null, clubId: "club-1" }), false);
+});
+
 /* ------------------------------- Assignment -------------------------------- */
 
 test("ASSIGN-A: PROJECT_ADMIN (legacy AppRole=ADMIN) may assign CITY_MANAGER and OPERATIONS_DIRECTOR", () => {
@@ -261,6 +269,50 @@ test("ASSIGN-G: DIRECT ATTACK — self-promotion is impossible by construction: 
 test("ASSIGN-H: DIRECT ATTACK — a plain MANAGER (no grants) cannot assign any role", () => {
   const a = actor();
   assert.equal(canAssignRole(a, { role: "MANAGER", scopeType: "CLUB", cityId: null, clubId: "club-1" }), false);
+});
+
+/* ------- Sprint: role-cabinets — OPERATIONS_DIRECTOR assignment authority - */
+
+test("ASSIGN-I: an active OPERATIONS_DIRECTOR grant may assign CITY_MANAGER, network-wide (no scope containment check against its own NETWORK grant)", () => {
+  const a = actor({ grants: [grant({ role: "OPERATIONS_DIRECTOR", scopeType: "NETWORK" })] });
+  assert.equal(canAssignRole(a, { role: "CITY_MANAGER", scopeType: "CITY", cityId: "voronezh", clubId: null }), true);
+  assert.equal(canAssignRole(a, { role: "CITY_MANAGER", scopeType: "CITY", cityId: "kazan", clubId: null }), true);
+  assert.equal(canAssignRole(a, { role: "CITY_MANAGER", scopeType: "CLUB", cityId: null, clubId: "club-9" }), true);
+});
+
+test("ASSIGN-J: DIRECT ATTACK — OPERATIONS_DIRECTOR cannot assign another OPERATIONS_DIRECTOR (no self-tier escalation)", () => {
+  const a = actor({ grants: [grant({ role: "OPERATIONS_DIRECTOR", scopeType: "NETWORK" })] });
+  assert.equal(canAssignRole(a, { role: "OPERATIONS_DIRECTOR", scopeType: "NETWORK", cityId: null, clubId: null }), false);
+});
+
+test("ASSIGN-K: DIRECT ATTACK — OPERATIONS_DIRECTOR cannot assign or otherwise touch PROJECT_ADMIN", () => {
+  const a = actor({ grants: [grant({ role: "OPERATIONS_DIRECTOR", scopeType: "NETWORK" })] });
+  assert.equal(canAssignRole(a, { role: "PROJECT_ADMIN", scopeType: "SYSTEM", cityId: null, clubId: null }), false);
+});
+
+test("ASSIGN-L: OPERATIONS_DIRECTOR may NOT assign CLUB_MANAGER directly — not one of the roles business rules explicitly allow it to create", () => {
+  const a = actor({ grants: [grant({ role: "OPERATIONS_DIRECTOR", scopeType: "NETWORK" })] });
+  assert.equal(canAssignRole(a, { role: "CLUB_MANAGER", scopeType: "CLUB", cityId: null, clubId: "club-1" }), false);
+  assert.equal(canAssignRole(a, { role: "MANAGER", scopeType: "CLUB", cityId: null, clubId: "club-1" }), false);
+});
+
+test("ASSIGN-M: an actor holding BOTH an OPERATIONS_DIRECTOR grant AND a separate active CITY_MANAGER grant may still assign CLUB_MANAGER via the CITY_MANAGER grant (the OPERATIONS_DIRECTOR branch only short-circuits its own CITY_MANAGER case, it never blocks the branches below it)", () => {
+  const a = actor({
+    grants: [
+      grant({ role: "OPERATIONS_DIRECTOR", scopeType: "NETWORK" }),
+      grant({ role: "CITY_MANAGER", scopeType: "CITY", cityId: "voronezh" }),
+    ],
+  });
+  assert.equal(
+    canAssignRole(a, { role: "CLUB_MANAGER", scopeType: "CLUB", cityId: null, clubId: "club-in-voronezh" }, { targetClubCityId: "voronezh" }),
+    true,
+  );
+});
+
+test("ASSIGN-N: PROJECT_ADMIN retains CITY_MANAGER (and OPERATIONS_DIRECTOR) assignment authority even after OPERATIONS_DIRECTOR exists in the system — the two are independent grants of the same capability, not a handoff", () => {
+  const a = actor({ appRole: "ADMIN" });
+  assert.equal(canAssignRole(a, { role: "CITY_MANAGER", scopeType: "CITY", cityId: "voronezh", clubId: null }), true);
+  assert.equal(canAssignRole(a, { role: "OPERATIONS_DIRECTOR", scopeType: "NETWORK", cityId: null, clubId: null }), true);
 });
 
 /* --------------------------------- Revoke ---------------------------------- */
@@ -687,5 +739,124 @@ test(
     "previewClubId/previewCityId — never a nullable targetUserId (Sprint 1 plan's " +
     "explicit 'View-as audit detail' decision)",
   { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
+/* ============ Sprint: role-cabinets — OPERATIONS_DIRECTOR max-2 cap ======== */
+/*
+ * hasOperationsDirectorCapacity/OPERATIONS_DIRECTOR_MAX_ACTIVE (scope-core.ts)
+ * is the pure decision boundary: given a count, is there room for one more?
+ * The DB-touching, race-safe side (role-assignment-service.ts's
+ * assertOperationsDirectorCapacity — advisory lock + tx.roleAssignment.count())
+ * is exercised by the skip stubs below; the boundary math itself is tested
+ * for real here, with no DB at all.
+ */
+
+test("MAXOD-A: hasOperationsDirectorCapacity is exactly the count < 2 boundary", () => {
+  assert.equal(OPERATIONS_DIRECTOR_MAX_ACTIVE, 2);
+  assert.equal(hasOperationsDirectorCapacity(0), true);
+  assert.equal(hasOperationsDirectorCapacity(1), true);
+  assert.equal(hasOperationsDirectorCapacity(2), false);
+  assert.equal(hasOperationsDirectorCapacity(3), false); // never treats "already over" as fine
+});
+
+test(
+  "MAXOD-B: 0 active OPERATIONS_DIRECTOR system-wide -> creating the first succeeds",
+  { skip: "integration: requires Postgres" },
+  () => {},
+);
+
+test(
+  "MAXOD-C: 1 active OPERATIONS_DIRECTOR system-wide -> creating a second succeeds",
+  { skip: "integration: requires Postgres" },
+  () => {},
+);
+
+test(
+  "MAXOD-D: 2 ACTIVE OPERATIONS_DIRECTOR system-wide -> creating a third is " +
+    "rejected with a controlled 409 operations_director_limit_reached, not a 500 " +
+    "and not a silently-succeeding insert",
+  { skip: "integration: requires Postgres" },
+  () => {},
+);
+
+test(
+  "MAXOD-E: 1 ENDED/SUSPENDED + 1 ACTIVE OPERATIONS_DIRECTOR -> the historical " +
+    "row does not count against the cap; creating a new second ACTIVE one succeeds " +
+    "(isGrantActive/status='ACTIVE' filtering, never counting ENDED/SUSPENDED rows)",
+  { skip: "integration: requires Postgres" },
+  () => {},
+);
+
+test(
+  "MAXOD-F: 2 historical ENDED OPERATIONS_DIRECTOR assignments (0 currently " +
+    "ACTIVE) never block new creation — only status='ACTIVE' rows are counted",
+  { skip: "integration: requires Postgres" },
+  () => {},
+);
+
+test(
+  "MAXOD-G: restoring a SUSPENDED/ENDED OPERATIONS_DIRECTOR assignment back to " +
+    "ACTIVE is checked against the SAME cap (assertOperationsDirectorCapacity is " +
+    "also called from restoreRoleAssignment, excluding the row's own id) — with " +
+    "2 already ACTIVE, restoring a 3rd is rejected the same way a create would be",
+  { skip: "integration: requires Postgres" },
+  () => {},
+);
+
+test(
+  "MAXOD-H: a duplicate/retried create request while already at 2 ACTIVE never " +
+    "sneaks a 3rd row in — the advisory-lock-protected count-then-insert inside " +
+    "one transaction is authoritative regardless of how many times the client " +
+    "retries",
+  { skip: "integration: requires Postgres" },
+  () => {},
+);
+
+test(
+  "MAXOD-I: CONCURRENCY — two simultaneous createRoleAssignment(role: " +
+    "OPERATIONS_DIRECTOR) calls, starting from 1 ACTIVE, never both succeed " +
+    "(one must see the other's just-committed row and be rejected) — this is " +
+    "exactly what pg_advisory_xact_lock exists to serialize; cannot be exercised " +
+    "without two real concurrent connections against a live Postgres instance, " +
+    "so this is explicitly UNVALIDATED in this sandbox, not assumed correct from " +
+    "the code alone",
+  { skip: "integration: requires Postgres + two concurrent connections (race test)" },
+  () => {},
+);
+
+/* ==== Sprint: role-cabinets — CITY_MANAGER cardinality (explicitly none) === */
+
+test(
+  "CITYCARD-A: two DIFFERENT users may each hold an ACTIVE CITY_MANAGER grant " +
+    "for the SAME city at the same time — no global cardinality restriction " +
+    "exists or is added for CITY_MANAGER (unlike OPERATIONS_DIRECTOR); the " +
+    "partial unique index only prevents ONE user from holding the exact same " +
+    "(role, scope) twice, never blocks a second, different user",
+  { skip: "integration: requires Postgres" },
+  () => {},
+);
+
+/* === Sprint: role-cabinets — OPERATIONS_DIRECTOR cannot gain View As authority === */
+
+test("VIEWAS-L: DIRECT ATTACK — an actor whose ONLY grant is OPERATIONS_DIRECTOR (no CITY_MANAGER) cannot start ANY View As preview — canStartViewAs requires an active CITY_MANAGER grant specifically, generalizing VIEWAS-A beyond just legacy SYSTEM access", () => {
+  const a = actor({ grants: [grant({ role: "OPERATIONS_DIRECTOR", scopeType: "NETWORK" })] });
+  assert.equal(canStartViewAs(a, { role: "MANAGER", clubId: "club-1", cityId: null }), false);
+  assert.equal(canStartViewAs(a, { role: "CLUB_MANAGER", clubId: "club-1", cityId: null }), false);
+  assert.equal(canStartViewAs(a, { role: "CITY_MANAGER", clubId: null, cityId: null }), false);
+});
+
+test(
+  "VIEWAS-M: mutation authorization for role.assign/role.revoke ALWAYS resolves " +
+    "against getActorContext(REAL session user) — createRoleAssignment/" +
+    "revokeRoleAssignment/restoreRoleAssignment take a CurrentUser obtained via " +
+    "requireUser() (the real session), never the synthetic View-As persona from " +
+    "rbac/effective-context.ts, which that module's own docs state is 'NEVER an " +
+    "authorization identity'; independently, requireNoActiveViewAs() rejects the " +
+    "request outright before authorize() even runs, and the global middleware " +
+    "(src/middleware.ts) blocks it a layer earlier still — three independent " +
+    "reasons a CITY_MANAGER mid-preview (of any role, including previewing " +
+    "'as' CITY_MANAGER itself) can never mutate role assignments",
+  { skip: "integration: requires Postgres + running server (exercises the actual route)" },
   () => {},
 );
