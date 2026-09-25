@@ -77,12 +77,30 @@ export function canAssignRole(
   if (hasSystemAccess(actor)) {
     // PROJECT_ADMIN appoints the two top business tiers only. CITY_MANAGER
     // may be created with either CITY or CLUB scope here (isValidGrantShape
-    // already confirmed the shape is one of the two legal ones).
+    // already confirmed the shape is one of the two legal ones). PROJECT_ADMIN
+    // keeps this capability permanently, even after OPERATIONS_DIRECTOR
+    // exists (Sprint: role-cabinets, section 3) — the two are independent
+    // grants of the same authority, not a handoff.
     return target.role === "OPERATIONS_DIRECTOR" || target.role === "CITY_MANAGER";
   }
 
   const grants = activeGrants(actor);
   const targetClubCityId = opts.targetClubCityId ?? null;
+
+  // Sprint: role-cabinets, section 6 — OPERATIONS_DIRECTOR appoints
+  // CITY_MANAGER only. Network-wide, so no scope containment check against
+  // the actor's own grant is needed here (unlike CITY_MANAGER assigning
+  // CLUB_MANAGER below) — OPERATIONS_DIRECTOR is NETWORK-scoped by
+  // isValidGrantShape and isn't itself bound to any one city/club to check
+  // against; the target CITY_MANAGER's own scope shape was already validated
+  // above. Deliberately does NOT `return` unconditionally: an actor who is
+  // OPERATIONS_DIRECTOR AND separately also holds an active CITY_MANAGER/
+  // CLUB_MANAGER grant must still be able to use THAT grant for
+  // CLUB_MANAGER/MANAGER assignment via the branches below — this only
+  // short-circuits the one case OPERATIONS_DIRECTOR itself grants.
+  if (target.role === "CITY_MANAGER" && grants.some((g) => g.role === "OPERATIONS_DIRECTOR")) {
+    return true;
+  }
 
   if (target.role === "CLUB_MANAGER") {
     if (target.scopeType !== "CLUB" || !target.clubId) return false;
@@ -98,7 +116,10 @@ export function canAssignRole(
     );
   }
 
-  // OPERATIONS_DIRECTOR / CITY_MANAGER / PROJECT_ADMIN assignment: PROJECT_ADMIN-only (above).
+  // Anything else here means target.role is CITY_MANAGER without an
+  // OPERATIONS_DIRECTOR grant to justify it (handled above), or
+  // OPERATIONS_DIRECTOR/PROJECT_ADMIN (PROJECT_ADMIN-only, handled at the
+  // top of this function) — no other actor may create these.
   return false;
 }
 
