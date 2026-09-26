@@ -4,6 +4,7 @@ import { getCurrentUser, type CurrentUser } from "./session";
 import { isAccessSuspended, isAccessPending, hasFullAccess } from "./access-status-logic";
 import { getActorContext } from "./rbac/context";
 import { hasSystemAccess } from "./rbac/authorize-core";
+import { hasActiveRole } from "./rbac/scope-core";
 
 /**
  * Server-side authorization helpers. Authorization is ALWAYS enforced on the
@@ -137,6 +138,31 @@ export async function hasSystemAccessForUser(user: CurrentUser): Promise<boolean
 }
 
 export const requireClubManager = () => requireRole("CLUB_MANAGER", "ADMIN");
+
+/**
+ * Sprint: role-cabinets, step 6 — the SAME bridge pattern as
+ * hasSystemAccess() (legacy ADMIN OR an active PROJECT_ADMIN/SYSTEM grant),
+ * applied to CLUB_MANAGER: legacy AppRole=CLUB_MANAGER/ADMIN (requireClubManager,
+ * unchanged) OR an active CLUB_MANAGER RoleAssignment grant for ANY club (the
+ * new RBAC hierarchy — a CITY_MANAGER-assigned CLUB_MANAGER commonly has no
+ * elevated legacy AppRole at all, so requireClubManager() alone would 403
+ * their own core management action). Used ONLY by the two routes that need
+ * it (control/team/[id]/approve, control/team/[id]/access) — NOT swapped
+ * into requireClubManager itself, which 7 other routes (templates, control/
+ * plan) also depend on and are out of this step's scope to touch.
+ *
+ * Does not itself decide WHICH club — that is resolveScopedClubId's job
+ * (club-plan.ts), which independently re-verifies the requested clubId
+ * against a real active grant before honoring it. This function only
+ * answers "is this actor a club manager of SOME kind at all".
+ */
+export async function requireClubManagerAccess(): Promise<CurrentUser> {
+  const user = await requireUser();
+  if (user.role === "CLUB_MANAGER" || user.role === "ADMIN") return user;
+  const actor = await getActorContext(user);
+  if (hasActiveRole(actor.grants, "CLUB_MANAGER")) return user;
+  throw new AuthError(403, "forbidden", "Insufficient permissions");
+}
 /** Strict SPM only. Prefer requireSPMAccess() for the SPM panel/APIs. */
 export const requireSPM = () => requireRole("SPM");
 /** SPM panel + write actions: SPM or ADMIN (ADMIN keeps its real identity). */

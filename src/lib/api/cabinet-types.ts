@@ -177,6 +177,16 @@ export interface ClubManagerDashboardDTO {
    * getPlanTodayFor — null only when there is no acting-user context to
    * compute it for (never fabricated). */
   plan: DailyPlanDTO | null;
+  /**
+   * Sprint: role-cabinets, step 6, sections 16-17 — true only when this
+   * response was served via an active View-As-CLUB_MANAGER preview
+   * (resolveClubManagerCabinetAccess's tier 1). The UI uses this to HIDE
+   * mutation controls (approve, plan interactions) during a preview — never
+   * to decide whether a mutation is ALLOWED, which the server (real-actor
+   * authorization + the global View-As middleware) always decides
+   * independently regardless of what this flag says.
+   */
+  isPreviewing: boolean;
 }
 
 export interface ClubManagerTeamDTO {

@@ -494,6 +494,7 @@ export async function getClubManagerDashboard(
     training,
     attention,
     plan,
+    isPreviewing,
   };
 }
 

@@ -8,6 +8,7 @@ import { templatesForPosition } from "./daily-plan-catalog";
 import { normalizeChecklist, type ChecklistInput } from "./club-plan-schemas";
 import { resolveAccessAuditAction } from "./access-status-logic";
 import type { CurrentUser } from "./session";
+import { getActorContext } from "./rbac/context";
 import { canSwitchClub, requestedClubForRole } from "@/lib/club-scope";
 import { getPositionById } from "@/content/positions";
 import { getClubById } from "@/content/cities";
@@ -59,12 +60,28 @@ async function resolveScopedClubId(user: CurrentUser, requestedClubId?: string |
     return club.id;
   }
   const own = user.employeeProfile?.clubId ?? null;
-  if (!own) {
-    // ADMIN without a club must pick one; a real manager simply has no club.
-    const isAdmin = canSwitchClub(user.role);
-    throw new AuthError(409, isAdmin ? "select_club" : "no_club", isAdmin ? "Выберите клуб" : "Ваша учётная запись не привязана к клубу");
+  if (own) return own;
+
+  // Sprint: role-cabinets, step 6 — bridge for a CLUB_MANAGER whose authority
+  // comes ONLY from a RoleAssignment (new RBAC hierarchy), not the legacy
+  // EmployeeProfile.clubId convention this function otherwise assumes (they
+  // may have no EmployeeProfile at all). requestedClubId is NEVER trusted as
+  // given — it is only honored once independently verified against an
+  // ACTIVE CLUB_MANAGER grant the caller actually holds for that exact club,
+  // mirroring the same "claim, then re-verify against real grants" pattern
+  // authorize-core.ts's club.read uses everywhere else in this RBAC system.
+  if (requestedClubId) {
+    const actor = await getActorContext(user);
+    const hasGrant = actor.grants.some((g) => g.role === "CLUB_MANAGER" && g.status === "ACTIVE" && g.clubId === requestedClubId);
+    if (hasGrant) {
+      const club = await prisma.club.findFirst({ where: { id: requestedClubId, isActive: true }, select: { id: true } });
+      if (club) return club.id;
+    }
   }
-  return own;
+
+  // ADMIN without a club must pick one; a real manager simply has no club.
+  const isAdmin = canSwitchClub(user.role);
+  throw new AuthError(409, isAdmin ? "select_club" : "no_club", isAdmin ? "Выберите клуб" : "Ваша учётная запись не привязана к клубу");
 }
 
 /** Clubs an ADMIN may scope into (server-backed selector source). */

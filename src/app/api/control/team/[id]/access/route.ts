@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
-import { requireClubManager } from "@/lib/server/authz";
+import { requireClubManagerAccess } from "@/lib/server/authz";
 import { jsonOk, handleError, readJson } from "@/lib/server/http";
 import { setEmployeeAccess } from "@/lib/server/club-plan";
 
@@ -12,14 +12,18 @@ export const dynamic = "force-dynamic";
 // server audits the transition as ACCESS_SUSPENDED/ACCESS_RESTORED/
 // ACCESS_GRANTED depending on direction, see resolveAccessAuditAction in
 // club-plan.ts). A still-PENDING_APPROVAL target is rejected (409) — use
-// POST .../approve for that transition instead. Manager-only; the server
-// verifies the target is an EMPLOYEE of the actor's own club (never trusts a
-// client-supplied club/user). The clubId param is honored only for ADMIN.
+// POST .../approve for that transition instead. Manager-only —
+// requireClubManagerAccess (Sprint: role-cabinets, step 6) accepts legacy
+// AppRole=CLUB_MANAGER/ADMIN OR an active CLUB_MANAGER RoleAssignment grant.
+// The server verifies the target is an EMPLOYEE of the actor's own club
+// (never trusts a client-supplied club/user); the clubId param is honored
+// only for ADMIN or a RoleAssignment-only manager (resolveScopedClubId
+// re-verifies it against a real active grant either way).
 const bodySchema = z.object({ accessStatus: z.enum(["FULL", "LIMITED", "SUSPENDED"]) });
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
-    const manager = await requireClubManager();
+    const manager = await requireClubManagerAccess();
     const { id } = await ctx.params;
     const body = bodySchema.parse(await readJson(req));
     const clubId = req.nextUrl.searchParams.get("clubId");

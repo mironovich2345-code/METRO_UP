@@ -91,6 +91,44 @@ export async function resolveCityManagerClubs(actor: ActorContext): Promise<Club
   return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name, "ru"));
 }
 
+/**
+ * Sprint: role-cabinets, step 6, section 3 — the concrete list of clubs THIS
+ * user personally manages, from BOTH axes this codebase currently has:
+ * (a) the legacy AppRole=CLUB_MANAGER convention, where "their club" is
+ *     EmployeeProfile.clubId (control/team's existing getManagerScope/
+ *     resolveScopedClubId assumption, unchanged) — never for legacy ADMIN,
+ *     whose "current club" is an explicit per-request switch, not a
+ *     personal assignment;
+ * (b) the new RBAC hierarchy, where a user may hold one or more ACTIVE
+ *     CLUB_MANAGER RoleAssignment grants, entirely independent of whether
+ *     they have an EmployeeProfile at all.
+ * The union, de-duplicated by club id, is the honest answer to "how many
+ * clubs does this person manage" — never assumed to be exactly one, and
+ * never silently collapsed to "the first one found" (section 3's explicit
+ * requirement). A CLUB_MANAGER with zero results here can still be a valid
+ * actor for a SPECIFIC club reached via resolveClubManagerCabinetAccess's
+ * other tiers (View As, club.read) — this function only answers "which
+ * clubs are MINE by direct grant", the "Мой клуб" / club-selector question.
+ */
+export async function resolveClubManagerClubs(user: CurrentUser, actor: ActorContext): Promise<ClubSummary[]> {
+  const clubIds = new Set<string>();
+  if (user.role === "CLUB_MANAGER" && user.employeeProfile?.clubId) {
+    clubIds.add(user.employeeProfile.clubId);
+  }
+  for (const g of actor.grants) {
+    if (g.role === "CLUB_MANAGER" && g.status === "ACTIVE" && g.clubId) clubIds.add(g.clubId);
+  }
+  if (clubIds.size === 0) return [];
+
+  const clubs = await prisma.club.findMany({
+    where: { id: { in: [...clubIds] }, isActive: true },
+    include: { city: { select: { name: true } } },
+  });
+  return clubs
+    .map((c) => ({ id: c.id, name: c.name, cityId: c.cityId, cityName: c.city?.name ?? null }))
+    .sort((a, b) => a.name.localeCompare(b.name, "ru"));
+}
+
 export interface NetworkCitySummary {
   id: string;
   name: string;
