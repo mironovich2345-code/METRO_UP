@@ -2,17 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  AlertCircle,
-  CheckCircle2,
-  Clock,
-  Eye,
-  GraduationCap,
-  RotateCw,
-  ShieldOff,
-  UserCog,
-  Users,
-} from "lucide-react";
+import { AlertCircle, Clock, Eye, GraduationCap, RotateCw, ShieldOff, UserCog, Users, CheckCircle2 } from "lucide-react";
 import { ApiError } from "@/lib/api/client";
 import { cabinetApi } from "@/lib/api/cabinet-client";
 import { rolesApi, viewAsApi } from "@/lib/api/roles-client";
@@ -20,7 +10,7 @@ import type { CabinetTeamMemberDTO, ClubManagerDashboardDTO } from "@/lib/api/ca
 import type { RoleAssignmentRowDTO } from "@/lib/api/roles-types";
 import { ClubManagerAssignModal } from "@/components/control/ClubManagerAssignModal";
 import { canRestoreAssignment } from "@/lib/cabinet-ui";
-import { cn } from "@/lib/utils";
+import { AccessBadge, CabinetErrorState, CabinetSection, CabinetSkeleton, SmallStat } from "@/components/control/cabinet-ui";
 
 /**
  * Sprint: role-cabinets, step 5, section 8 — CITY_MANAGER's read-only club
@@ -95,7 +85,12 @@ export function CityManagerClubDetail({ clubId }: { clubId: string }) {
     setPreviewingRole(true);
     try {
       await viewAsApi.start({ role: "CLUB_MANAGER", clubId });
-      router.push("/control/team");
+      // Sprint: role-cabinets, step 6, section 16 — lands on the new
+      // "Управляющий" cabinet (built this step), not /control/team: the
+      // requirement is that a preview shows the SAME cabinet/read experience
+      // a real CLUB_MANAGER gets, and that's now this richer dashboard, not
+      // the older operational team/task-template admin tool.
+      router.push(`/control/club?clubId=${clubId}`);
     } catch {
       setPreviewingRole(false);
       setMsg("Не удалось начать предпросмотр.");
@@ -114,17 +109,8 @@ export function CityManagerClubDetail({ clubId }: { clubId: string }) {
   };
 
   if (status === "denied") return <p className="text-sm text-muted-foreground">Клуб недоступен для вашей зоны ответственности.</p>;
-  if (status === "error") {
-    return (
-      <div className="rounded-3xl border border-border bg-card p-6 text-center">
-        <p className="text-sm text-red-500">Не удалось загрузить клуб.</p>
-        <button onClick={load} className="mt-3 inline-flex items-center gap-1.5 rounded-2xl border border-border px-4 py-2 text-sm font-semibold">
-          <RotateCw className="size-4" /> Повторить
-        </button>
-      </div>
-    );
-  }
-  if (status === "loading" || !dashboard) return <DetailSkeleton />;
+  if (status === "error") return <CabinetErrorState message="Не удалось загрузить клуб." onRetry={load} />;
+  if (status === "loading" || !dashboard) return <CabinetSkeleton />;
 
   return (
     <div>
@@ -165,15 +151,15 @@ export function CityManagerClubDetail({ clubId }: { clubId: string }) {
       </div>
 
       {/* ---- Общее ---- */}
-      <Section title="Общее">
+      <CabinetSection title="Общее">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-2">
           <SmallStat icon={Users} label="Сотрудников" value={dashboard.summary.employeeCount} />
           <SmallStat icon={Clock} label="Ожидают подтверждения" value={dashboard.summary.pendingApprovalCount} highlight={dashboard.summary.pendingApprovalCount > 0} />
         </div>
-      </Section>
+      </CabinetSection>
 
       {/* ---- Управляющий ---- */}
-      <Section title="Управляющий">
+      <CabinetSection title="Управляющий">
         {currentManager ? (
           <div className="flex items-center justify-between gap-3 rounded-2xl border border-border px-4 py-3">
             <div>
@@ -223,10 +209,10 @@ export function CityManagerClubDetail({ clubId }: { clubId: string }) {
             </div>
           </div>
         )}
-      </Section>
+      </CabinetSection>
 
       {/* ---- Команда ---- */}
-      <Section title="Команда">
+      <CabinetSection title="Команда">
         {!team || team.length === 0 ? (
           <p className="text-sm text-muted-foreground">В клубе пока нет сотрудников.</p>
         ) : (
@@ -257,10 +243,10 @@ export function CityManagerClubDetail({ clubId }: { clubId: string }) {
             </table>
           </div>
         )}
-      </Section>
+      </CabinetSection>
 
       {/* ---- Обучение ---- */}
-      <Section title="Обучение">
+      <CabinetSection title="Обучение">
         {dashboard.training ? (
           <div className="grid grid-cols-2 gap-3">
             <SmallStat icon={GraduationCap} label="Проходят обучение" value={dashboard.training.employeesInTraining} />
@@ -269,10 +255,10 @@ export function CityManagerClubDetail({ clubId }: { clubId: string }) {
         ) : (
           <p className="text-sm text-muted-foreground">Нет данных.</p>
         )}
-      </Section>
+      </CabinetSection>
 
       {/* ---- Требует внимания ---- */}
-      <Section title="Требует внимания">
+      <CabinetSection title="Требует внимания">
         {dashboard.attention.length === 0 ? (
           <div className="flex items-center gap-2.5 text-sm text-muted-foreground">
             <CheckCircle2 className="size-4 text-success" /> Сейчас ничего не требует внимания.
@@ -287,7 +273,7 @@ export function CityManagerClubDetail({ clubId }: { clubId: string }) {
             ))}
           </div>
         )}
-      </Section>
+      </CabinetSection>
 
       {assigning && (
         <ClubManagerAssignModal
@@ -304,62 +290,3 @@ export function CityManagerClubDetail({ clubId }: { clubId: string }) {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="mt-6">
-      <h2 className="text-sm font-bold uppercase tracking-wide text-muted-foreground">{title}</h2>
-      <div className="mt-2.5 rounded-3xl border border-border bg-card p-4">{children}</div>
-    </div>
-  );
-}
-
-function SmallStat({
-  icon: Icon,
-  label,
-  value,
-  highlight,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: number;
-  highlight?: boolean;
-}) {
-  return (
-    <div>
-      <Icon className={cn("size-4", highlight && value > 0 ? "text-brand" : "text-muted-foreground")} />
-      <p className="mt-1.5 text-xl font-bold tabular-nums">{value}</p>
-      <p className="text-xs text-muted-foreground">{label}</p>
-    </div>
-  );
-}
-
-const ACCESS_LABEL: Record<CabinetTeamMemberDTO["accessStatus"], string> = {
-  LIMITED: "Базовый",
-  PENDING_APPROVAL: "Ожидает",
-  FULL: "Полный",
-  SUSPENDED: "Приостановлен",
-};
-
-function AccessBadge({ status, onboarded }: { status: CabinetTeamMemberDTO["accessStatus"]; onboarded: boolean }) {
-  if (!onboarded) return <span className="text-xs text-muted-foreground">Онбординг не завершён</span>;
-  const cls =
-    status === "SUSPENDED"
-      ? "bg-red-500/10 text-red-500"
-      : status === "PENDING_APPROVAL"
-        ? "bg-brand/15 text-brand-strong"
-        : status === "FULL"
-          ? "bg-success-soft text-success"
-          : "bg-muted text-muted-foreground";
-  return <span className={cn("inline-flex rounded-full px-2.5 py-1 text-xs font-semibold", cls)}>{ACCESS_LABEL[status]}</span>;
-}
-
-function DetailSkeleton() {
-  return (
-    <div className="space-y-4">
-      <div className="h-7 w-48 animate-pulse rounded-xl bg-muted" />
-      {Array.from({ length: 4 }).map((_, i) => (
-        <div key={i} className="h-24 animate-pulse rounded-3xl bg-muted" />
-      ))}
-    </div>
-  );
-}

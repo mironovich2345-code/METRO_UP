@@ -74,3 +74,57 @@ export function attentionCardCount(attention: AttentionItemDTO[]): number {
 export function canRestoreAssignment(hasActiveManager: boolean): boolean {
   return !hasActiveManager;
 }
+
+/* ---------------------- CLUB_MANAGER cabinet (step 6) --------------------- */
+
+export interface ClubRef {
+  id: string;
+  name: string;
+  cityId: string;
+  cityName: string | null;
+}
+
+export type ManagedClubSelection =
+  | { kind: "none" }
+  | { kind: "auto"; club: ClubRef }
+  | { kind: "select"; clubs: ClubRef[] };
+
+/**
+ * Section 3 — "never silently pick an arbitrary first club": given the
+ * caller's own managed-clubs list (GET /api/control/club/clubs), decide
+ * whether to auto-select (exactly one), ask the user to choose (more than
+ * one), or report there is nothing to manage (zero) — a pure decision
+ * ClubManagerCabinet.tsx renders from, never re-implements inline.
+ */
+export function resolveManagedClubSelection(clubs: ClubRef[]): ManagedClubSelection {
+  if (clubs.length === 0) return { kind: "none" };
+  if (clubs.length === 1) return { kind: "auto", club: clubs[0] };
+  return { kind: "select", clubs };
+}
+
+export interface TeamMemberLike {
+  accessStatus: "LIMITED" | "PENDING_APPROVAL" | "FULL" | "SUSPENDED";
+}
+
+/** Section 6/8 — the employees this cabinet's "Требует внимания" /
+ * "Новые сотрудники" sections act on. A named, tested predicate rather than
+ * an inline filter repeated in two places. */
+export function filterPendingEmployees<T extends TeamMemberLike>(team: T[]): T[] {
+  return team.filter((m) => m.accessStatus === "PENDING_APPROVAL");
+}
+
+export type PlanWidgetState = "no-data" | "empty" | "has-tasks";
+
+/**
+ * Section 12/18 — "daily plan null does not crash": the three states
+ * DailyPlanWidget renders, decided once here rather than as an inline
+ * `!plan || !tasks` check the component repeats. `no-data` covers both "the
+ * dashboard's plan field is null" (no acting-user context to compute it —
+ * see ClubManagerDashboardDTO's own doc comment) and "tasks is null" (still
+ * loading/reset); `empty` is the honest "materialized, zero tasks today"
+ * case; never conflated with `no-data`.
+ */
+export function planWidgetState(plan: { tasks: unknown[] } | null): PlanWidgetState {
+  if (!plan) return "no-data";
+  return plan.tasks.length === 0 ? "empty" : "has-tasks";
+}

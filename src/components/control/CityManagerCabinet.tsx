@@ -2,17 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import {
-  Building2,
-  GraduationCap,
-  RotateCw,
-  ShieldOff,
-  Users,
-  UserCog,
-  AlertCircle,
-  CheckCircle2,
-  Clock,
-} from "lucide-react";
+import { Building2, GraduationCap, ShieldOff, Users, UserCog, AlertCircle, Clock } from "lucide-react";
 import { ApiError } from "@/lib/api/client";
 import { cabinetApi } from "@/lib/api/cabinet-client";
 import { rolesApi } from "@/lib/api/roles-client";
@@ -23,6 +13,7 @@ import type {
   ClubManagerAssignmentDTO,
 } from "@/lib/api/cabinet-client";
 import { attentionCardCount, clubsWithoutManager, distinctCityNames, groupPendingApprovalByClub, pluralRu } from "@/lib/cabinet-ui";
+import { CabinetEmptyGood, CabinetErrorState, CabinetSkeleton, StatCard } from "@/components/control/cabinet-ui";
 import { cn } from "@/lib/utils";
 
 /**
@@ -73,16 +64,7 @@ export function CityManagerCabinet() {
   };
 
   if (status === "denied") return <p className="text-sm text-muted-foreground">Раздел доступен только Ст. города.</p>;
-  if (status === "error") {
-    return (
-      <div className="rounded-3xl border border-border bg-card p-6 text-center">
-        <p className="text-sm text-red-500">Не удалось загрузить кабинет.</p>
-        <button onClick={load} className="mt-3 inline-flex items-center gap-1.5 rounded-2xl border border-border px-4 py-2 text-sm font-semibold">
-          <RotateCw className="size-4" /> Повторить
-        </button>
-      </div>
-    );
-  }
+  if (status === "error") return <CabinetErrorState message="Не удалось загрузить кабинет." onRetry={load} />;
   if (status === "loading" || !dashboard) return <CabinetSkeleton />;
 
   return (
@@ -103,10 +85,10 @@ export function CityManagerCabinet() {
 
       {/* ---- Summary cards (section 5) ---- */}
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <SummaryCard icon={Building2} label="Клубов" value={dashboard.summary.clubCount} />
-        <SummaryCard icon={Users} label="Сотрудников" value={dashboard.summary.employeeCount} />
-        <SummaryCard icon={UserCog} label="Управляющих" value={dashboard.summary.clubManagerCount} />
-        <SummaryCard
+        <StatCard icon={Building2} label="Клубов" value={dashboard.summary.clubCount} />
+        <StatCard icon={Users} label="Сотрудников" value={dashboard.summary.employeeCount} />
+        <StatCard icon={UserCog} label="Управляющих" value={dashboard.summary.clubManagerCount} />
+        <StatCard
           icon={Clock}
           label="Ожидают подтверждения"
           value={dashboard.summary.pendingApprovalCount}
@@ -184,26 +166,6 @@ export function CityManagerCabinet() {
   );
 }
 
-function SummaryCard({
-  icon: Icon,
-  label,
-  value,
-  emphasize,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: number;
-  emphasize?: boolean;
-}) {
-  return (
-    <div className="rounded-3xl border border-border bg-card p-4">
-      <Icon className={cn("size-4", emphasize && value > 0 ? "text-brand" : "text-muted-foreground")} />
-      <p className="mt-2 text-2xl font-bold tabular-nums">{value}</p>
-      <p className="mt-0.5 text-xs text-muted-foreground">{label}</p>
-    </div>
-  );
-}
-
 /** Sprint: role-cabinets, step 6 — the two V1-supported categories only;
  * PENDING_EMPLOYEE_APPROVAL items are grouped per club (one card with a
  * count, matching the spec's own "2 сотрудника ожидают подтверждения"
@@ -220,8 +182,8 @@ function AttentionSection({ attention }: { attention: AttentionItemDTO[] }) {
     <div className="mt-6">
       <h2 className="text-lg font-bold">Требует внимания</h2>
       {total === 0 ? (
-        <div className="mt-3 flex items-center gap-2.5 rounded-3xl border border-border bg-card p-5 text-sm text-muted-foreground">
-          <CheckCircle2 className="size-4 text-success" /> Сейчас ничего не требует внимания.
+        <div className="mt-3">
+          <CabinetEmptyGood message="Сейчас ничего не требует внимания." />
         </div>
       ) : (
         <div className="mt-3 space-y-2">
@@ -315,17 +277,3 @@ function ClubManagerRow({ cm, busy, onRevoke }: { cm: ClubManagerAssignmentDTO; 
   );
 }
 
-function CabinetSkeleton() {
-  return (
-    <div className="space-y-4">
-      <div className="h-7 w-40 animate-pulse rounded-xl bg-muted" />
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="h-24 animate-pulse rounded-3xl bg-muted" />
-        ))}
-      </div>
-      <div className="h-32 animate-pulse rounded-3xl bg-muted" />
-      <div className="h-24 animate-pulse rounded-3xl bg-muted" />
-    </div>
-  );
-}
