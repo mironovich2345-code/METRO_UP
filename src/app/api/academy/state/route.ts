@@ -1,6 +1,6 @@
-import { requireLimitedOrFullAccess } from "@/lib/server/authz";
+import { requireActiveAccess } from "@/lib/server/authz";
 import { jsonOk, handleError } from "@/lib/server/http";
-import { getAcademyState } from "@/lib/server/academy";
+import { getAcademyState, resolveOnboardingProgramId } from "@/lib/server/academy";
 import { resolveEffectiveReadContext } from "@/lib/server/rbac/effective-context";
 
 export const runtime = "nodejs";
@@ -8,14 +8,20 @@ export const dynamic = "force-dynamic";
 
 /**
  * GET /api/academy/state — DB-backed per-lesson progress for the current user.
- * Academy is on the approved LIMITED whitelist — see requireLimitedOrFullAccess.
+ * Sprint: mini-app-role-experience, section 3 — PENDING_APPROVAL now reaches
+ * this too, restricted to the onboarding program; see academy/overview's
+ * comment for the full reasoning. LIMITED/FULL unchanged.
  * Sprint 1 / Phase 2D — View-As-aware; see academy/overview's comment.
  */
 export async function GET() {
   try {
-    const user = await requireLimitedOrFullAccess();
+    const user = await requireActiveAccess();
     const { effectiveUser } = await resolveEffectiveReadContext(user);
-    const state = await getAcademyState(effectiveUser.id);
+    const restrictTo =
+      user.employeeProfile!.accessStatus === "PENDING_APPROVAL"
+        ? [await resolveOnboardingProgramId()].filter((id): id is string => id !== null)
+        : undefined;
+    const state = await getAcademyState(effectiveUser.id, restrictTo);
     return jsonOk(state);
   } catch (e) {
     return handleError(e);

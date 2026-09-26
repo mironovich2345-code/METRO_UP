@@ -12,7 +12,7 @@ import type { LessonDetailDTO, LastQuizAttemptDTO } from "@/lib/api/content-type
  */
 export async function getLessonDetail(
   slug: string,
-  opts: { userId: string | null; preview: boolean },
+  opts: { userId: string | null; preview: boolean; restrictToProgramId?: string | null },
 ): Promise<LessonDetailDTO | null> {
   const lesson = await prisma.lesson.findUnique({
     where: { slug },
@@ -24,6 +24,10 @@ export async function getLessonDetail(
   });
   if (!lesson) return null;
   if (lesson.status !== "PUBLISHED" && !opts.preview) return null;
+  // Sprint: mini-app-role-experience, section 3 — PENDING_APPROVAL's
+  // onboarding-only scope. The route passes this only for that status;
+  // never set for LIMITED/FULL/preview, so their behavior is unchanged.
+  if (opts.restrictToProgramId && lesson.course.programId !== opts.restrictToProgramId) return null;
 
   const blocks = await toLessonBlockDTOs(lesson.blocks);
 
