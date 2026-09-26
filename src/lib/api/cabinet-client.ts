@@ -1,4 +1,5 @@
 import { ApiError } from "./client";
+import type { ClubSummaryDTO } from "./roles-client";
 import type {
   CityManagerDashboardDTO,
   ClubManagerDashboardDTO,
@@ -35,6 +36,9 @@ export const cabinetApi = {
   cityManager: () => request<CityManagerDashboardDTO>(`/api/control/cabinet/city-manager`),
   clubManager: (clubId?: string) => request<ClubManagerDashboardDTO>(`/api/control/cabinet/club-manager${qs({ clubId })}`),
   clubManagerTeam: (clubId?: string) => request<ClubManagerTeamDTO>(`/api/control/cabinet/club-manager/team${qs({ clubId })}`),
+  /** Sprint: role-cabinets, step 6 — the clubs the caller personally manages
+   * (GET /api/control/club/clubs). Zero, one, or several — never assumed. */
+  myManagedClubs: () => request<{ clubs: ClubSummaryDTO[] }>(`/api/control/club/clubs`),
 };
 
 export type {

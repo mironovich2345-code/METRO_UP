@@ -47,6 +47,7 @@ export function ControlShell({
   hasSystemAccess,
   isCityManager = false,
   isOperationsDirector = false,
+  isClubManager = false,
   viewContext = null,
   children,
 }: {
@@ -55,6 +56,11 @@ export function ControlShell({
   hasSystemAccess: boolean;
   isCityManager?: boolean;
   isOperationsDirector?: boolean;
+  /** Sprint: role-cabinets, step 6 — an active CLUB_MANAGER RoleAssignment
+   * grant, independent of the legacy canManageClub(role) check below (which
+   * only sees legacy AppRole=CLUB_MANAGER/ADMIN). Either one shows the
+   * "Управляющий" cabinet link. */
+  isClubManager?: boolean;
   viewContext?: ViewContextInfo | null;
   children: React.ReactNode;
 }) {
@@ -73,8 +79,9 @@ export function ControlShell({
           { href: "/control/roles", label: "Роли", icon: UserCog, exact: false },
         ]
       : []),
-    ...(canManageClub(role)
+    ...(canManageClub(role) || isClubManager
       ? [
+          { href: "/control/club", label: "Управляющий", icon: UserCog, exact: false },
           { href: "/control/plan", label: "План дня", icon: ListChecks, exact: false },
           { href: "/control/team", label: "Команда", icon: Users, exact: false },
         ]

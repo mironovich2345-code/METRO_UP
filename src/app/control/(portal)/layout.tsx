@@ -15,11 +15,13 @@ export const dynamic = "force-dynamic";
 /**
  * Web control portal gate. Access = SPM, ADMIN, CLUB_MANAGER (canAccessControl
  * — untouched legacy check) OR an active PROJECT_ADMIN/CITY_MANAGER/
- * OPERATIONS_DIRECTOR RoleAssignment (Sprint 1 / Phase 2B — without this,
- * anyone whose authority comes ONLY from the new RBAC system, not a legacy
- * AppRole, would be turned away at this outer gate before ever reaching
- * /control/roles, /control/city, or /control/network). Unauthenticated users
- * get a login link. All business APIs remain independently guarded
+ * OPERATIONS_DIRECTOR/CLUB_MANAGER RoleAssignment (Sprint 1 / Phase 2B, and
+ * Sprint: role-cabinets step 6 adds the CLUB_MANAGER grant to this list —
+ * without it, a CITY_MANAGER-assigned CLUB_MANAGER with no elevated legacy
+ * AppRole would be turned away at this outer gate before ever reaching
+ * /control/club, exactly the same gap the original PROJECT_ADMIN/
+ * CITY_MANAGER/OPERATIONS_DIRECTOR grants were added to close). Unauthenticated
+ * users get a login link. All business APIs remain independently guarded
  * server-side regardless of what this layout decides to render.
  */
 export default async function ControlPortalLayout({ children }: { children: React.ReactNode }) {
@@ -30,8 +32,9 @@ export default async function ControlPortalLayout({ children }: { children: Reac
   const actor = await getActorContext(user);
   const isCityManager = hasActiveRole(actor.grants, "CITY_MANAGER");
   const isOperationsDirector = hasActiveRole(actor.grants, "OPERATIONS_DIRECTOR");
+  const isClubManager = hasActiveRole(actor.grants, "CLUB_MANAGER");
 
-  if (!canAccessControl(user.role) && !systemAccess && !isCityManager && !isOperationsDirector) {
+  if (!canAccessControl(user.role) && !systemAccess && !isCityManager && !isOperationsDirector && !isClubManager) {
     return <AccessDenied message="У вас нет доступа к панели управления." />;
   }
 
@@ -43,6 +46,7 @@ export default async function ControlPortalLayout({ children }: { children: Reac
       hasSystemAccess={systemAccess}
       isCityManager={isCityManager}
       isOperationsDirector={isOperationsDirector}
+      isClubManager={isClubManager}
       viewContext={viewCtx ? { previewRole: viewCtx.previewRole } : null}
     >
       {children}
