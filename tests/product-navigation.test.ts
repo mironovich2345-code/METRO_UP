@@ -94,11 +94,22 @@ test("M: visibleBottomNavRoutes — LIMITED sees only Академия", () => {
   assert.deepEqual(routes.map((r) => r.href), ["/academy"]);
 });
 
-test("N: visibleBottomNavRoutes — FULL/null/undefined/PENDING_APPROVAL/SUSPENDED all see the full bar (server-side accessStatus enforcement is what actually blocks them, not the nav)", () => {
-  for (const status of ["FULL", null, undefined, "PENDING_APPROVAL", "SUSPENDED"]) {
+test("N: visibleBottomNavRoutes — FULL/null/undefined/SUSPENDED all see the full bar (server-side accessStatus enforcement is what actually blocks them, not the nav)", () => {
+  for (const status of ["FULL", null, undefined, "SUSPENDED"]) {
     assert.equal(visibleBottomNavRoutes(status).length, 5, `status=${status}`);
   }
 });
+
+test(
+  "N2: visibleBottomNavRoutes — PENDING_APPROVAL sees Главная + Академия only " +
+    "(Sprint: mini-app-role-experience, section 2/3 — Home now serves that " +
+    "state its own restricted OnboardingHomeDTO instead of being blocked, so " +
+    "it is no longer Academy-only like LIMITED; Метрик/База/Рейтинг stay out)",
+  () => {
+    const routes = visibleBottomNavRoutes("PENDING_APPROVAL");
+    assert.deepEqual(routes.map((r) => r.href).sort(), ["/academy", "/home"]);
+  },
+);
 
 /* ------------------ integration scenarios (require Postgres/DOM) --------- */
 
@@ -116,9 +127,12 @@ test(
 );
 
 test(
-  "P: AccessStatusGate — a PENDING_APPROVAL employee sees PendingApprovalScreen " +
-    "on every Mini App route (including a direct deep link); /control, /admin, " +
-    "/spm, /welcome, /setup are unaffected by this gate",
+  "P: AccessStatusGate — Sprint: mini-app-role-experience, section 2: " +
+    "PendingApprovalScreen is RETIRED (no longer rendered) — a PENDING_APPROVAL " +
+    "employee is allowed on /home (OnboardingHomeDTO), /academy (onboarding-" +
+    "restricted), /profile and the onboarding routes, and is client-redirected " +
+    "to /academy off any other route (same treatment as LIMITED); /control, " +
+    "/admin, /spm, /welcome, /setup are unaffected by this gate",
   skip,
   () => {},
 );
