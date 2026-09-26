@@ -26,10 +26,20 @@ export const BOTTOM_NAV_ROUTES: BottomNavRoute[] = [
  * accessStatus=LIMITED sees only Академия (the approved LIMITED whitelist —
  * Home/Метрик/База/Рейтинг are FULL-only, see requireFullAccess in authz.ts).
  * Sprint 1 / Phase 2B, section 9: access-aware navigation, not a nav that
- * links to tabs the server will 403 the moment they're opened. Pure — no
- * React import — so it is unit-testable like the rest of this file.
+ * links to tabs the server will 403 the moment they're opened.
+ *
+ * accessStatus=PENDING_APPROVAL (Sprint: mini-app-role-experience, section 2)
+ * sees Главная + Академия — Home now serves that state its own deliberately
+ * tiny OnboardingHomeDTO (see home.ts/api/home/route.ts), so unlike LIMITED it
+ * is NOT Academy-only; Метрик/База/Рейтинг stay hidden (still FULL-only
+ * server-side, and section 2 explicitly excludes them from this state).
+ *
+ * Pure — no React import — so it is unit-testable like the rest of this file.
  */
 export function visibleBottomNavRoutes(accessStatus: string | null | undefined): BottomNavRoute[] {
   if (accessStatus === "LIMITED") return BOTTOM_NAV_ROUTES.filter((r) => r.href === "/academy");
+  if (accessStatus === "PENDING_APPROVAL") {
+    return BOTTOM_NAV_ROUTES.filter((r) => r.href === "/home" || r.href === "/academy");
+  }
   return BOTTOM_NAV_ROUTES;
 }

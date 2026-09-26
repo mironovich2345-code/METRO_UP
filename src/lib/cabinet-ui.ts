@@ -1,4 +1,5 @@
 import type { AttentionItemDTO, CityManagerClubSummaryDTO } from "@/lib/api/cabinet-types";
+import type { ManagementHomeBlockDTO } from "@/lib/api/home-types";
 
 /**
  * Sprint: role-cabinets, step 5 — pure render-model helpers for the
@@ -127,4 +128,22 @@ export type PlanWidgetState = "no-data" | "empty" | "has-tasks";
 export function planWidgetState(plan: { tasks: unknown[] } | null): PlanWidgetState {
   if (!plan) return "no-data";
   return plan.tasks.length === 0 ? "empty" : "has-tasks";
+}
+
+/* ------------------------- Home role label (mini-app-role-experience) ------------------------- */
+
+/**
+ * Section 16 — "human-readable role label, never a raw enum name": derives
+ * Home's roleLabel straight from the same ManagementHomeBlockDTO the
+ * management block itself renders from, using the exact Russian role words
+ * already established elsewhere in the app (ViewAsBanner.tsx/
+ * effective-context.ts: "Управляющий" for CLUB_MANAGER, "Ст. города" for
+ * CITY_MANAGER) — never invents new wording. Null input (plain MANAGER, or a
+ * View-As-MANAGER preview) yields null, matching HomeDashboardDTO.roleLabel's
+ * own contract.
+ */
+export function formatRoleLabel(block: ManagementHomeBlockDTO | null): string | null {
+  if (!block) return null;
+  if (block.role === "CITY_MANAGER") return `Ст. города · ${block.scopeLabel}`;
+  return `Управляющий · ${block.clubLabel}`;
 }

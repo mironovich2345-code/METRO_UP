@@ -3,7 +3,7 @@ import type {
   AchievementDTO,
   DailyPlanDTO,
   DailyTaskDTO,
-  HomeDashboardDTO,
+  HomeResponseDTO,
   RatingBoardDTO,
 } from "./home-types";
 
@@ -20,8 +20,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
+/** Sprint: mini-app-role-experience, section 2 — the response is now the
+ * `kind`-discriminated HomeResponseDTO union (OnboardingHomeDTO while
+ * PENDING_APPROVAL, HomeDashboardDTO otherwise); callers must branch on
+ * `.kind` before reading any full-dashboard field. */
 export function fetchHome() {
-  return request<HomeDashboardDTO>("/api/home");
+  return request<HomeResponseDTO>("/api/home");
 }
 export function fetchPlanToday() {
   return request<DailyPlanDTO>("/api/plan/today");

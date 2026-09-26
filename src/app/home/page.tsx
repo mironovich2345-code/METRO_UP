@@ -9,14 +9,19 @@ import {
   ArrowUp,
   Award,
   BookOpen,
+  Building2,
   CheckCircle2,
   ChevronRight,
   Circle,
   Eye,
+  GraduationCap,
   ListChecks,
   Lock,
+  type LucideIcon,
   Sparkles,
   Trophy,
+  UserCog,
+  Users,
 } from "lucide-react";
 import { BottomNavigation } from "@/components/bottom-navigation";
 import { ThemeSwitcher } from "@/components/ui/theme-switcher";
@@ -30,11 +35,16 @@ import { useApp } from "@/providers/app-provider";
 import { getPositionById, getClubById, getCityById } from "@/content";
 import { cardIn, staggerStack } from "@/lib/motion";
 import { cn, formatNumber } from "@/lib/utils";
+import { pluralRu } from "@/lib/cabinet-ui";
 import { fetchHome } from "@/lib/api/home-client";
 import type {
+  CityManagerHomeBlockDTO,
+  ClubManagerHomeBlockDTO,
   DailyTaskDTO,
   HomeDashboardDTO,
+  HomeResponseDTO,
   MysterySummaryDTO,
+  OnboardingHomeDTO,
   RatingSummaryDTO,
 } from "@/lib/api/home-types";
 
@@ -54,7 +64,7 @@ export default function HomeScreen() {
 
   const [greeting, setGreeting] = useState("С возвращением");
   const [showWelcome, setShowWelcome] = useState(false);
-  const [dash, setDash] = useState<HomeDashboardDTO | null>(null);
+  const [dash, setDash] = useState<HomeResponseDTO | null>(null);
   const [dashStatus, setDashStatus] = useState<"loading" | "ready" | "error">("loading");
 
   useEffect(() => setGreeting(computeGreeting()), []);
@@ -131,6 +141,13 @@ export default function HomeScreen() {
           </Link>
           <ThemeSwitcher />
         </div>
+        {dash?.kind === "full" && dash.roleLabel && (
+          <div className="mt-2 pl-[60px]">
+            <span className="inline-flex items-center rounded-full bg-brand/12 px-2.5 py-1 text-xs font-semibold text-brand">
+              {dash.roleLabel}
+            </span>
+          </div>
+        )}
       </header>
 
       <motion.main variants={staggerStack} initial="hidden" animate="show" className="flex flex-col gap-6 px-5 pt-4">
@@ -162,11 +179,23 @@ export default function HomeScreen() {
           </GlassCard>
         )}
 
-        {dashStatus === "ready" && dash && (
+        {dashStatus === "ready" && dash && dash.kind === "onboarding" && (
+          <OnboardingContent academy={dash.academy} onContinue={(slug) => router.push(slug ? `/academy/lesson/${slug}` : "/academy")} />
+        )}
+
+        {dashStatus === "ready" && dash && dash.kind === "full" && (
           <>
+            {dash.management?.role === "CITY_MANAGER" && (
+              <CityManagerHomeSection block={dash.management} router={router} />
+            )}
+
             <motion.div variants={cardIn}>
               <PlanCard plan={dash.plan} onOpen={() => router.push("/plan")} />
             </motion.div>
+
+            {dash.management?.role === "CLUB_MANAGER" && (
+              <ClubManagerHomeSection block={dash.management} router={router} />
+            )}
 
             <motion.div variants={cardIn} className="flex flex-col gap-3">
               <p className="px-1 text-sm font-bold text-foreground">Продолжить обучение</p>
@@ -370,6 +399,322 @@ function MysteryCard({ mystery }: { mystery: MysterySummaryDTO }) {
           {mystery.comment && <p className="mt-2 text-sm text-muted-foreground">{mystery.comment}</p>}
         </div>
       )}
+    </GlassCard>
+  );
+}
+
+/* ------------------------- onboarding (PENDING_APPROVAL) ------------------------ */
+
+/**
+ * Sprint: mini-app-role-experience, section 2 — replaces the old
+ * PendingApprovalScreen dead-end. Exact approved copy: the status banner and
+ * course card are the only content a PENDING_APPROVAL user sees on Главная —
+ * no Metric/rating/knowledge-base/Daily Plan/management data exists on
+ * OnboardingHomeDTO at all, so there's nothing here that could leak it.
+ */
+function OnboardingContent({
+  academy,
+  onContinue,
+}: {
+  academy: OnboardingHomeDTO["academy"];
+  onContinue: (slug: string | null) => void;
+}) {
+  return (
+    <>
+      <motion.div variants={cardIn}>
+        <GlassCard variant="solid" pad="lg" animateIn={false} className="border border-brand/25 bg-brand/[0.07]">
+          <div className="flex items-center gap-2">
+            <span className="flex size-9 items-center justify-center rounded-2xl bg-brand/15">
+              <Lock className="size-5 text-brand" />
+            </span>
+            <p className="font-bold">Доступ пока ограничен</p>
+          </div>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Сейчас вам доступно вводное обучение. Полный доступ к Metro UP откроется после подтверждения руководителем.
+          </p>
+        </GlassCard>
+      </motion.div>
+
+      <motion.div variants={cardIn} className="flex flex-col gap-3">
+        <p className="px-1 text-sm font-bold text-foreground">Знакомство с MetroFitness</p>
+        {academy ? (
+          <GlassCard variant="solid" pad="lg" animateIn={false}>
+            <div className="flex items-center gap-2">
+              <span className="flex size-9 items-center justify-center rounded-2xl bg-brand/12">
+                <GraduationCap className="size-5 text-brand" />
+              </span>
+              <p className="font-bold">{academy.courseTitle}</p>
+            </div>
+            <div className="mt-3">
+              <XPProgress value={academy.total ? academy.completed / academy.total : 0} size="md" />
+            </div>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {academy.completed} из {pluralRu(academy.total, "урока", "уроков", "уроков")}
+              {academy.totalDurationMinutes > 0 && ` · ~${academy.totalDurationMinutes} мин`}
+            </p>
+            <Button className="mt-4" variant="secondary" block onClick={() => onContinue(academy.nextLessonSlug)}>
+              Продолжить обучение
+            </Button>
+          </GlassCard>
+        ) : (
+          <GlassCard variant="solid" pad="lg" animateIn={false} className="text-center">
+            <p className="font-semibold">Вводное обучение скоро появится</p>
+            <p className="mt-1 text-sm text-muted-foreground">Загляните сюда чуть позже.</p>
+          </GlassCard>
+        )}
+      </motion.div>
+    </>
+  );
+}
+
+/* --------------------------- role-aware management blocks --------------------------- */
+
+type HomeRouter = { push: (href: string) => void };
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return <p className="px-1 text-sm font-bold text-foreground">{children}</p>;
+}
+
+function EmptyAttention() {
+  return (
+    <GlassCard variant="solid" pad="md" animateIn={false} className="flex items-center gap-3">
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-2xl bg-success/12">
+        <CheckCircle2 className="size-5 text-success" />
+      </span>
+      <p className="text-sm text-muted-foreground">Сейчас ничего не требует внимания.</p>
+    </GlassCard>
+  );
+}
+
+/**
+ * Section 11 — CITY_MANAGER Home: management BEFORE personal info, order
+ * Требует внимания → Мои клубы → Управляющие → Обучение по клубам. Every tap
+ * target opens a Mini App drill-down screen (never /control) reusing the
+ * existing RoleAssignment/cabinet APIs.
+ */
+function CityManagerHomeSection({ block, router }: { block: CityManagerHomeBlockDTO; router: HomeRouter }) {
+  const clubsWithoutManager = block.clubs.filter((c) => c.managerName === null);
+  const pendingClubs = block.attention.filter((a) => a.category === "PENDING_EMPLOYEE_APPROVAL");
+
+  return (
+    <>
+      <motion.div variants={cardIn} className="flex flex-col gap-3">
+        <SectionLabel>Требует внимания</SectionLabel>
+        {block.attention.length === 0 ? (
+          <EmptyAttention />
+        ) : (
+          <div className="flex flex-col gap-2">
+            {clubsWithoutManager.length > 0 && (
+              <AttentionRow
+                icon={UserCog}
+                text={`${clubsWithoutManager.length} ${pluralRu(clubsWithoutManager.length, "клуб без управляющего", "клуба без управляющего", "клубов без управляющего")}`}
+                onClick={() => router.push("/city/managers")}
+              />
+            )}
+            {pendingClubs.length > 0 && (
+              <AttentionRow
+                icon={Users}
+                text={`${pendingClubs.length} ${pluralRu(pendingClubs.length, "сотрудник ожидает подтверждения", "сотрудника ожидают подтверждения", "сотрудников ожидают подтверждения")}`}
+                onClick={() => router.push("/city")}
+              />
+            )}
+          </div>
+        )}
+      </motion.div>
+
+      <motion.div variants={cardIn} className="flex flex-col gap-3">
+        <div className="flex items-center justify-between px-1">
+          <SectionLabel>Мои клубы</SectionLabel>
+          <span className="text-xs font-semibold text-muted-foreground">{block.scopeLabel}</span>
+        </div>
+        <GlassCard variant="solid" pad="none" animateIn={false} className="divide-y divide-border">
+          {block.clubs.length === 0 ? (
+            <p className="p-4 text-sm text-muted-foreground">Нет клубов в зоне ответственности.</p>
+          ) : (
+            block.clubs.map((c) => (
+              <button
+                key={c.clubId}
+                type="button"
+                onClick={() => router.push(`/city/club?clubId=${c.clubId}`)}
+                className="flex w-full items-center gap-3 p-4 text-left transition-colors active:bg-foreground/5"
+              >
+                <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-brand/12">
+                  <Building2 className="size-4.5 text-brand" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold">{c.clubName}</p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {c.managerName ?? "Без управляющего"} · {pluralRu(c.employeeCount, "сотрудник", "сотрудника", "сотрудников")}
+                  </p>
+                </div>
+                {c.attentionCount > 0 && (
+                  <span className="shrink-0 rounded-full bg-brand/12 px-2 py-0.5 text-xs font-bold text-brand">{c.attentionCount}</span>
+                )}
+                <ChevronRight className="size-4 shrink-0 text-muted-foreground/50" />
+              </button>
+            ))
+          )}
+        </GlassCard>
+      </motion.div>
+
+      <motion.div variants={cardIn} className="flex flex-col gap-3">
+        <SectionLabel>Управляющие</SectionLabel>
+        <GlassCard variant="solid" pad="none" animateIn={false} className="divide-y divide-border">
+          {block.clubs.map((c) => (
+            <div key={c.clubId} className="flex items-center gap-3 p-4">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-muted">
+                <UserCog className="size-4.5 text-muted-foreground" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-semibold">{c.managerName ?? "Не назначен"}</p>
+                <p className="truncate text-xs text-muted-foreground">{c.clubName}</p>
+              </div>
+              {c.managerName === null && (
+                <Button size="sm" variant="secondary" onClick={() => router.push(`/city/club?clubId=${c.clubId}`)}>
+                  Назначить
+                </Button>
+              )}
+            </div>
+          ))}
+        </GlassCard>
+      </motion.div>
+
+      <motion.div variants={cardIn}>
+        <SectionLabel>Обучение по клубам</SectionLabel>
+        <div className="mt-3">
+          <TrainingSummaryCard
+            totalPublishedLessons={block.training?.totalPublishedLessons ?? 0}
+            line1={
+              block.training && block.training.totalPublishedLessons > 0 && block.training.averageProgressPercent !== null
+                ? `Средний прогресс: ${block.training.averageProgressPercent}%`
+                : "Нет данных"
+            }
+            line2={block.training ? `Завершили все опубликованные уроки: ${block.training.employeesCompletedAll}` : undefined}
+          />
+        </div>
+      </motion.div>
+    </>
+  );
+}
+
+/**
+ * Section 6 — CLUB_MANAGER Home order: План на сегодня (rendered by the
+ * caller, unchanged PlanCard) → Требует внимания → Моя команда → Обучение
+ * команды → Мой клуб → personal content. Multi-club managers get a neutral
+ * "choose a club" card instead (section 6 — never silently pick one).
+ */
+function ClubManagerHomeSection({ block, router }: { block: ClubManagerHomeBlockDTO; router: HomeRouter }) {
+  if (block.clubId === null) {
+    return (
+      <motion.div variants={cardIn}>
+        <GlassCard variant="solid" pad="lg" animateIn={false} interactive onClick={() => router.push("/team")}>
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-brand/12">
+              <Building2 className="size-5 text-brand" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold">Вы управляете {block.clubLabel}</p>
+              <p className="text-xs text-muted-foreground">Открыть команду, чтобы выбрать клуб</p>
+            </div>
+            <ChevronRight className="size-5 shrink-0 text-muted-foreground" />
+          </div>
+        </GlassCard>
+      </motion.div>
+    );
+  }
+
+  return (
+    <>
+      <motion.div variants={cardIn} className="flex flex-col gap-3">
+        <SectionLabel>Требует внимания</SectionLabel>
+        {block.attention.length === 0 ? (
+          <EmptyAttention />
+        ) : (
+          <AttentionRow
+            icon={Users}
+            text={`${block.attention.length} ${pluralRu(block.attention.length, "сотрудник ожидает подтверждения", "сотрудника ожидают подтверждения", "сотрудников ожидают подтверждения")}`}
+            onClick={() => router.push("/team")}
+          />
+        )}
+      </motion.div>
+
+      <motion.div variants={cardIn}>
+        <GlassCard variant="solid" pad="md" animateIn={false} interactive onClick={() => router.push("/team")}>
+          <div className="flex items-center gap-3">
+            <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-brand/12">
+              <Users className="size-5 text-brand" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold">Моя команда</p>
+              <p className="truncate text-xs text-muted-foreground">
+                {pluralRu(block.employeeCount ?? 0, "сотрудник", "сотрудника", "сотрудников")}
+                {(block.pendingApprovalCount ?? 0) > 0 && ` · ${block.pendingApprovalCount} новых`}
+              </p>
+            </div>
+            <ChevronRight className="size-5 shrink-0 text-muted-foreground" />
+          </div>
+        </GlassCard>
+      </motion.div>
+
+      <motion.div variants={cardIn}>
+        <SectionLabel>Обучение команды</SectionLabel>
+        <div className="mt-3">
+          <TrainingSummaryCard
+            totalPublishedLessons={block.training?.totalPublishedLessons ?? 0}
+            line1={
+              block.training && block.training.totalPublishedLessons > 0
+                ? `Завершили все опубликованные уроки: ${block.training.employeesCompleted}`
+                : "Нет данных"
+            }
+            line2={block.training && block.training.totalPublishedLessons > 0 ? `Проходят обучение: ${block.training.employeesInTraining}` : undefined}
+          />
+        </div>
+      </motion.div>
+
+      <motion.div variants={cardIn}>
+        <GlassCard variant="solid" pad="md" animateIn={false} className="flex items-center gap-3">
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-brand/12">
+            <Building2 className="size-5 text-brand" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold">{block.clubLabel}</p>
+            <p className="truncate text-xs text-muted-foreground">Мой клуб</p>
+          </div>
+          {block.isPreviewing && (
+            <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">Просмотр</span>
+          )}
+        </GlassCard>
+      </motion.div>
+    </>
+  );
+}
+
+function AttentionRow({ icon: Icon, text, onClick }: { icon: LucideIcon; text: string; onClick: () => void }) {
+  return (
+    <GlassCard variant="solid" pad="md" animateIn={false} interactive onClick={onClick} className="flex items-center gap-3">
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-2xl bg-brand/12">
+        <Icon className="size-5 text-brand" />
+      </span>
+      <p className="min-w-0 flex-1 truncate text-sm font-semibold">{text}</p>
+      <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+    </GlassCard>
+  );
+}
+
+/** Honest empty state ("Нет данных") whenever there's no published content or
+ * no one in scope yet — never a fabricated percent. Never says "mandatory" /
+ * "overdue" / "failed plan" (section 10). */
+function TrainingSummaryCard({ totalPublishedLessons, line1, line2 }: { totalPublishedLessons: number; line1: string; line2?: string }) {
+  return (
+    <GlassCard variant="solid" pad="lg" animateIn={false}>
+      <div className="flex items-center gap-2">
+        <span className="flex size-9 items-center justify-center rounded-2xl bg-brand/12">
+          <GraduationCap className="size-5 text-brand" />
+        </span>
+        <p className="font-bold">{totalPublishedLessons > 0 ? `${totalPublishedLessons} уроков в Академии` : "Академия"}</p>
+      </div>
+      <p className="mt-2 text-sm text-muted-foreground">{line1}</p>
+      {line2 && <p className="mt-1 text-sm text-muted-foreground">{line2}</p>}
     </GlassCard>
   );
 }

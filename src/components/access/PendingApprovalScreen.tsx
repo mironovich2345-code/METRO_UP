@@ -6,12 +6,15 @@ import { Button } from "@/components/ui/button";
 import { useAppUser } from "@/providers/AppUserProvider";
 
 /**
- * accessStatus = PENDING_APPROVAL (Sprint 1 / Phase 2B, section 10). Shown
- * for a just-onboarded employee before their CLUB_MANAGER approves them —
- * server-side enforcement (requireLimitedOrFullAccess/requireFullAccess,
- * authz.ts) is what actually blocks every operational route regardless of
- * this screen; this exists only so the wait is legible instead of a Home
- * full of failed requests.
+ * accessStatus = PENDING_APPROVAL (Sprint 1 / Phase 2B, section 10).
+ *
+ * RETIRED by Sprint: mini-app-role-experience, section 2: this full-screen
+ * dead-end ("Заявка отправлена" + nothing else to do) was exactly the
+ * "mysterious blocking screen" that sprint's spec called out as unacceptable.
+ * AccessStatusGate.tsx no longer renders this — PENDING_APPROVAL now gets a
+ * real, narrowed Главная (OnboardingHomeDTO, home.ts) + Академия experience
+ * instead. Left in place (not deleted) in case a future narrower use for it
+ * reappears; it has no current callers.
  */
 export function PendingApprovalScreen() {
   const { signOut } = useAppUser();

@@ -4,11 +4,13 @@ import { getPositionById } from "@/content/positions";
 import { getClubById } from "@/content/cities";
 import { getPlanTodayFor } from "../daily-plan";
 import { settleWidget } from "../home-resolve";
+import { distinctCityNames, filterPendingEmployees, pluralRu } from "@/lib/cabinet-ui";
 import type { CurrentUser } from "../session";
-import { anyGrantCoversClub, grantCoversCityOrItsClubs } from "./scope-core";
-import { getActorContext, cityIdForClub, resolveCityManagerClubs, type ClubSummary } from "./context";
+import { anyGrantCoversClub, grantCoversCityOrItsClubs, hasActiveRole } from "./scope-core";
+import { getActorContext, cityIdForClub, resolveCityManagerClubs, resolveClubManagerClubs, type ClubSummary } from "./context";
 import { authorize } from "./authorize-core";
 import { resolveEffectiveReadContext } from "./effective-context";
+import type { ViewContext } from "./view-as";
 import type { ActorContext, RoleGrant } from "./types";
 import type {
   AttentionItemDTO,
@@ -24,6 +26,7 @@ import type {
   OperationsDirectorDashboardDTO,
   TrainingSummaryDTO,
 } from "@/lib/api/cabinet-types";
+import type { ClubManagerHomeBlockDTO, HomeAttentionItemDTO, ManagementHomeBlockDTO } from "@/lib/api/home-types";
 
 /**
  * Sprint: role-cabinets, step 4 — server read models for the
@@ -550,4 +553,134 @@ export async function getClubManagerTeam(clubId: string, clubName: string | null
   }));
 
   return { clubId, clubName, members };
+}
+
+/* ------------------------------ Home (Mini App) ----------------------------- */
+
+/** Narrow AttentionItemDTO (desktop-cabinet shape) down to the lean Home
+ * shape — drops entityType/cityId, which the Home summary never needs. */
+function toHomeAttention(items: AttentionItemDTO[]): HomeAttentionItemDTO[] {
+  return items
+    .filter(
+      (a): a is AttentionItemDTO & { category: "CLUB_WITHOUT_CLUB_MANAGER" | "PENDING_EMPLOYEE_APPROVAL" } =>
+        a.category === "CLUB_WITHOUT_CLUB_MANAGER" || a.category === "PENDING_EMPLOYEE_APPROVAL",
+    )
+    .map((a) => ({ category: a.category, entityId: a.entityId, entityName: a.entityName, clubId: a.clubId }));
+}
+
+/** One club's worth of the CLUB_MANAGER Home block — shared by the real-actor
+ * single-club path and the View-As-CLUB_MANAGER preview path below. Reuses
+ * loadEmployees directly (NOT getClubManagerDashboard) specifically to avoid
+ * that function's getPlanTodayFor call — Home only ever needs a count/
+ * attention summary here, never the Daily Plan itself (that's a separate
+ * widget, fetched separately, exactly once, for whoever the acting user is). */
+async function buildClubManagerHomeBlock(
+  clubId: string,
+  clubName: string | null,
+  managedClubCount: number,
+  isPreviewing: boolean,
+): Promise<ClubManagerHomeBlockDTO> {
+  const employees = await loadEmployees([clubId]);
+  const pending = filterPendingEmployees(employees);
+  const { totalPublishedLessons, completedByUser } = await loadTrainingRaw(employees.map((e) => e.userId));
+  const training = summarizeClubTraining(employees.map((e) => e.userId), totalPublishedLessons, completedByUser);
+  return {
+    role: "CLUB_MANAGER",
+    clubId,
+    clubLabel: clubName ?? "Клуб",
+    employeeCount: employees.length,
+    pendingApprovalCount: pending.length,
+    attention: pending.map((e) => ({
+      category: "PENDING_EMPLOYEE_APPROVAL",
+      entityId: e.userId,
+      entityName: e.displayName,
+      clubId,
+    })),
+    training,
+    managedClubCount,
+    isPreviewing,
+  };
+}
+
+/**
+ * Sprint: mini-app-role-experience, section 5 — the single decision point
+ * `/api/home` calls to learn what (if any) management summary to render
+ * above a role-aware Home's personal content. Precedence CITY_MANAGER >
+ * CLUB_MANAGER > none for the REAL actor (section 5); an active
+ * View-As-CLUB_MANAGER preview overrides that to show the previewed club's
+ * block with isPreviewing:true (section 7 — CITY_MANAGER previewing
+ * CLUB_MANAGER stays read-only, enforced server-side elsewhere, not by this
+ * flag); an active View-As-MANAGER preview suppresses the block entirely —
+ * "normal employee experience" (section 18). Additive only: never mutates or
+ * revokes anything, purely reads the actor's existing grants.
+ */
+export async function resolveManagementHomeBlock(
+  realUser: CurrentUser,
+  viewContext: ViewContext | null,
+): Promise<ManagementHomeBlockDTO | null> {
+  if (viewContext?.previewRole === "MANAGER") return null;
+
+  if (viewContext?.previewRole === "CLUB_MANAGER" && viewContext.previewClubId) {
+    const clubId = viewContext.previewClubId;
+    return buildClubManagerHomeBlock(clubId, getClubById(clubId)?.name ?? null, 1, true);
+  }
+
+  const actor = await getActorContext(realUser);
+
+  if (hasActiveRole(actor.grants, "CITY_MANAGER")) {
+    const dashboard = await getCityManagerDashboard(actor);
+    const cityNames = distinctCityNames(dashboard.clubs);
+    const scopeLabel =
+      cityNames.length === 0
+        ? pluralRu(dashboard.summary.clubCount, "клуб", "клуба", "клубов")
+        : cityNames.length === 1
+          ? cityNames[0]
+          : `Города: ${cityNames.join(", ")}`;
+    return {
+      role: "CITY_MANAGER",
+      scopeLabel,
+      clubCount: dashboard.summary.clubCount,
+      employeeCount: dashboard.summary.employeeCount,
+      clubManagerCount: dashboard.summary.clubManagerCount,
+      pendingApprovalCount: dashboard.summary.pendingApprovalCount,
+      attention: toHomeAttention(dashboard.attention),
+      clubs: dashboard.clubs.map((c) => ({
+        clubId: c.clubId,
+        clubName: c.clubName,
+        employeeCount: c.employeeCount,
+        managerName: c.activeClubManager?.displayName ?? null,
+        attentionCount: c.attentionCount,
+        trainingCompletionPercent: c.trainingCompletionPercent,
+      })),
+      training: dashboard.training
+        ? {
+            totalPublishedLessons: dashboard.training.totalPublishedLessons,
+            averageProgressPercent: dashboard.training.averageProgressPercent,
+            employeesCompletedAll: dashboard.training.employeesCompletedAll,
+          }
+        : null,
+    };
+  }
+
+  if (hasActiveRole(actor.grants, "CLUB_MANAGER")) {
+    const clubs = await resolveClubManagerClubs(realUser, actor);
+    if (clubs.length === 0) return null;
+    if (clubs.length > 1) {
+      return {
+        role: "CLUB_MANAGER",
+        clubId: null,
+        clubLabel: `${clubs.length} ${pluralRu(clubs.length, "клубом", "клубами", "клубами")}`,
+        employeeCount: null,
+        pendingApprovalCount: null,
+        attention: [],
+        training: null,
+        managedClubCount: clubs.length,
+        isPreviewing: false,
+      };
+    }
+    const club = clubs[0];
+    return buildClubManagerHomeBlock(club.id, club.name, 1, false);
+  }
+
+  return null;
 }
