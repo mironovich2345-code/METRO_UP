@@ -72,6 +72,29 @@ export function hasActiveRole(grants: RoleGrant[], role: NetworkRole): boolean {
 }
 
 /**
+ * Sprint: role-cabinets, step 4 — does ONE grant cover the given city, either
+ * directly (a CITY-scope grant for it) or via a CLUB-scope point-exception
+ * grant for one of its clubs? Deliberately BROADER than grantCoversCity
+ * alone, which excludes club-scope point exceptions from "covers the whole
+ * city" — the correct, narrower semantic for AUTHORIZATION decisions (can
+ * this actor act city-wide), but not for this informational "does the city
+ * have ANY manager attention at all" question the OPERATIONS_DIRECTOR/
+ * CITY_MANAGER cabinets' attention model asks (cabinet-dashboards.ts's
+ * CITY_WITHOUT_CITY_MANAGER check — which also needs the filtered grant
+ * LIST, not just this boolean, hence exporting both the single-grant
+ * predicate and the any-of-many convenience wrapper below).
+ */
+export function grantCoversCityOrItsClubs(grant: RoleGrant, cityId: string, clubIdsInCity: string[]): boolean {
+  return grantCoversCity(grant, cityId) || clubIdsInCity.some((clubId) => grantCoversClub(grant, clubId, cityId));
+}
+
+/** True when ANY of the given grants covers the city per
+ * grantCoversCityOrItsClubs above. */
+export function anyGrantCoversCityOrItsClubs(grants: RoleGrant[], cityId: string, clubIdsInCity: string[]): boolean {
+  return grants.some((g) => grantCoversCityOrItsClubs(g, cityId, clubIdsInCity));
+}
+
+/**
  * Sprint: role-cabinets, section 4 — hard business cap, system-wide: at most
  * this many ACTIVE OPERATIONS_DIRECTOR RoleAssignment rows may exist at once
  * (ENDED/SUSPENDED rows never count — see isGrantActive). This is the pure
