@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowDown,
   ArrowUp,
@@ -11,6 +11,7 @@ import {
   BookOpen,
   Building2,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   Circle,
   Eye,
@@ -32,15 +33,18 @@ import { XPProgress } from "@/components/ui/xp-progress";
 import { FirstRunWelcome } from "@/components/home/first-run-welcome";
 import { ContinueLearningCard } from "@/components/home/ContinueLearningCard";
 import { useApp } from "@/providers/app-provider";
+import { useAppUser } from "@/providers/AppUserProvider";
 import { getPositionById, getClubById, getCityById } from "@/content";
-import { cardIn, staggerStack } from "@/lib/motion";
+import { cardIn, staggerStack, springSoft } from "@/lib/motion";
 import { cn, formatNumber } from "@/lib/utils";
 import { pluralRu } from "@/lib/cabinet-ui";
 import { fetchHome } from "@/lib/api/home-client";
+import { loadStoredContext, saveStoredContext, type StoredHomeContext } from "@/lib/home-context-storage";
 import type {
   CityManagerHomeBlockDTO,
   ClubManagerHomeBlockDTO,
   DailyTaskDTO,
+  HomeContextDTO,
   HomeDashboardDTO,
   HomeResponseDTO,
   MysterySummaryDTO,
@@ -60,12 +64,14 @@ function computeGreeting() {
 
 export default function HomeScreen() {
   const { profile, isOnboarded, hydrated, telegramUser } = useApp();
+  const { user: appUser } = useAppUser();
   const router = useRouter();
 
   const [greeting, setGreeting] = useState("С возвращением");
   const [showWelcome, setShowWelcome] = useState(false);
   const [dash, setDash] = useState<HomeResponseDTO | null>(null);
   const [dashStatus, setDashStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [switcherOpen, setSwitcherOpen] = useState(false);
 
   useEffect(() => setGreeting(computeGreeting()), []);
 
@@ -73,18 +79,35 @@ export default function HomeScreen() {
     if (hydrated && !isOnboarded) router.replace("/welcome");
   }, [hydrated, isOnboarded, router]);
 
-  const loadDash = () => {
+  // Sprint: mini-app-context-switcher, section 8 — scoped by the Telegram
+  // account id so a shared device / account switch never inherits a
+  // different account's last-selected cabinet.
+  const ownerKey = telegramUser?.id != null ? String(telegramUser.id) : "demo";
+
+  const loadDash = (context?: StoredHomeContext) => {
     setDashStatus("loading");
-    fetchHome()
+    fetchHome(context)
       .then((d) => {
         setDash(d);
         setDashStatus("ready");
+        // Persist exactly what the server resolved — never a client guess —
+        // so a revoked/invalid persisted context self-corrects (section 9).
+        if (d.kind !== "onboarding") {
+          saveStoredContext(ownerKey, { type: d.activeContext.type, clubId: d.activeContext.clubId });
+        }
       })
       .catch(() => setDashStatus("error"));
   };
+
   useEffect(() => {
-    if (isOnboarded) loadDash();
+    if (isOnboarded) loadDash(loadStoredContext(ownerKey) ?? undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOnboarded]);
+
+  const switchContext = (ctx: HomeContextDTO) => {
+    setSwitcherOpen(false);
+    loadDash({ type: ctx.type, clubId: ctx.clubId });
+  };
 
   useEffect(() => {
     if (!isOnboarded) return;
@@ -112,13 +135,26 @@ export default function HomeScreen() {
   }
 
   const firstName = profile.displayName.split(" ")[0];
-  const identity = [
+  const personalIdentity = [
     getPositionById(profile.positionId)?.title,
     getClubById(profile.clubId)?.name,
     getCityById(profile.cityId)?.name,
   ]
     .filter(Boolean)
     .join(" · ");
+
+  // Sprint: mini-app-context-switcher, section 13 — View As is a SEPARATE
+  // mechanism; while a preview is active the switcher never renders (the
+  // server also returns availableContexts:[] in that case, so this is
+  // belt-and-suspenders, not the only guard).
+  const isPreviewing = Boolean(appUser?.viewContext);
+  const availableContexts = dash && dash.kind !== "onboarding" ? dash.availableContexts : [];
+  const activeContext = dash && dash.kind !== "onboarding" ? dash.activeContext : null;
+  const showSwitcher = !isPreviewing && availableContexts.length > 1;
+  // Section 4: PERSONAL's header stays the original position/club/city line,
+  // not the generic "Личный кабинет" switcher-list label — only the tap
+  // affordance is new. Management contexts show their own scope/club label.
+  const contextLabel = dash?.kind === "full" ? personalIdentity : (activeContext?.label ?? null);
 
   return (
     <div className="relative min-h-[100dvh] pb-32">
@@ -135,19 +171,24 @@ export default function HomeScreen() {
             <div className="min-w-0 flex-1">
               <p className="text-xs font-medium text-muted-foreground">{greeting},</p>
               <h1 className="truncate text-xl font-extrabold tracking-tight text-foreground">{firstName}</h1>
-              {identity && <p className="truncate text-xs font-medium text-muted-foreground">{identity}</p>}
             </div>
             <ChevronRight className="size-4 shrink-0 text-muted-foreground/50" />
           </Link>
           <ThemeSwitcher />
         </div>
-        {dash?.kind === "full" && dash.roleLabel && (
-          <div className="mt-2 pl-[60px]">
-            <span className="inline-flex items-center rounded-full bg-brand/12 px-2.5 py-1 text-xs font-semibold text-brand">
-              {dash.roleLabel}
-            </span>
-          </div>
-        )}
+        {contextLabel &&
+          (showSwitcher ? (
+            <button
+              type="button"
+              onClick={() => setSwitcherOpen(true)}
+              className="mt-1.5 inline-flex max-w-full items-center gap-1 truncate pl-[60px] text-xs font-medium text-muted-foreground active:opacity-70"
+            >
+              <span className="truncate">{contextLabel}</span>
+              <ChevronDown className="size-3.5 shrink-0" />
+            </button>
+          ) : (
+            <p className="mt-1.5 truncate pl-[60px] text-xs font-medium text-muted-foreground">{contextLabel}</p>
+          ))}
       </header>
 
       <motion.main variants={staggerStack} initial="hidden" animate="show" className="flex flex-col gap-6 px-5 pt-4">
@@ -175,7 +216,7 @@ export default function HomeScreen() {
         {dashStatus === "error" && (
           <GlassCard variant="solid" pad="lg" animateIn={false} className="text-center">
             <p className="font-semibold">Не удалось загрузить данные</p>
-            <Button className="mt-4" variant="secondary" onClick={loadDash}>Повторить</Button>
+            <Button className="mt-4" variant="secondary" onClick={() => loadDash()}>Повторить</Button>
           </GlassCard>
         )}
 
@@ -183,19 +224,14 @@ export default function HomeScreen() {
           <OnboardingContent academy={dash.academy} onContinue={(slug) => router.push(slug ? `/academy/lesson/${slug}` : "/academy")} />
         )}
 
+        {/* PERSONAL — Sprint: mini-app-context-switcher, section 4: the
+            pre-role-refactor MANAGER experience, unchanged, with NO
+            management content mixed in. */}
         {dashStatus === "ready" && dash && dash.kind === "full" && (
           <>
-            {dash.management?.role === "CITY_MANAGER" && (
-              <CityManagerHomeSection block={dash.management} router={router} />
-            )}
-
             <motion.div variants={cardIn}>
               <PlanCard plan={dash.plan} onOpen={() => router.push("/plan")} />
             </motion.div>
-
-            {dash.management?.role === "CLUB_MANAGER" && (
-              <ClubManagerHomeSection block={dash.management} router={router} />
-            )}
 
             <motion.div variants={cardIn} className="flex flex-col gap-3">
               <p className="px-1 text-sm font-bold text-foreground">Продолжить обучение</p>
@@ -247,10 +283,100 @@ export default function HomeScreen() {
             </motion.div>
           </>
         )}
+
+        {/* CITY_MANAGER — Sprint: mini-app-context-switcher, section 5:
+            management content ONLY, ends after "Обучение по клубам". */}
+        {dashStatus === "ready" && dash && dash.kind === "city_manager" && (
+          <CityManagerHomeSection block={dash.block} router={router} />
+        )}
+
+        {/* CLUB_MANAGER — Sprint: mini-app-context-switcher, section 6:
+            План на сегодня (this context's own Daily Plan) → management
+            content, ends after "Мой клуб". */}
+        {dashStatus === "ready" && dash && dash.kind === "club_manager" && (
+          <>
+            <motion.div variants={cardIn}>
+              <PlanCard plan={dash.plan} onOpen={() => router.push("/plan")} />
+            </motion.div>
+            <ClubManagerHomeSection block={dash.block} router={router} />
+          </>
+        )}
       </motion.main>
 
       <BottomNavigation />
+
+      {activeContext && (
+        <ContextSwitcherSheet
+          open={switcherOpen}
+          contexts={availableContexts}
+          active={activeContext}
+          onSelect={switchContext}
+          onClose={() => setSwitcherOpen(false)}
+        />
+      )}
     </div>
+  );
+}
+
+/* --------------------------- context switcher sheet --------------------------- */
+
+/**
+ * Sprint: mini-app-context-switcher, section 2/10 — a native-feeling bottom
+ * sheet, not a large intrusive switcher. Options come straight from the
+ * server's availableContexts (real grants only, section 2's "only show
+ * contexts the real user actually has"); selecting one just re-fetches
+ * /api/home with that hint — the server is what actually decides (section 3).
+ */
+function ContextSwitcherSheet({
+  open,
+  contexts,
+  active,
+  onSelect,
+  onClose,
+}: {
+  open: boolean;
+  contexts: HomeContextDTO[];
+  active: HomeContextDTO;
+  onSelect: (ctx: HomeContextDTO) => void;
+  onClose: () => void;
+}) {
+  return (
+    <AnimatePresence>
+      {open && (
+        <div className="fixed inset-0 z-50">
+          <motion.div className="absolute inset-0 bg-black/45" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} />
+          <motion.div
+            className="absolute inset-x-0 bottom-0 rounded-t-3xl border-t border-border bg-card p-6 pb-[calc(env(safe-area-inset-bottom)+24px)]"
+            initial={{ y: "100%" }}
+            animate={{ y: 0 }}
+            exit={{ y: "100%" }}
+            transition={springSoft}
+          >
+            <div className="mx-auto mb-5 h-1 w-10 rounded-full bg-border" />
+            <h2 className="text-lg font-bold">Переключить кабинет</h2>
+            <div className="mt-4 flex flex-col gap-2">
+              {contexts.map((c) => {
+                const isActive = c.type === active.type && (c.type !== "CLUB_MANAGER" || c.clubId === active.clubId);
+                return (
+                  <button
+                    key={`${c.type}:${c.clubId ?? ""}`}
+                    type="button"
+                    onClick={() => onSelect(c)}
+                    className={cn(
+                      "flex items-center justify-between rounded-2xl border px-4 py-3.5 text-left text-sm font-medium transition-colors",
+                      isActive ? "border-brand bg-brand/10 text-foreground" : "border-border text-foreground active:bg-muted",
+                    )}
+                  >
+                    {c.label}
+                    {isActive && <CheckCircle2 className="size-4 shrink-0 text-brand" />}
+                  </button>
+                );
+              })}
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
   );
 }
 
@@ -467,7 +593,7 @@ function OnboardingContent({
   );
 }
 
-/* --------------------------- role-aware management blocks --------------------------- */
+/* --------------------------- management cabinet contexts --------------------------- */
 
 type HomeRouter = { push: (href: string) => void };
 
@@ -487,10 +613,11 @@ function EmptyAttention() {
 }
 
 /**
- * Section 11 — CITY_MANAGER Home: management BEFORE personal info, order
- * Требует внимания → Мои клубы → Управляющие → Обучение по клубам. Every tap
- * target opens a Mini App drill-down screen (never /control) reusing the
- * existing RoleAssignment/cabinet APIs.
+ * CITY_MANAGER context body — Sprint: mini-app-context-switcher, section 5.
+ * Order: Требует внимания → Мои клубы → Управляющие → Обучение по клубам.
+ * The ONLY content this context renders — no personal cards follow it (the
+ * caller never appends any). Every tap target opens a Mini App drill-down
+ * screen (never /control) reusing the existing RoleAssignment/cabinet APIs.
  */
 function CityManagerHomeSection({ block, router }: { block: CityManagerHomeBlockDTO; router: HomeRouter }) {
   const clubsWithoutManager = block.clubs.filter((c) => c.managerName === null);
@@ -598,31 +725,14 @@ function CityManagerHomeSection({ block, router }: { block: CityManagerHomeBlock
 }
 
 /**
- * Section 6 — CLUB_MANAGER Home order: План на сегодня (rendered by the
- * caller, unchanged PlanCard) → Требует внимания → Моя команда → Обучение
- * команды → Мой клуб → personal content. Multi-club managers get a neutral
- * "choose a club" card instead (section 6 — never silently pick one).
+ * CLUB_MANAGER context body — Sprint: mini-app-context-switcher, section 6.
+ * Order: Требует внимания → Моя команда → Обучение команды → Мой клуб (the
+ * caller renders "План на сегодня" immediately before this, item 2 of the
+ * same context). block.clubId is always a real, single club now — the
+ * context switcher (not this component) is what disambiguates a multi-club
+ * manager (section 6/7), so there is no "which club" branch here anymore.
  */
 function ClubManagerHomeSection({ block, router }: { block: ClubManagerHomeBlockDTO; router: HomeRouter }) {
-  if (block.clubId === null) {
-    return (
-      <motion.div variants={cardIn}>
-        <GlassCard variant="solid" pad="lg" animateIn={false} interactive onClick={() => router.push("/team")}>
-          <div className="flex items-center gap-3">
-            <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-brand/12">
-              <Building2 className="size-5 text-brand" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="font-semibold">Вы управляете {block.clubLabel}</p>
-              <p className="text-xs text-muted-foreground">Открыть команду, чтобы выбрать клуб</p>
-            </div>
-            <ChevronRight className="size-5 shrink-0 text-muted-foreground" />
-          </div>
-        </GlassCard>
-      </motion.div>
-    );
-  }
-
   return (
     <>
       <motion.div variants={cardIn} className="flex flex-col gap-3">
@@ -647,8 +757,8 @@ function ClubManagerHomeSection({ block, router }: { block: ClubManagerHomeBlock
             <div className="min-w-0 flex-1">
               <p className="font-semibold">Моя команда</p>
               <p className="truncate text-xs text-muted-foreground">
-                {pluralRu(block.employeeCount ?? 0, "сотрудник", "сотрудника", "сотрудников")}
-                {(block.pendingApprovalCount ?? 0) > 0 && ` · ${block.pendingApprovalCount} новых`}
+                {pluralRu(block.employeeCount, "сотрудник", "сотрудника", "сотрудников")}
+                {block.pendingApprovalCount > 0 && ` · ${block.pendingApprovalCount} новых`}
               </p>
             </div>
             <ChevronRight className="size-5 shrink-0 text-muted-foreground" />

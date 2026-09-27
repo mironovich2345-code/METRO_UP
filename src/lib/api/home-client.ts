@@ -3,6 +3,7 @@ import type {
   AchievementDTO,
   DailyPlanDTO,
   DailyTaskDTO,
+  HomeContextType,
   HomeResponseDTO,
   RatingBoardDTO,
 } from "./home-types";
@@ -20,12 +21,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
-/** Sprint: mini-app-role-experience, section 2 — the response is now the
- * `kind`-discriminated HomeResponseDTO union (OnboardingHomeDTO while
- * PENDING_APPROVAL, HomeDashboardDTO otherwise); callers must branch on
- * `.kind` before reading any full-dashboard field. */
-export function fetchHome() {
-  return request<HomeResponseDTO>("/api/home");
+/** Sprint: mini-app-context-switcher — the response is the `kind`-
+ * discriminated HomeResponseDTO union (OnboardingHomeDTO while
+ * PENDING_APPROVAL; otherwise exactly ONE of the PERSONAL/CITY_MANAGER/
+ * CLUB_MANAGER cabinets — never a mix). `context` is an advisory hint only;
+ * the server always re-validates it against the real actor's current grants
+ * and falls back to PERSONAL if it no longer applies (section 3/9). */
+export function fetchHome(context?: { type: HomeContextType; clubId?: string }) {
+  const qs = context ? `?context=${encodeURIComponent(context.type)}${context.clubId ? `&clubId=${encodeURIComponent(context.clubId)}` : ""}` : "";
+  return request<HomeResponseDTO>(`/api/home${qs}`);
 }
 export function fetchPlanToday() {
   return request<DailyPlanDTO>("/api/plan/today");
