@@ -242,6 +242,19 @@ export interface RatingBoardDTO {
   top: RatingBoardRowDTO[];
   currentUser: RatingBoardRowDTO | null;
   currentUserInTop: boolean;
+  /**
+   * Sprint: manual-test-round-2, section 5 — server-confirmed (real actor's
+   * current RoleAssignment grants, never client-trusted) "is this a real
+   * CITY_MANAGER, so the Менеджеры/Клубы toggle should render at all". The
+   * "Менеджеры" tab is this SAME board, unchanged (MANAGER's existing
+   * employee ranking) — just labeled for contrast once a second tab exists.
+   * "Клубы" has no real club-level score anywhere in the data model
+   * (audited: MonthlyRating/MonthlySalesInput/MysteryShopperResult are all
+   * per-employee, no clubId, no groupBy-by-club anywhere in rating-calc.ts)
+   * — that tab is a deliberate, honest "blocked pending business formula"
+   * state, never fabricated from an average.
+   */
+  canViewClubMode?: boolean;
 }
 
 export interface AchievementDTO {

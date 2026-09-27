@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowDown, ArrowUp, Crown, Trophy } from "lucide-react";
+import { ArrowDown, ArrowUp, Building2, Crown, Trophy, Users } from "lucide-react";
 import { BottomNavigation } from "@/components/bottom-navigation";
 import { AppHeader } from "@/components/app-header";
 import { GlassCard } from "@/components/ui/glass-card";
@@ -13,14 +13,30 @@ import { cn } from "@/lib/utils";
 import { fetchRatingBoard } from "@/lib/api/home-client";
 import type { RatingBoardDTO, RatingBoardRowDTO } from "@/lib/api/home-types";
 
+type RatingMode = "managers" | "clubs";
+
 /**
  * Monthly rating — only the latest PUBLISHED period, only real users from
  * PostgreSQL. No mock employees, no invented ranks/scores. Honest empty state
  * until a rating is published.
+ *
+ * Sprint: manual-test-round-2, section 5 — CITY_MANAGER-only Менеджеры/Клубы
+ * toggle (board.canViewClubMode, server-confirmed from the real actor's
+ * current grants — never fabricable by a MANAGER/CLUB_MANAGER tampering with
+ * client state). "Менеджеры" is this SAME board, completely unchanged — the
+ * existing per-employee ranking every role already saw, just labeled for
+ * contrast now that a second tab exists. "Клубы" is a deliberate, honest
+ * "заблокировано" state: audited rating-calc.ts/schema.prisma and confirmed
+ * NO real club-level score exists anywhere (MonthlyRating/MonthlySalesInput/
+ * MysteryShopperResult are all per-employee, no clubId, no groupBy-by-club) —
+ * per this sprint's explicit instruction, this never fabricates one from an
+ * average. See the final report's Rating section for 2-3 proposed formulas
+ * awaiting product approval.
  */
 export default function RankingScreen() {
   const [board, setBoard] = useState<RatingBoardDTO | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [mode, setMode] = useState<RatingMode>("managers");
 
   const load = () => {
     setStatus("loading");
@@ -36,6 +52,45 @@ export default function RankingScreen() {
   return (
     <div className="relative min-h-[100dvh] pb-32">
       <AppHeader title="Рейтинг" subtitle={board?.hasData ? board.periodLabel : "Ежемесячный рейтинг"} />
+
+      {status === "ready" && board?.canViewClubMode && (
+        <div className="flex gap-2 px-5 pb-1">
+          <button
+            type="button"
+            onClick={() => setMode("managers")}
+            className={cn(
+              "flex flex-1 items-center justify-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold transition-colors",
+              mode === "managers" ? "bg-brand text-brand-foreground" : "bg-muted text-muted-foreground active:bg-border",
+            )}
+          >
+            <Users className="size-4" /> Менеджеры
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("clubs")}
+            className={cn(
+              "flex flex-1 items-center justify-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold transition-colors",
+              mode === "clubs" ? "bg-brand text-brand-foreground" : "bg-muted text-muted-foreground active:bg-border",
+            )}
+          >
+            <Building2 className="size-4" /> Клубы
+          </button>
+        </div>
+      )}
+
+      {status === "ready" && board?.canViewClubMode && mode === "clubs" && (
+        <motion.div variants={cardIn} initial="hidden" animate="show" className="px-5 pt-3">
+          <GlassCard variant="outline" pad="lg" animateIn={false} className="text-center">
+            <span className="mx-auto mb-3 flex size-12 items-center justify-center rounded-2xl bg-muted">
+              <Building2 className="size-6 text-muted-foreground" />
+            </span>
+            <p className="font-semibold">Рейтинг клубов пока недоступен</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Для этого нужна согласованная формула расчёта — сейчас в системе нет готового клубного показателя.
+            </p>
+          </GlassCard>
+        </motion.div>
+      )}
 
       <motion.main variants={staggerStack} initial="hidden" animate="show" className="px-5">
         {status === "loading" && (
@@ -53,7 +108,7 @@ export default function RankingScreen() {
           </div>
         )}
 
-        {status === "ready" && board && !board.hasData && (
+        {status === "ready" && board && !board.hasData && mode === "managers" && (
           <motion.div variants={cardIn} className="mt-10">
             <GlassCard variant="solid" pad="lg" animateIn={false} className="text-center">
               <span className="mx-auto mb-3 flex size-12 items-center justify-center rounded-2xl bg-brand/12">
@@ -67,7 +122,7 @@ export default function RankingScreen() {
           </motion.div>
         )}
 
-        {status === "ready" && board && board.hasData && (
+        {status === "ready" && board && board.hasData && mode === "managers" && (
           <>
             <div className="space-y-2">
               {board.top.map((row) => (
