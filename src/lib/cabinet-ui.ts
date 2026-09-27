@@ -1,5 +1,5 @@
 import type { AttentionItemDTO, CityManagerClubSummaryDTO } from "@/lib/api/cabinet-types";
-import type { ManagementHomeBlockDTO } from "@/lib/api/home-types";
+import type { HomeContextDTO } from "@/lib/api/home-types";
 
 /**
  * Sprint: role-cabinets, step 5 — pure render-model helpers for the
@@ -130,20 +130,35 @@ export function planWidgetState(plan: { tasks: unknown[] } | null): PlanWidgetSt
   return plan.tasks.length === 0 ? "empty" : "has-tasks";
 }
 
-/* ------------------------- Home role label (mini-app-role-experience) ------------------------- */
+/* ------------------ Home context switcher (mini-app-context-switcher) ------------------ */
+
+/** The one context every eligible user always has, and the safe fallback
+ * whenever a requested/persisted context can no longer be honored (sections
+ * 8-9: revoked-role safety). */
+export const PERSONAL_CONTEXT: HomeContextDTO = { type: "PERSONAL", label: "Личный кабинет" };
 
 /**
- * Section 16 — "human-readable role label, never a raw enum name": derives
- * Home's roleLabel straight from the same ManagementHomeBlockDTO the
- * management block itself renders from, using the exact Russian role words
- * already established elsewhere in the app (ViewAsBanner.tsx/
- * effective-context.ts: "Управляющий" for CLUB_MANAGER, "Ст. города" for
- * CITY_MANAGER) — never invents new wording. Null input (plain MANAGER, or a
- * View-As-MANAGER preview) yields null, matching HomeDashboardDTO.roleLabel's
- * own contract.
+ * Section 3's critical boundary, enforced as one pure, shared function: a
+ * requested context (from a query param OR a client's persisted
+ * localStorage value — same shape either way) is honored ONLY if it exactly
+ * matches one of the CALLER-SUPPLIED `available` entries, which the server
+ * always derives fresh from the real actor's CURRENT grants
+ * (resolveAvailableHomeContexts). There is no path from "the client asked
+ * for CITY_MANAGER" to actually rendering it other than that context already
+ * being present in `available` — a MANAGER cannot fabricate one through a
+ * query param or a stale/tampered localStorage value (section 16's own
+ * required test). Falls back to the PERSONAL entry in `available` (or the
+ * first available entry, or the bare PERSONAL_CONTEXT constant if the caller
+ * has literally nothing) — never throws, never renders nothing.
  */
-export function formatRoleLabel(block: ManagementHomeBlockDTO | null): string | null {
-  if (!block) return null;
-  if (block.role === "CITY_MANAGER") return `Ст. города · ${block.scopeLabel}`;
-  return `Управляющий · ${block.clubLabel}`;
+export function resolveActiveContext(
+  requested: { type: string; clubId?: string | null } | null | undefined,
+  available: HomeContextDTO[],
+): HomeContextDTO {
+  const fallback = available.find((c) => c.type === "PERSONAL") ?? available[0] ?? PERSONAL_CONTEXT;
+  if (!requested) return fallback;
+  const match = available.find(
+    (c) => c.type === requested.type && (c.type !== "CLUB_MANAGER" || c.clubId === requested.clubId),
+  );
+  return match ?? fallback;
 }

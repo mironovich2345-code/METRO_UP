@@ -10,7 +10,6 @@ import { anyGrantCoversClub, grantCoversCityOrItsClubs, hasActiveRole } from "./
 import { getActorContext, cityIdForClub, resolveCityManagerClubs, resolveClubManagerClubs, type ClubSummary } from "./context";
 import { authorize } from "./authorize-core";
 import { resolveEffectiveReadContext } from "./effective-context";
-import type { ViewContext } from "./view-as";
 import type { ActorContext, RoleGrant } from "./types";
 import type {
   AttentionItemDTO,
@@ -26,7 +25,7 @@ import type {
   OperationsDirectorDashboardDTO,
   TrainingSummaryDTO,
 } from "@/lib/api/cabinet-types";
-import type { ClubManagerHomeBlockDTO, HomeAttentionItemDTO, ManagementHomeBlockDTO } from "@/lib/api/home-types";
+import type { CityManagerHomeBlockDTO, ClubManagerHomeBlockDTO, HomeAttentionItemDTO, HomeContextDTO } from "@/lib/api/home-types";
 
 /**
  * Sprint: role-cabinets, step 4 — server read models for the
@@ -568,16 +567,107 @@ function toHomeAttention(items: AttentionItemDTO[]): HomeAttentionItemDTO[] {
     .map((a) => ({ category: a.category, entityId: a.entityId, entityName: a.entityName, clubId: a.clubId }));
 }
 
-/** One club's worth of the CLUB_MANAGER Home block — shared by the real-actor
- * single-club path and the View-As-CLUB_MANAGER preview path below. Reuses
- * loadEmployees directly (NOT getClubManagerDashboard) specifically to avoid
- * that function's getPlanTodayFor call — Home only ever needs a count/
- * attention summary here, never the Daily Plan itself (that's a separate
- * widget, fetched separately, exactly once, for whoever the acting user is). */
-async function buildClubManagerHomeBlock(
+/**
+ * Sprint: mini-app-context-switcher, sections 1-7 — the lightweight
+ * descriptor list the Home context switcher renders from and the ONE thing
+ * every context request (query param OR persisted localStorage value) is
+ * validated against (resolveActiveContext, cabinet-ui.ts). Deliberately
+ * cheap: resolveClubManagerClubs/resolveCityManagerClubs only (no attention/
+ * training/roster queries) — those run once, only for whichever ONE context
+ * ends up actually selected (getCityManagerHomeBlock/getClubManagerHomeBlock
+ * below), never for every context up front.
+ *
+ * PERSONAL is included only when the real user has an EmployeeProfile at all
+ * — a pure network-tier actor with none has no personal Plan/XP/Rating to
+ * show (never fabricated). Every managed club is its OWN CLUB_MANAGER entry
+ * (section 7 — never an arbitrarily picked "first" club); CITY_MANAGER is at
+ * most one entry (a NetworkRole, not a per-city grant list in this system).
+ */
+export async function resolveAvailableHomeContexts(
+  realUser: CurrentUser,
+  actor: ActorContext,
+): Promise<HomeContextDTO[]> {
+  const contexts: HomeContextDTO[] = [];
+  if (realUser.employeeProfile) {
+    contexts.push({ type: "PERSONAL", label: "Личный кабинет" });
+  }
+
+  if (hasActiveRole(actor.grants, "CLUB_MANAGER")) {
+    const clubs = await resolveClubManagerClubs(realUser, actor);
+    for (const club of clubs) {
+      contexts.push({ type: "CLUB_MANAGER", clubId: club.id, clubName: club.name, label: `Управляющий · ${club.name}` });
+    }
+  }
+
+  if (hasActiveRole(actor.grants, "CITY_MANAGER")) {
+    const clubs = await resolveCityManagerClubs(actor);
+    const cityNames = distinctCityNames(clubs);
+    const scopeLabel =
+      cityNames.length === 0
+        ? pluralRu(clubs.length, "клуб", "клуба", "клубов")
+        : cityNames.length === 1
+          ? cityNames[0]
+          : `Города: ${cityNames.join(", ")}`;
+    contexts.push({ type: "CITY_MANAGER", label: `Ст. города · ${scopeLabel}` });
+  }
+
+  return contexts;
+}
+
+/**
+ * The CITY_MANAGER context's own working-cabinet content (section 5) — the
+ * SAME step-4 dashboard the desktop cabinet and the Mini App's /city screen
+ * already use, reshaped into Home's lean rows. Only ever called once the
+ * CITY_MANAGER context is the ACTIVE one — never speculatively for every
+ * context (see resolveAvailableHomeContexts's header comment).
+ */
+export async function getCityManagerHomeBlock(actor: ActorContext): Promise<CityManagerHomeBlockDTO> {
+  const dashboard = await getCityManagerDashboard(actor);
+  const cityNames = distinctCityNames(dashboard.clubs);
+  const scopeLabel =
+    cityNames.length === 0
+      ? pluralRu(dashboard.summary.clubCount, "клуб", "клуба", "клубов")
+      : cityNames.length === 1
+        ? cityNames[0]
+        : `Города: ${cityNames.join(", ")}`;
+  return {
+    scopeLabel,
+    clubCount: dashboard.summary.clubCount,
+    employeeCount: dashboard.summary.employeeCount,
+    clubManagerCount: dashboard.summary.clubManagerCount,
+    pendingApprovalCount: dashboard.summary.pendingApprovalCount,
+    attention: toHomeAttention(dashboard.attention),
+    clubs: dashboard.clubs.map((c) => ({
+      clubId: c.clubId,
+      clubName: c.clubName,
+      employeeCount: c.employeeCount,
+      managerName: c.activeClubManager?.displayName ?? null,
+      attentionCount: c.attentionCount,
+      trainingCompletionPercent: c.trainingCompletionPercent,
+    })),
+    training: dashboard.training
+      ? {
+          totalPublishedLessons: dashboard.training.totalPublishedLessons,
+          averageProgressPercent: dashboard.training.averageProgressPercent,
+          employeesCompletedAll: dashboard.training.employeesCompletedAll,
+        }
+      : null,
+  };
+}
+
+/**
+ * The CLUB_MANAGER context's own working-cabinet content for ONE specific,
+ * already-resolved club (section 6) — shared by the real-actor path (a
+ * context the switcher listed) and the View-As-CLUB_MANAGER preview path
+ * (the previewed club, isPreviewing:true). Reuses loadEmployees directly
+ * (NOT getClubManagerDashboard) specifically to avoid that function's
+ * getPlanTodayFor call — the Daily Plan for this context is fetched
+ * separately, once, by the caller (home.ts's getClubManagerHomeDashboard),
+ * exactly like the pre-existing getClubManagerDashboard route does it.
+ */
+export async function getClubManagerHomeBlock(
   clubId: string,
   clubName: string | null,
-  managedClubCount: number,
   isPreviewing: boolean,
 ): Promise<ClubManagerHomeBlockDTO> {
   const employees = await loadEmployees([clubId]);
@@ -585,7 +675,6 @@ async function buildClubManagerHomeBlock(
   const { totalPublishedLessons, completedByUser } = await loadTrainingRaw(employees.map((e) => e.userId));
   const training = summarizeClubTraining(employees.map((e) => e.userId), totalPublishedLessons, completedByUser);
   return {
-    role: "CLUB_MANAGER",
     clubId,
     clubLabel: clubName ?? "Клуб",
     employeeCount: employees.length,
@@ -597,90 +686,6 @@ async function buildClubManagerHomeBlock(
       clubId,
     })),
     training,
-    managedClubCount,
     isPreviewing,
   };
-}
-
-/**
- * Sprint: mini-app-role-experience, section 5 — the single decision point
- * `/api/home` calls to learn what (if any) management summary to render
- * above a role-aware Home's personal content. Precedence CITY_MANAGER >
- * CLUB_MANAGER > none for the REAL actor (section 5); an active
- * View-As-CLUB_MANAGER preview overrides that to show the previewed club's
- * block with isPreviewing:true (section 7 — CITY_MANAGER previewing
- * CLUB_MANAGER stays read-only, enforced server-side elsewhere, not by this
- * flag); an active View-As-MANAGER preview suppresses the block entirely —
- * "normal employee experience" (section 18). Additive only: never mutates or
- * revokes anything, purely reads the actor's existing grants.
- */
-export async function resolveManagementHomeBlock(
-  realUser: CurrentUser,
-  viewContext: ViewContext | null,
-): Promise<ManagementHomeBlockDTO | null> {
-  if (viewContext?.previewRole === "MANAGER") return null;
-
-  if (viewContext?.previewRole === "CLUB_MANAGER" && viewContext.previewClubId) {
-    const clubId = viewContext.previewClubId;
-    return buildClubManagerHomeBlock(clubId, getClubById(clubId)?.name ?? null, 1, true);
-  }
-
-  const actor = await getActorContext(realUser);
-
-  if (hasActiveRole(actor.grants, "CITY_MANAGER")) {
-    const dashboard = await getCityManagerDashboard(actor);
-    const cityNames = distinctCityNames(dashboard.clubs);
-    const scopeLabel =
-      cityNames.length === 0
-        ? pluralRu(dashboard.summary.clubCount, "клуб", "клуба", "клубов")
-        : cityNames.length === 1
-          ? cityNames[0]
-          : `Города: ${cityNames.join(", ")}`;
-    return {
-      role: "CITY_MANAGER",
-      scopeLabel,
-      clubCount: dashboard.summary.clubCount,
-      employeeCount: dashboard.summary.employeeCount,
-      clubManagerCount: dashboard.summary.clubManagerCount,
-      pendingApprovalCount: dashboard.summary.pendingApprovalCount,
-      attention: toHomeAttention(dashboard.attention),
-      clubs: dashboard.clubs.map((c) => ({
-        clubId: c.clubId,
-        clubName: c.clubName,
-        employeeCount: c.employeeCount,
-        managerName: c.activeClubManager?.displayName ?? null,
-        attentionCount: c.attentionCount,
-        trainingCompletionPercent: c.trainingCompletionPercent,
-      })),
-      training: dashboard.training
-        ? {
-            totalPublishedLessons: dashboard.training.totalPublishedLessons,
-            averageProgressPercent: dashboard.training.averageProgressPercent,
-            employeesCompletedAll: dashboard.training.employeesCompletedAll,
-          }
-        : null,
-    };
-  }
-
-  if (hasActiveRole(actor.grants, "CLUB_MANAGER")) {
-    const clubs = await resolveClubManagerClubs(realUser, actor);
-    if (clubs.length === 0) return null;
-    if (clubs.length > 1) {
-      return {
-        role: "CLUB_MANAGER",
-        clubId: null,
-        clubLabel: `${clubs.length} ${pluralRu(clubs.length, "клубом", "клубами", "клубами")}`,
-        employeeCount: null,
-        pendingApprovalCount: null,
-        attention: [],
-        training: null,
-        managedClubCount: clubs.length,
-        isPreviewing: false,
-      };
-    }
-    const club = clubs[0];
-    return buildClubManagerHomeBlock(club.id, club.name, 1, false);
-  }
-
-  return null;
 }

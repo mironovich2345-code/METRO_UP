@@ -1,6 +1,6 @@
 import "server-only";
 import type { CurrentUser } from "./session";
-import { getPlanToday } from "./daily-plan";
+import { getPlanToday, getPlanTodayFor } from "./daily-plan";
 import { getXpBalance } from "./progress";
 import { getRatingSummary } from "./rating";
 import { getMysterySummary } from "./mystery";
@@ -9,14 +9,14 @@ import { settleWidget } from "./home-resolve";
 import { getPositionById } from "@/content/positions";
 import { getClubById, getCityById } from "@/content/cities";
 import { resolveOnboardingProgramId, getAcademyOverview } from "./academy";
-import { resolveManagementHomeBlock } from "./rbac/cabinet-dashboards";
-import { formatRoleLabel } from "@/lib/cabinet-ui";
-import type { EffectiveReadContext } from "./rbac/effective-context";
-import type { ViewContext } from "./rbac/view-as";
+import { getCityManagerHomeBlock, getClubManagerHomeBlock } from "./rbac/cabinet-dashboards";
+import type { ActorContext } from "./rbac/types";
 import type {
+  CityManagerHomeContextDTO,
+  ClubManagerHomeContextDTO,
   DailyPlanDTO,
+  HomeContextDTO,
   HomeDashboardDTO,
-  ManagementHomeBlockDTO,
   MysterySummaryDTO,
   OnboardingHomeDTO,
   RatingSummaryDTO,
@@ -31,37 +31,33 @@ const EMPTY_RATING: RatingSummaryDTO = { hasData: false };
 const EMPTY_MYSTERY: MysterySummaryDTO = { hasData: false };
 
 /**
- * Single Home read model — aggregates profile, daily plan (top 3), XP, rating
- * summary, mystery summary and achievement count from PostgreSQL. No mock data;
- * missing data surfaces as honest empty states in each card. Each widget is
- * FAULT-ISOLATED (ported from main's dc9f8e8 — see home-resolve.ts): one
- * failing data call degrades only that card (logged via
- * settleWidget/logHomeWidgetError), it can never make /api/home 500 and blank
- * the whole page.
+ * PERSONAL context — Sprint: mini-app-context-switcher, section 4:
+ * "as close as possible to the pre-role-refactor MANAGER experience." Same
+ * aggregate this function has always computed (profile, daily plan top 3,
+ * XP, rating summary, mystery summary, achievement count) — NO management
+ * data of any kind is resolved or attached here anymore; a CITY_MANAGER/
+ * CLUB_MANAGER context is a completely separate response (see
+ * getCityManagerHomeDashboard/getClubManagerHomeDashboard below), never
+ * appended to this one. Each widget stays FAULT-ISOLATED (ported from main's
+ * dc9f8e8 — see home-resolve.ts): one failing data call degrades only that
+ * card, never the whole response.
  *
  * Real users ONLY — this calls getPlanToday(), which materializes today's
  * DailyTask rows (daily-plan.ts's ensureTodayTasks). See getHomeDashboardFor
  * below for the View As entry point, which must never reach that write.
- *
- * Sprint: mini-app-role-experience, section 5 — `viewContext` is passed
- * through untouched to resolveManagementHomeBlock purely so a CITY_MANAGER's
- * own self-preview (previewRole "CITY_MANAGER", isPreviewing already false —
- * see effective-context.ts) still resolves the SAME management block as no
- * preview at all, rather than this function having to know about that case
- * itself. `management`/`roleLabel` are additive fields only — every existing
- * field (`plan`/`xp`/`rating`/`mystery`/`achievementsCount`/`lastAchievement`)
- * is untouched, so a plain MANAGER's Home (management: null) is byte-for-byte
- * what it always was, plus the two new fields.
  */
-export async function getHomeDashboard(user: CurrentUser, viewContext: ViewContext | null = null): Promise<HomeDashboardDTO> {
-  const [plan, xp, rating, mystery, achievementsCount, lastAchievement, management] = await Promise.all([
+export async function getHomeDashboard(
+  user: CurrentUser,
+  availableContexts: HomeContextDTO[],
+  activeContext: HomeContextDTO,
+): Promise<HomeDashboardDTO> {
+  const [plan, xp, rating, mystery, achievementsCount, lastAchievement] = await Promise.all([
     settleWidget("plan", () => getPlanToday(user), EMPTY_PLAN),
     settleWidget("xp", () => getXpBalance(user.id), EMPTY_XP),
     settleWidget("rating", () => getRatingSummary(user.id), EMPTY_RATING),
     settleWidget("mystery", () => getMysterySummary(user.id), EMPTY_MYSTERY),
     settleWidget("achievements_count", () => countUserAchievements(user.id), 0),
     settleWidget<Awaited<ReturnType<typeof getLastAchievement>>>("last_achievement", () => getLastAchievement(user.id), null),
-    settleWidget<ManagementHomeBlockDTO | null>("management", () => resolveManagementHomeBlock(user, viewContext), null),
   ]);
 
   return {
@@ -73,8 +69,8 @@ export async function getHomeDashboard(user: CurrentUser, viewContext: ViewConte
     mystery,
     achievementsCount,
     lastAchievement,
-    roleLabel: formatRoleLabel(management),
-    management,
+    availableContexts,
+    activeContext,
   };
 }
 
@@ -88,49 +84,37 @@ function profileCard(user: CurrentUser): HomeDashboardDTO["profile"] {
   };
 }
 
-/**
- * Sprint 1 / Phase 2D — View As entry point for /api/home. Takes the whole
- * EffectiveReadContext (not just effectiveUser/isPreviewing) because Sprint:
- * mini-app-role-experience's management block needs BOTH the real actor
- * (whose actual grants decide CITY_MANAGER/CLUB_MANAGER precedence — a
- * synthetic persona has no RoleAssignment rows of its own) and the raw
- * viewContext (which preview role/club is active) — see
- * rbac/cabinet-dashboards.ts's resolveManagementHomeBlock.
- *
- * When NOT previewing this is byte-for-byte getHomeDashboard(effectiveUser,
- * viewContext) (effectiveUser === realUser in that case) — zero behavior
- * change for every real user. When previewing, it deliberately does NOT call
- * getPlanToday(): that function's ensureTodayTasks() step INSERTs DailyTask
- * rows keyed on userId, which has a NOT NULL foreign key to `users.id` — the
- * synthetic persona's id does not exist in that table, so the insert would
- * either throw a foreign-key violation (breaking the preview) or, if the FK
- * were ever relaxed, silently create orphan rows tied to a fake user. Every
- * other card here (XP/rating/mystery/achievements) is a pure read keyed by
- * userId with no such write, so those are safe to call as-is — they correctly
- * return zeroed/empty results for an id with no rows. `management` is resolved
- * against realUser (never effectiveUser) for the same reason — section 18:
- * previewing MANAGER suppresses it entirely; previewing CLUB_MANAGER shows
- * that club's block with isPreviewing:true; the CITY_MANAGER-previews-CLUB_
- * MANAGER read-only guarantee is enforced independently, server-side, by the
- * View As middleware blocking writes — this flag only affects what renders.
- *
- * Same fault isolation as getHomeDashboard applies here — each of the 6 live
- * widgets is wrapped in settleWidget, so a failure while previewing degrades
- * only that card, exactly like it would for a real user. `plan` is not a
- * settleWidget call at all: it's a fixed empty value, not a data call that
- * can fail, so there's nothing to isolate.
- */
-export async function getHomeDashboardFor(ctx: EffectiveReadContext): Promise<HomeDashboardDTO> {
-  const { realUser, effectiveUser, isPreviewing, viewContext } = ctx;
-  if (!isPreviewing) return getHomeDashboard(effectiveUser, viewContext);
+const PERSONAL: HomeContextDTO = { type: "PERSONAL", label: "Личный кабинет" };
 
-  const [xp, rating, mystery, achievementsCount, lastAchievement, management] = await Promise.all([
+/**
+ * Sprint 1 / Phase 2D — View As entry point for /api/home during an active
+ * MANAGER persona preview ONLY (Sprint: mini-app-context-switcher, section
+ * 13: View As is a SEPARATE mechanism from context switching — while this
+ * preview is active, context switching does not apply at all, so the
+ * response always carries an empty availableContexts + the bare PERSONAL
+ * activeContext, exactly matching the real employee experience this preview
+ * exists to show). The caller (api/home/route.ts) is what decides whether
+ * this or getHomeDashboard/getCityManagerHomeDashboard/
+ * getClubManagerHomeDashboard applies — this function assumes the
+ * MANAGER-preview branch has already been chosen.
+ *
+ * Deliberately does NOT call getPlanToday(): that function's
+ * ensureTodayTasks() step INSERTs DailyTask rows keyed on userId, which has
+ * a NOT NULL foreign key to `users.id` — the synthetic persona's id does not
+ * exist in that table, so the insert would either throw a foreign-key
+ * violation (breaking the preview) or, if the FK were ever relaxed, silently
+ * create orphan rows tied to a fake user. Every other card here (XP/rating/
+ * mystery/achievements) is a pure read keyed by userId with no such write,
+ * so those are safe to call as-is — they correctly return zeroed/empty
+ * results for an id with no rows.
+ */
+export async function getPersonalHomeDashboardForPreview(effectiveUser: CurrentUser): Promise<HomeDashboardDTO> {
+  const [xp, rating, mystery, achievementsCount, lastAchievement] = await Promise.all([
     settleWidget("xp", () => getXpBalance(effectiveUser.id), EMPTY_XP),
     settleWidget("rating", () => getRatingSummary(effectiveUser.id), EMPTY_RATING),
     settleWidget("mystery", () => getMysterySummary(effectiveUser.id), EMPTY_MYSTERY),
     settleWidget("achievements_count", () => countUserAchievements(effectiveUser.id), 0),
     settleWidget<Awaited<ReturnType<typeof getLastAchievement>>>("last_achievement", () => getLastAchievement(effectiveUser.id), null),
-    settleWidget<ManagementHomeBlockDTO | null>("management", () => resolveManagementHomeBlock(realUser, viewContext), null),
   ]);
 
   return {
@@ -144,20 +128,67 @@ export async function getHomeDashboardFor(ctx: EffectiveReadContext): Promise<Ho
     mystery,
     achievementsCount,
     lastAchievement,
-    roleLabel: formatRoleLabel(management),
-    management,
+    availableContexts: [],
+    activeContext: PERSONAL,
+  };
+}
+
+/**
+ * CITY_MANAGER context — Sprint: mini-app-context-switcher, section 5.
+ * Management content ONLY (getCityManagerHomeBlock, the same step-4
+ * dashboard the desktop cabinet and /city already use) — no personal Plan/
+ * XP/Rating/Mystery/achievements anywhere on this response.
+ */
+export async function getCityManagerHomeDashboard(
+  realUser: CurrentUser,
+  actor: ActorContext,
+  availableContexts: HomeContextDTO[],
+  activeContext: HomeContextDTO,
+): Promise<CityManagerHomeContextDTO> {
+  const block = await getCityManagerHomeBlock(actor);
+  return { kind: "city_manager", profile: profileCard(realUser), block, availableContexts, activeContext };
+}
+
+/**
+ * CLUB_MANAGER context — Sprint: mini-app-context-switcher, section 6. Item
+ * 2 ("План на сегодня") reuses the EXISTING Daily Plan primitive
+ * (getPlanTodayFor, already View-As-aware and already the one
+ * getClubManagerDashboard/the desktop cabinet uses) — never a new plan
+ * system. `effectiveUser`/`isPreviewing` mirror getHomeDashboardFor exactly:
+ * a real actor's own club uses their real id; an active View-As-CLUB_MANAGER
+ * preview uses the synthetic persona, which getPlanTodayFor already knows
+ * not to materialize tasks for.
+ */
+export async function getClubManagerHomeDashboard(
+  clubId: string,
+  clubName: string | null,
+  effectiveUser: CurrentUser,
+  isPreviewing: boolean,
+  availableContexts: HomeContextDTO[],
+  activeContext: HomeContextDTO,
+): Promise<ClubManagerHomeContextDTO> {
+  const [plan, block] = await Promise.all([
+    settleWidget("plan", () => getPlanTodayFor(effectiveUser, isPreviewing), EMPTY_PLAN),
+    getClubManagerHomeBlock(clubId, clubName, isPreviewing),
+  ]);
+  return {
+    kind: "club_manager",
+    profile: profileCard(effectiveUser),
+    plan: { total: plan.total, completed: plan.completed, tasks: plan.tasks.slice(0, 3) },
+    block,
+    availableContexts,
+    activeContext,
   };
 }
 
 /**
  * Sprint: mini-app-role-experience, section 2 — the PENDING_APPROVAL Home
  * read model. Deliberately tiny: profile + one onboarding-course summary,
- * nothing else (no plan/xp/rating/mystery/management — those fields don't
- * exist on OnboardingHomeDTO at all, so there is no way for this to leak
- * restricted data even by accident). Reuses getAcademyOverview exactly as the
- * Academy routes do, restricted to the same resolveOnboardingProgramId()
- * program — see academy.ts's isAcademyContentAllowed for the shared
- * scope rule this mirrors.
+ * nothing else — no context concept applies to this state at all (no
+ * availableContexts field even exists on OnboardingHomeDTO). Reuses
+ * getAcademyOverview exactly as the Academy routes do, restricted to the
+ * same resolveOnboardingProgramId() program — see academy.ts's
+ * isAcademyContentAllowed for the shared scope rule this mirrors.
  */
 export async function getOnboardingHomeDashboard(user: CurrentUser): Promise<OnboardingHomeDTO> {
   const academy = await settleWidget<OnboardingHomeDTO["academy"]>(
