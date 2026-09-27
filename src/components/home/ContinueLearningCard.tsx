@@ -11,13 +11,18 @@ import type { AcademyStateDTO } from "@/lib/api/content-types";
  * "Продолжить обучение" — the next available, not-completed PUBLISHED lesson from
  * PostgreSQL. CTA links straight to /academy/lesson/[slug]. After a lesson is
  * completed it re-resolves to the next one. Uses NO mock lesson data.
+ *
+ * Sprint: manual-test-round-2, section 4 — only ever rendered inside the
+ * PERSONAL Home context (home/page.tsx), so it explicitly requests the
+ * MANAGER Academy section — never a role-section this card has no UI to
+ * disambiguate for.
  */
 export function ContinueLearningCard() {
   const [state, setState] = useState<AcademyStateDTO | null>(null);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    fetchAcademyState()
+    fetchAcademyState("MANAGER")
       .then(setState)
       .catch(() => setState(null))
       .finally(() => setLoaded(true));

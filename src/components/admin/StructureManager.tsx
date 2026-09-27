@@ -3,9 +3,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { Archive, ChevronDown, ChevronUp, FolderTree, X } from "lucide-react";
 import { adminApi, type AdminProgramTree } from "@/lib/api/content-client";
+import type { AcademyTargetRoleDTO } from "@/lib/api/content-types";
 import { InlineCreate, StatusBadge, fieldCls } from "./ui";
 import { Modal } from "@/components/control/Modal";
 import { formatDayLabel, dayNeedsTitle, daysWord, sectionsWord } from "@/lib/learning-format";
+
+/** Sprint: manual-test-round-2, section 4 — the minimal CMS control for
+ * TrainingProgram.targetRole. Not a PROJECT_ADMIN UI redesign, one select. */
+const TARGET_ROLE_LABEL: Record<AcademyTargetRoleDTO, string> = {
+  MANAGER: "Менеджер",
+  CLUB_MANAGER: "Управляющий",
+  CITY_MANAGER: "Ст. города",
+};
 
 /**
  * Structure management — the ONLY place the technical hierarchy is edited, kept
@@ -96,6 +105,20 @@ function ProgramBlock({ program, busy, run }: { program: AdminProgramTree; busy:
       {open && (
         <div className="mt-4 space-y-5">
           <InlineRename label="Название программы" value={program.title} disabled={busy} onSave={(t) => run(() => adminApi.updateProgram(program.id, { title: t }))} />
+
+          <div>
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Академия — раздел</p>
+            <select
+              className={fieldCls}
+              value={program.targetRole}
+              disabled={busy}
+              onChange={(e) => run(() => adminApi.updateProgram(program.id, { targetRole: e.target.value }))}
+            >
+              {(Object.keys(TARGET_ROLE_LABEL) as AcademyTargetRoleDTO[]).map((role) => (
+                <option key={role} value={role}>{TARGET_ROLE_LABEL[role]}</option>
+              ))}
+            </select>
+          </div>
 
           {/* Days */}
           <div>

@@ -153,6 +153,27 @@ export interface AcademyOverviewDTO {
   xpTotal: number;
 }
 
+/**
+ * Sprint: manual-test-round-2, section 4 — Academy role sections. Same three
+ * values as the Mini App's HomeContextType (minus PERSONAL, which maps to
+ * MANAGER here — "Личный кабинет" trains as a MANAGER). A higher role's
+ * `allowedSections` includes every role below it (CITY_MANAGER ⊇
+ * CLUB_MANAGER ⊇ MANAGER), but each section is its own separate, non-merged
+ * tab — never a combined list (see academy.ts's resolveAcademyProgramIdsForSection).
+ */
+export type AcademyTargetRoleDTO = "MANAGER" | "CLUB_MANAGER" | "CITY_MANAGER";
+
+/** Present on GET /api/academy/overview and /api/academy/state responses
+ * only for LIMITED/FULL (never PENDING_APPROVAL's onboarding path, which has
+ * no section concept) — `allowedSections` drives the tab UI, `activeSection`
+ * is whichever section this specific response's content was filtered to
+ * (the server's own resolved choice, echoed back exactly like Home's
+ * activeContext — never trust a client-persisted value without this). */
+export interface AcademySectionsDTO {
+  allowedSections: AcademyTargetRoleDTO[];
+  activeSection: AcademyTargetRoleDTO;
+}
+
 export interface AcademyLessonRowDTO {
   id: string;
   slug: string;

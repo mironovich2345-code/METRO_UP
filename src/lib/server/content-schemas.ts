@@ -147,14 +147,22 @@ export function safeParseBlockData(type: string, data: unknown) {
 
 /* ------------------------------ program/day/course ----------------------- */
 
+/** Sprint: manual-test-round-2, section 4 — the minimal CMS capability
+ * needed to maintain TrainingProgram.targetRole; no PROJECT_ADMIN UI
+ * redesign, just this one field on the existing program create/update
+ * schemas. Omitted on create defaults to MANAGER at the DB level (schema.prisma). */
+const targetRole = z.enum(["MANAGER", "CLUB_MANAGER", "CITY_MANAGER"]).optional();
+
 export const programCreateSchema = z.object({
   title,
   description: optionalText,
+  targetRole,
 });
 export const programUpdateSchema = z.object({
   title: title.optional(),
   description: optionalText,
   order,
+  targetRole,
 });
 
 export const dayCreateSchema = z.object({

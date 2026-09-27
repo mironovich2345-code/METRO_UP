@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { CheckCircle2, Clock, GraduationCap, Lock } from "lucide-react";
@@ -11,34 +11,88 @@ import { Badge } from "@/components/ui/badge";
 import { XPProgress } from "@/components/ui/xp-progress";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Button } from "@/components/ui/button";
+import { useApp } from "@/providers/app-provider";
 import { cardIn, staggerStack } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { haptic } from "@/lib/telegram";
+import { homeContextToAcademySection } from "@/lib/cabinet-ui";
+import { loadStoredContext } from "@/lib/home-context-storage";
 import { fetchAcademyOverview } from "@/lib/api/content-client";
-import type { AcademyDayCardDTO, AcademyOverviewDTO } from "@/lib/api/content-types";
+import type { AcademyDayCardDTO, AcademyOverviewDTO, AcademySectionsDTO, AcademyTargetRoleDTO } from "@/lib/api/content-types";
+
+const SECTION_LABEL: Record<AcademyTargetRoleDTO, string> = {
+  MANAGER: "Менеджер",
+  CLUB_MANAGER: "Управляющий",
+  CITY_MANAGER: "Ст. города",
+};
 
 /**
  * Academy — DB/CMS is the source of truth. Programs, days, lessons and progress
  * all come from PostgreSQL (PUBLISHED lessons only). No static mock lesson data.
+ *
+ * Sprint: manual-test-round-2, section 4 — role-based Academy sections. The
+ * server (GET /api/academy/overview?section=) is what actually decides both
+ * WHICH sections exist (allowedSections, from the real actor's current
+ * RoleAssignment grants) and which one a request's content belongs to
+ * (activeSection) — this page only renders whatever it's told and asks for a
+ * different one on tap; it can never fabricate access to a section the
+ * server won't also independently confirm.
  */
 export default function AcademyScreen() {
-  const [data, setData] = useState<AcademyOverviewDTO | null>(null);
+  const { telegramUser } = useApp();
+  const [data, setData] = useState<(AcademyOverviewDTO & Partial<AcademySectionsDTO>) | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const seededDefault = useRef(false);
 
-  const load = () => {
+  const load = (section?: AcademyTargetRoleDTO) => {
     setStatus("loading");
-    fetchAcademyOverview()
+    fetchAcademyOverview(section)
       .then((d) => {
         setData(d);
         setStatus("ready");
       })
       .catch(() => setStatus("error"));
   };
-  useEffect(load, []);
+
+  useEffect(() => {
+    if (seededDefault.current) return;
+    seededDefault.current = true;
+    // Section 4 — "default selected Academy section should follow the active
+    // Mini App context when possible": reads the SAME persisted context Home
+    // uses (home-context-storage.ts) rather than a separate Academy-only
+    // preference — no context concept, no default hint, plain fetch (the
+    // server's own MANAGER-first fallback applies).
+    const ownerKey = telegramUser?.id != null ? String(telegramUser.id) : "demo";
+    const stored = loadStoredContext(ownerKey);
+    load(stored ? homeContextToAcademySection(stored.type) : undefined);
+  }, [telegramUser?.id]);
+
+  const switchSection = (section: AcademyTargetRoleDTO) => {
+    haptic("light");
+    load(section);
+  };
 
   return (
     <div className="relative min-h-[100dvh] pb-32">
       <AppHeader title="Академия" subtitle="Твои курсы и прогресс" />
+
+      {status === "ready" && data?.allowedSections && data.allowedSections.length > 1 && (
+        <div className="flex gap-2 overflow-x-auto px-5 pb-1">
+          {data.allowedSections.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => switchSection(s)}
+              className={cn(
+                "shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition-colors",
+                s === data.activeSection ? "bg-brand text-brand-foreground" : "bg-muted text-muted-foreground active:bg-border",
+              )}
+            >
+              {SECTION_LABEL[s]}
+            </button>
+          ))}
+        </div>
+      )}
 
       <motion.main variants={staggerStack} initial="hidden" animate="show" className="px-5">
         {status === "loading" && (
@@ -54,7 +108,7 @@ export default function AcademyScreen() {
         {status === "error" && (
           <div className="mt-16 text-center">
             <p className="font-semibold">Не удалось загрузить</p>
-            <Button className="mt-4" variant="secondary" onClick={load}>
+            <Button className="mt-4" variant="secondary" onClick={() => load(data?.activeSection)}>
               Повторить
             </Button>
           </div>

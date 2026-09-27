@@ -3,6 +3,8 @@ import type {
   AcademyStateDTO,
   AcademyOverviewDTO,
   AcademyDayDetailDTO,
+  AcademySectionsDTO,
+  AcademyTargetRoleDTO,
   LessonCompleteResultDTO,
   LessonDetailDTO,
   QuizSubmitResultDTO,
@@ -51,11 +53,16 @@ export function submitQuizApi(
     body: JSON.stringify({ answers }),
   });
 }
-export function fetchAcademyState() {
-  return request<AcademyStateDTO>("/api/academy/state");
+export function fetchAcademyState(section?: AcademyTargetRoleDTO) {
+  const qs = section ? `?section=${encodeURIComponent(section)}` : "";
+  return request<AcademyStateDTO>(`/api/academy/state${qs}`);
 }
-export function fetchAcademyOverview() {
-  return request<AcademyOverviewDTO>("/api/academy/overview");
+/** Sprint: manual-test-round-2, section 4 — the response carries
+ * allowedSections/activeSection for LIMITED/FULL (Partial: PENDING_APPROVAL's
+ * onboarding path omits them, no section concept applies there). */
+export function fetchAcademyOverview(section?: AcademyTargetRoleDTO) {
+  const qs = section ? `?section=${encodeURIComponent(section)}` : "";
+  return request<AcademyOverviewDTO & Partial<AcademySectionsDTO>>(`/api/academy/overview${qs}`);
 }
 export async function fetchAcademyDay(dayId: string) {
   const { day } = await request<{ day: AcademyDayDetailDTO }>(
@@ -96,6 +103,9 @@ export interface AdminLessonDetail {
 }
 export interface AdminProgramTree {
   id: string; title: string; description: string | null; status: string; order: number;
+  /** Sprint: manual-test-round-2, section 4 — which Academy tab this program
+   * appears under (MANAGER/CLUB_MANAGER/CITY_MANAGER). */
+  targetRole: AcademyTargetRoleDTO;
   days: { id: string; title: string; dayNumber: number; order: number }[];
   courses: {
     id: string; title: string; order: number; trainingDayId: string | null;

@@ -52,6 +52,11 @@ export async function createProgram(actorUserId: string, input: ProgramCreate) {
     data: {
       title: input.title,
       description: input.description ?? null,
+      // Sprint: manual-test-round-2, section 4 — omitted defaults to MANAGER
+      // at the DB level (schema.prisma) if this were ever undefined; passing
+      // it explicitly here is equivalent, just avoids relying on the client
+      // never sending targetRole at all.
+      targetRole: input.targetRole ?? "MANAGER",
       order: (max._max.order ?? 0) + 1,
       createdById: actorUserId,
       updatedById: actorUserId,
@@ -68,6 +73,7 @@ export async function updateProgram(actorUserId: string, id: string, input: Prog
       title: input.title,
       description: input.description === undefined ? undefined : input.description,
       order: input.order,
+      targetRole: input.targetRole,
       updatedById: actorUserId,
     },
   });

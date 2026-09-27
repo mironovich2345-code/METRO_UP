@@ -1,4 +1,5 @@
-import type { NetworkRole, RoleGrant } from "./types";
+import type { ActorContext, NetworkRole, RoleGrant } from "./types";
+import type { AcademyTargetRoleDTO } from "@/lib/api/content-types";
 
 /**
  * Pure RoleAssignment scope resolution (no DB / server-only import, so it is
@@ -111,4 +112,24 @@ export const OPERATIONS_DIRECTOR_MAX_ACTIVE = 2;
  * ACTIVE)? */
 export function hasOperationsDirectorCapacity(currentActiveCount: number): boolean {
   return currentActiveCount < OPERATIONS_DIRECTOR_MAX_ACTIVE;
+}
+
+/**
+ * Sprint: manual-test-round-2, section 4 — which Academy tabs a real actor
+ * may open at all (never derived from the currently-selected Home context,
+ * which only decides the DEFAULT tab — see homeContextToAcademySection in
+ * cabinet-ui.ts). Strict hierarchy, exactly matching the approved matrix:
+ * MANAGER -> [MANAGER]; CLUB_MANAGER -> [MANAGER, CLUB_MANAGER];
+ * CITY_MANAGER -> all three — "higher role may access training of roles
+ * below it" means a CITY_MANAGER gets the CLUB_MANAGER tab too even without
+ * a SEPARATE, explicit CLUB_MANAGER RoleAssignment of their own (checked
+ * top-down, highest grant wins, never additive-per-grant). Pure — takes the
+ * already-resolved ActorContext, never queries anything itself — so this
+ * lives beside the rest of this file's directly-unit-testable RBAC
+ * decisions rather than the DB-touching cabinet-dashboards.ts.
+ */
+export function resolveAllowedAcademySections(actor: ActorContext): AcademyTargetRoleDTO[] {
+  if (hasActiveRole(actor.grants, "CITY_MANAGER")) return ["MANAGER", "CLUB_MANAGER", "CITY_MANAGER"];
+  if (hasActiveRole(actor.grants, "CLUB_MANAGER")) return ["MANAGER", "CLUB_MANAGER"];
+  return ["MANAGER"];
 }

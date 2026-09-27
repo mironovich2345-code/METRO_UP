@@ -7,6 +7,7 @@ import type {
   AcademyLessonStateDTO,
   AcademyOverviewDTO,
   AcademyDayDetailDTO,
+  AcademyTargetRoleDTO,
 } from "@/lib/api/content-types";
 
 /**
@@ -51,23 +52,58 @@ export async function resolveOnboardingProgramId(): Promise<string | null> {
 
 /**
  * Does `accessStatus` restrict Academy content, and if so, is `target`
- * inside the allowed (onboarding) scope? LIMITED/FULL are never restricted
- * here (unchanged behavior — the LIMITED whitelist already covers all of
- * Academy). Only PENDING_APPROVAL is scoped, to the single program
- * resolveOnboardingProgramId() identifies. Used by every Academy route this
- * phase makes reachable for PENDING_APPROVAL (overview/state/days/lessons)
- * so the restriction is enforced identically everywhere, never duplicated
- * as ad hoc per-route logic.
+ * inside the allowed scope? PENDING_APPROVAL is scoped to the single
+ * onboarding program (resolveOnboardingProgramId), same as before — checked
+ * first and unconditionally, since onboarding has no role-section concept.
+ *
+ * Sprint: manual-test-round-2, section 4 — for LIMITED/FULL, when
+ * `allowedSections` is supplied, `target`'s own program must belong to one
+ * of the actor's real allowed Academy sections (resolveAllowedAcademySections)
+ * — the same enforcement isAcademyContentAllowed already did for
+ * PENDING_APPROVAL, extended so a direct day/lesson link outside every
+ * section a user actually holds still 404s, never merely client-hidden.
+ * `allowedSections` omitted (existing callers, e.g. CMS preview) keeps the
+ * pre-existing "LIMITED/FULL see everything" behavior unchanged.
  */
 export async function isAcademyContentAllowed(
   accessStatus: "LIMITED" | "PENDING_APPROVAL" | "FULL" | "SUSPENDED",
   target: { lessonProgramId: string | null } | { dayProgramId: string | null },
+  allowedSections?: AcademyTargetRoleDTO[],
 ): Promise<boolean> {
-  if (accessStatus !== "PENDING_APPROVAL") return true;
-  const onboardingProgramId = await resolveOnboardingProgramId();
-  if (!onboardingProgramId) return false;
   const programId = "lessonProgramId" in target ? target.lessonProgramId : target.dayProgramId;
-  return programId === onboardingProgramId;
+
+  if (accessStatus === "PENDING_APPROVAL") {
+    const onboardingProgramId = await resolveOnboardingProgramId();
+    if (!onboardingProgramId) return false;
+    return programId === onboardingProgramId;
+  }
+
+  if (allowedSections) {
+    if (!programId) return false;
+    const program = await prisma.trainingProgram.findUnique({ where: { id: programId }, select: { targetRole: true } });
+    if (!program) return false;
+    return (allowedSections as string[]).includes(program.targetRole);
+  }
+
+  return true;
+}
+
+/**
+ * Section 4 — the program ids visible under ONE Academy tab/section. Never a
+ * union across sections (CITY_MANAGER's "Ст. города" tab shows ONLY
+ * CITY_MANAGER-targeted programs, not CLUB_MANAGER/MANAGER's too — those are
+ * their own separate tabs the same actor can also open). Intersected with
+ * programIdsWithPublishedLessons so an empty/all-DRAFT program in the right
+ * section still correctly shows as "no content" rather than an empty tile.
+ */
+export async function resolveAcademyProgramIdsForSection(section: AcademyTargetRoleDTO): Promise<string[]> {
+  const publishedProgramIds = await programIdsWithPublishedLessons();
+  if (publishedProgramIds.length === 0) return [];
+  const rows = await prisma.trainingProgram.findMany({
+    where: { id: { in: publishedProgramIds }, targetRole: section },
+    select: { id: true },
+  });
+  return rows.map((r) => r.id);
 }
 
 /** Resolve a TrainingDay id (or the synthetic "nodays:<programId>" bucket

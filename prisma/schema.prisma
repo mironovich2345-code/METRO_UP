@@ -43,29 +43,29 @@ enum AccessStatus {
 // ------------------------------ Models -----------------------------
 
 model User {
-  id                String   @id @default(uuid()) @db.Uuid
-  telegramId        String   @unique
+  id                String    @id @default(uuid()) @db.Uuid
+  telegramId        String    @unique
   telegramUsername  String?
   telegramFirstName String?
   telegramLastName  String?
   telegramPhotoUrl  String?
   displayName       String
-  role              AppRole  @default(EMPLOYEE)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  role              AppRole   @default(EMPLOYEE)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
   lastLoginAt       DateTime?
 
-  employeeProfile EmployeeProfile?
-  lessonProgress  LessonProgress[]
-  quizAttempts    QuizAttempt[]
-  xpTransactions  XPTransaction[]
-  dailyTasks      DailyTask[]
-  mysteryResults  MysteryShopperResult[]
-  monthlyRatings  MonthlyRating[]
-  achievements    UserAchievement[]
+  employeeProfile     EmployeeProfile?
+  lessonProgress      LessonProgress[]
+  quizAttempts        QuizAttempt[]
+  xpTransactions      XPTransaction[]
+  dailyTasks          DailyTask[]
+  mysteryResults      MysteryShopperResult[]
+  monthlyRatings      MonthlyRating[]
+  achievements        UserAchievement[]
   metricConversations MetricConversation[]
-  roleAssignments RoleAssignment[]
-  employmentHistory EmploymentAssignment[]
+  roleAssignments     RoleAssignment[]
+  employmentHistory   EmploymentAssignment[]
 
   @@index([telegramId])
   @@map("users")
@@ -116,17 +116,18 @@ model Club {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  city             City              @relation(fields: [cityId], references: [id], onDelete: Cascade)
-  employeeProfiles EmployeeProfile[]
-  taskTemplates    ClubTaskTemplate[]
-  roleAssignments  RoleAssignment[]
+  city              City                   @relation(fields: [cityId], references: [id], onDelete: Cascade)
+  employeeProfiles  EmployeeProfile[]
+  taskTemplates     ClubTaskTemplate[]
+  roleAssignments   RoleAssignment[]
   employmentHistory EmploymentAssignment[]
 
   @@index([cityId])
   @@map("clubs")
 }
 
-/* =========================================================================
+/**
+ * =========================================================================
  * RBAC foundation (Sprint 1 / Phase 2A) — network-wide role hierarchy.
  * Additive, parallel to the legacy `AppRole` axis (see authz.ts comments):
  * AppRole keeps gating session identity + existing CMS/content-admin routes
@@ -134,7 +135,8 @@ model Club {
  * management). RoleAssignment is the target source of truth for the new
  * PROJECT_ADMIN / OPERATIONS_DIRECTOR / CITY_MANAGER / CLUB_MANAGER / MANAGER
  * hierarchy. A user may hold several concurrent RoleAssignment rows.
- * ========================================================================= */
+ * =========================================================================
+ */
 
 enum NetworkRole {
   PROJECT_ADMIN
@@ -142,6 +144,18 @@ enum NetworkRole {
   CITY_MANAGER
   CLUB_MANAGER
   MANAGER
+}
+
+/// Sprint: manual-test-round-2, section 4 — Academy role sections. Distinct
+/// from NetworkRole (not reused directly): Academy content only ever targets
+/// the three Mini-App-facing tiers a real employee/manager can be — never
+/// PROJECT_ADMIN/OPERATIONS_DIRECTOR, who have no Academy tab at all. Same
+/// string values as NetworkRole/ViewAsRole for the three roles that DO
+/// overlap, by convention, not by type reuse.
+enum AcademyTargetRole {
+  MANAGER
+  CLUB_MANAGER
+  CITY_MANAGER
 }
 
 enum RoleScopeType {
@@ -319,21 +333,28 @@ enum AuditAction {
 }
 
 model TrainingProgram {
-  id          String        @id @default(uuid()) @db.Uuid
+  id          String            @id @default(uuid()) @db.Uuid
   title       String
   description String?
-  status      ContentStatus @default(DRAFT)
-  order       Int           @default(0)
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  status      ContentStatus     @default(DRAFT)
+  order       Int               @default(0)
+  /// Sprint: manual-test-round-2, section 4 — which Academy tab this program
+  /// appears under (MANAGER/CLUB_MANAGER/CITY_MANAGER). Defaults to MANAGER
+  /// so every pre-existing program (all current manager/basic-adaptation
+  /// content) keeps its exact current visibility with zero data migration —
+  /// this default is what makes the column additive, not destructive.
+  targetRole  AcademyTargetRole @default(MANAGER)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
   publishedAt DateTime?
-  createdById String        @db.Uuid
-  updatedById String        @db.Uuid
+  createdById String            @db.Uuid
+  updatedById String            @db.Uuid
 
   days    TrainingDay[]
   courses Course[]
 
   @@index([status])
+  @@index([targetRole])
   @@map("training_programs")
 }
 
@@ -671,16 +692,16 @@ model ClubTaskTemplate {
 }
 
 model DailyTaskChecklistItem {
-  id          String   @id @default(uuid()) @db.Uuid
-  dailyTaskId String   @db.Uuid
+  id          String    @id @default(uuid()) @db.Uuid
+  dailyTaskId String    @db.Uuid
   itemId      String
   text        String
-  required    Boolean  @default(true)
-  order       Int      @default(0)
-  done        Boolean  @default(false)
+  required    Boolean   @default(true)
+  order       Int       @default(0)
+  done        Boolean   @default(false)
   doneAt      DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   dailyTask DailyTask @relation(fields: [dailyTaskId], references: [id], onDelete: Cascade)
 
@@ -713,16 +734,16 @@ model MysteryShopperResult {
 }
 
 model MonthlySalesInput {
-  id             String   @id @default(uuid()) @db.Uuid
-  employeeUserId String   @db.Uuid
-  month          Int
-  year           Int
-  personalPlan   Int
-  personalFact   Int
-  salesScore     Float?
-  enteredByUserId String  @db.Uuid
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id              String   @id @default(uuid()) @db.Uuid
+  employeeUserId  String   @db.Uuid
+  month           Int
+  year            Int
+  personalPlan    Int
+  personalFact    Int
+  salesScore      Float?
+  enteredByUserId String   @db.Uuid
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   @@unique([employeeUserId, month, year])
   @@index([year, month])
@@ -848,12 +869,14 @@ model RatingAuditLog {
   @@map("rating_audit_logs")
 }
 
-/* =========================================================================
+/**
+ * =========================================================================
  * Knowledge base — Scripts + Work Instructions (production CMS).
  * Independent knowledge objects (NOT linked to Lesson). Reuse ContentStatus
  * and the structured RichText document model. Employee API returns PUBLISHED
  * only. Additive — no existing table/column is modified.
- * ========================================================================= */
+ * =========================================================================
+ */
 
 model ScriptCategory {
   id          String   @id @default(uuid()) @db.Uuid
@@ -932,7 +955,9 @@ model WorkInstruction {
   @@map("work_instructions")
 }
 
-/* Sensitive administrative changes (role / club / position) audit trail. */
+/**
+ * Sensitive administrative changes (role / club / position) audit trail.
+ */
 /// Sensitive administrative changes audit trail — extended for the RBAC
 /// foundation (Sprint 1 / Phase 2A). All 4 new columns are nullable so every
 /// pre-existing row (action: "USER_UPDATE" / "ACCESS_GRANT") stays valid
@@ -982,10 +1007,12 @@ model RateLimitHit {
   @@map("rate_limit_hits")
 }
 
-/* =========================================================================
+/**
+ * =========================================================================
  * Metric AI v1 — knowledge sync state + employee conversations.
  * Additive only. No secrets are stored (never the OpenAI key or raw errors).
- * ========================================================================= */
+ * =========================================================================
+ */
 
 enum KnowledgeSourceType {
   ACADEMY
@@ -1065,7 +1092,9 @@ model MetricMessage {
   @@map("metric_messages")
 }
 
-/* Metric corporate documents — a fourth managed knowledge source (V1). */
+/**
+ * Metric corporate documents — a fourth managed knowledge source (V1).
+ */
 enum MetricDocCategory {
   TRAINING_MANUAL
   CLUB_RULES

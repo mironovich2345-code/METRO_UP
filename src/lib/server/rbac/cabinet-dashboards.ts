@@ -689,3 +689,11 @@ export async function getClubManagerHomeBlock(
     isPreviewing,
   };
 }
+
+// resolveAllowedAcademySections moved to ./scope-core.ts — it's pure (no DB
+// call, just actor.grants) and belongs with the rest of this codebase's
+// directly-unit-testable RBAC decisions, not this DB-touching module (see
+// scope-core.ts's own doc comment on why: this file has "server-only" at its
+// top, which throws if ever imported outside a Next.js server build —
+// exactly what a plain `node --test` run would do to a pure function stranded
+// here).

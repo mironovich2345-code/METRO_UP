@@ -4,6 +4,8 @@ import { requireActiveAccess } from "@/lib/server/authz";
 import { jsonOk, jsonError, handleError } from "@/lib/server/http";
 import { completeLesson } from "@/lib/server/progress";
 import { isAcademyContentAllowed } from "@/lib/server/academy";
+import { getActorContext } from "@/lib/server/rbac/context";
+import { resolveAllowedAcademySections } from "@/lib/server/rbac/scope-core";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,7 +13,9 @@ export const dynamic = "force-dynamic";
 /**
  * POST — complete a lesson WITHOUT a quiz (explicit CTA). Idempotent.
  * Sprint: mini-app-role-experience, section 3 — same PENDING_APPROVAL
- * onboarding-only restriction as start/GET; LIMITED/FULL unchanged.
+ * onboarding-only restriction as start/GET.
+ * Sprint: manual-test-round-2, section 4 — LIMITED/FULL are ALSO checked
+ * against the real actor's allowed Academy sections.
  */
 export async function POST(_req: NextRequest, ctx: { params: Promise<{ slug: string }> }) {
   try {
@@ -22,7 +26,9 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ slug: str
       select: { id: true, course: { select: { programId: true } } },
     });
     if (!lesson) return jsonError(404, "lesson_not_found");
-    if (!(await isAcademyContentAllowed(user.employeeProfile!.accessStatus, { lessonProgramId: lesson.course.programId }))) {
+    const actor = await getActorContext(user);
+    const allowedSections = resolveAllowedAcademySections(actor);
+    if (!(await isAcademyContentAllowed(user.employeeProfile!.accessStatus, { lessonProgramId: lesson.course.programId }, allowedSections))) {
       return jsonError(404, "lesson_not_found");
     }
     const result = await completeLesson(user.id, lesson.id);
