@@ -96,3 +96,33 @@ test("MW-G: a tampered/foreign-secret View As cookie does not block mutations (f
   const res = await middleware(req("/api/control/plan/tasks", { method: "POST", cookie: `${VIEW_AS_COOKIE}=${token}` }));
   assert.equal(res.status, 200);
 });
+
+/**
+ * Sprint: manual-test-round-2, section 1 — the P0 root cause: a CITY_MANAGER's
+ * own SELF-preview (role:"CITY_MANAGER") is NOT persona substitution
+ * (effective-context.ts's isPersonaPreview() already excludes it for reads —
+ * the actor is still fully themselves, with their own real, DB-re-derived
+ * grants), so it must not silently 403 every write app-wide. A genuine
+ * MANAGER/CLUB_MANAGER preview (real persona substitution) stays fully
+ * blocked, unchanged — MW-C/D above already lock that in with role:"CLUB_MANAGER".
+ */
+test("MW-H: a CITY_MANAGER self-preview cookie (role:'CITY_MANAGER') does NOT block mutations — the P0 fix", async () => {
+  const token = await signViewAsToken(
+    { realUserId: "city-mgr-1", role: "CITY_MANAGER", clubId: "club-1", cityId: null, previewPositionId: "ADMINISTRATOR" },
+    SECRET,
+  );
+  const cookie = `${VIEW_AS_COOKIE}=${token}`;
+  for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
+    const res = await middleware(req("/api/control/roles", { method, cookie }));
+    assert.equal(res.status, 200, `method=${method}`);
+  }
+});
+
+test("MW-I: a CITY_MANAGER self-preview with no clubId/cityId (scopeless 'jump back to top' variant) is also exempted", async () => {
+  const token = await signViewAsToken(
+    { realUserId: "city-mgr-1", role: "CITY_MANAGER", clubId: null, cityId: null, previewPositionId: "ADMINISTRATOR" },
+    SECRET,
+  );
+  const res = await middleware(req("/api/control/roles", { method: "POST", cookie: `${VIEW_AS_COOKIE}=${token}` }));
+  assert.equal(res.status, 200);
+});

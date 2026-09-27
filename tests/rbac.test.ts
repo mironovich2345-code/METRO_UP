@@ -718,8 +718,17 @@ test(
 
 test(
   "VIEWAS-I: POST /api/control/roles (and .../revoke, .../restore) return 403 " +
-    "VIEW_AS_READ_ONLY while a preview is active, even for a CITY_MANAGER acting " +
-    "within their real scope — requireNoActiveViewAs() runs before authorize()",
+    "VIEW_AS_READ_ONLY while a genuine MANAGER/CLUB_MANAGER persona-substitution " +
+    "preview is active — requireNoActiveViewAs() runs before authorize(). Sprint: " +
+    "manual-test-round-2, section 1 (P0 fix) — a CITY_MANAGER's OWN self-preview " +
+    "(previewRole:'CITY_MANAGER', not persona substitution — isPersonaPreview() " +
+    "already excludes it for reads) is now EXEMPTED from this block, both here " +
+    "and in the global middleware: it was a silent trap (start 'Просмотреть как → " +
+    "Ст. города', or leave an earlier preview's cookie live up to its 30-minute " +
+    "TTL, and every subsequent role assignment 403'd with no indication why), " +
+    "not a real protection — the actual authorization (canAssignRole/" +
+    "canRevokeRole, re-derived fresh from the DB) is untouched and still fully " +
+    "scopes the CITY_MANAGER to their own real grants regardless of this cookie",
   { skip: "integration: requires Postgres + running server" },
   () => {},
 );

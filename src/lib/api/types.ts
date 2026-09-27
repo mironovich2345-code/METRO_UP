@@ -23,6 +23,10 @@ export type ViewAsRoleDTO = "MANAGER" | "CLUB_MANAGER" | "CITY_MANAGER";
 export interface ViewContextDTO {
   previewRole: ViewAsRoleDTO;
   realRoleLabel: string;
+  /** Sprint: manual-test-round-2, section 3 — "club scope visible" during a
+   * preview. Set only for a CLUB_MANAGER/MANAGER preview (always club-scoped);
+   * null for a CITY_MANAGER self-preview (no single club to name). */
+  scopeLabel?: string | null;
 }
 
 export interface AppUserDTO {

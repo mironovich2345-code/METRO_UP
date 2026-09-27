@@ -14,7 +14,7 @@ import type { CabinetTeamMemberDTO, ClubManagerDashboardDTO } from "@/lib/api/ca
 import type { ClubSummaryDTO } from "@/lib/api/roles-client";
 import { cardIn, staggerStack } from "@/lib/motion";
 import { cn } from "@/lib/utils";
-import { filterPendingEmployees, resolveManagedClubSelection } from "@/lib/cabinet-ui";
+import { describeRoleAssignmentError, filterPendingEmployees, resolveManagedClubSelection } from "@/lib/cabinet-ui";
 
 /**
  * Sprint: mini-app-role-experience, section 8-9 — CLUB_MANAGER's "Моя
@@ -81,8 +81,8 @@ export default function TeamPage() {
     try {
       await managerApi.approve(userId, "FULL", dashboard.clubId);
       load();
-    } catch {
-      setMsg("Не удалось подтвердить сотрудника.");
+    } catch (e) {
+      setMsg(describeRoleAssignmentError(e instanceof ApiError ? e.code : null));
     } finally {
       setBusyId(null);
     }

@@ -161,8 +161,26 @@ export async function resolveViewContext(realUser: CurrentUser): Promise<ViewCon
  * that — kept because removing a passing safety check for no functional
  * gain is not a good trade, not because it's still load-bearing. New routes
  * should rely on the middleware and do NOT need to call this individually.
+ *
+ * Sprint: manual-test-round-2, section 1 (P0 root cause) — a CITY_MANAGER's
+ * own SELF-preview (previewRole:"CITY_MANAGER", the existing "jump back to
+ * top-level view" affordance) is exempted. It is not persona substitution at
+ * all: effective-context.ts's own isPersonaPreview() already excludes it
+ * (isPreviewing stays false for reads), so this real actor is still fully
+ * themselves, acting with their own real, freshly-re-derived grants — never
+ * a lower-privilege stand-in. Blocking their writes here served no
+ * protective purpose, only created a silent trap: start "Просмотреть как →
+ * Ст. города" (or leave an earlier preview's cookie live, up to its 30-minute
+ * TTL) and every subsequent role.assign/revoke/restore call 403'd with no
+ * indication why. A genuine MANAGER/CLUB_MANAGER preview (real persona
+ * substitution) remains fully blocked, unchanged — RBAC itself
+ * (canAssignRole/canRevokeRole, re-derived fresh from the DB on every call)
+ * is completely untouched by this; this only removes an over-broad coarse
+ * guard for the one case that was never actual impersonation.
  */
 export async function requireNoActiveViewAs(realUser: CurrentUser): Promise<void> {
   const ctx = await resolveViewContext(realUser);
-  if (ctx) throw new AuthError(403, "VIEW_AS_READ_ONLY", "Действие недоступно в режиме просмотра");
+  if (ctx && ctx.previewRole !== "CITY_MANAGER") {
+    throw new AuthError(403, "VIEW_AS_READ_ONLY", "Действие недоступно в режиме просмотра");
+  }
 }

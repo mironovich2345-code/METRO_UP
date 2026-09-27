@@ -3,16 +3,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { CheckCircle2, Clock, GraduationCap, RotateCw, ShieldOff, UserCog, Users } from "lucide-react";
+import { CheckCircle2, Clock, Eye, GraduationCap, RotateCw, ShieldOff, UserCog, Users } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
 import { ApiError } from "@/lib/api/client";
 import { cabinetApi } from "@/lib/api/cabinet-client";
-import { rolesApi } from "@/lib/api/roles-client";
+import { rolesApi, viewAsApi } from "@/lib/api/roles-client";
 import type { CabinetTeamMemberDTO, ClubManagerDashboardDTO } from "@/lib/api/cabinet-client";
 import type { RoleAssignmentRowDTO } from "@/lib/api/roles-types";
-import { canRestoreAssignment } from "@/lib/cabinet-ui";
+import { canRestoreAssignment, describeRoleAssignmentError } from "@/lib/cabinet-ui";
 import { cardIn, staggerStack, springSoft } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
@@ -53,6 +53,7 @@ function ClubDetail({ clubId }: { clubId: string }) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [assigning, setAssigning] = useState(false);
+  const [startingPreview, setStartingPreview] = useState(false);
 
   const load = useCallback(() => {
     setStatus("loading");
@@ -76,8 +77,8 @@ function ClubDetail({ clubId }: { clubId: string }) {
     try {
       await rolesApi.revoke(id);
       load();
-    } catch {
-      setMsg("Не удалось отозвать назначение.");
+    } catch (e) {
+      setMsg(describeRoleAssignmentError(e instanceof ApiError ? e.code : null));
     } finally {
       setBusyId(null);
     }
@@ -90,9 +91,32 @@ function ClubDetail({ clubId }: { clubId: string }) {
       await rolesApi.restore(id);
       load();
     } catch (e) {
-      setMsg(e instanceof ApiError && e.code === "duplicate_active_assignment" ? "У клуба уже есть активный управляющий." : "Не удалось восстановить назначение.");
+      setMsg(describeRoleAssignmentError(e instanceof ApiError ? e.code : null));
     } finally {
       setBusyId(null);
+    }
+  };
+
+  /**
+   * Sprint: manual-test-round-2, section 3 — "CITY_MANAGER must have a
+   * default ability to inspect any club inside their scope through the
+   * CLUB_MANAGER cabinet experience." Reuses the EXISTING View As
+   * infrastructure unchanged (viewAsApi.start, the same call
+   * CityManagerClubDetail.tsx's desktop "Просмотреть как" already makes) —
+   * no new preview mechanism. Works with no real manager assigned:
+   * buildSyntheticPersona (effective-context.ts) builds the read persona
+   * from clubId alone, never from an existing RoleAssignment row — audited
+   * before adding this button, not assumed.
+   */
+  const viewAsClubManager = async () => {
+    setStartingPreview(true);
+    setMsg(null);
+    try {
+      await viewAsApi.start({ role: "CLUB_MANAGER", clubId });
+      router.push("/home");
+    } catch (e) {
+      setStartingPreview(false);
+      setMsg(describeRoleAssignmentError(e instanceof ApiError ? e.code : null));
     }
   };
 
@@ -132,6 +156,15 @@ function ClubDetail({ clubId }: { clubId: string }) {
                 <p className="text-xs text-muted-foreground">Ожидают подтверждения</p>
                 <p className="mt-1 text-2xl font-extrabold tabular-nums">{dashboard.summary.pendingApprovalCount}</p>
               </GlassCard>
+            </motion.div>
+
+            <motion.div variants={cardIn}>
+              {/* whitespace-normal override — this label is long enough to
+                  overflow a 320px screen with the base Button's nowrap
+                  (section 7's mobile pass); wraps to two lines instead. */}
+              <Button variant="secondary" block onClick={viewAsClubManager} disabled={startingPreview} className="h-auto min-h-14 whitespace-normal py-3 text-center leading-snug">
+                <Eye className="size-4 shrink-0" /> {startingPreview ? "…" : "Посмотреть кабинет Управляющего"}
+              </Button>
             </motion.div>
 
             {/* ---- Управляющий (section 13) ---- */}
@@ -293,11 +326,19 @@ function AssignManagerSheet({
   const [selected, setSelected] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Sprint: manual-test-round-2, section 1 (P0) — a lingering View-As cookie
+  // (e.g. an earlier "Просмотреть как" preview never explicitly ended, live
+  // up to its 30-minute TTL) is the one error the user can actually fix
+  // themselves from right here — offer a one-tap way to end it and retry,
+  // instead of a dead-end message.
+  const [errCode, setErrCode] = useState<string | null>(null);
+  const [endingPreview, setEndingPreview] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setSelected(null);
     setErr(null);
+    setErrCode(null);
     setLoadStatus("loading");
     cabinetApi
       .clubManagerTeam(clubId)
@@ -311,17 +352,37 @@ function AssignManagerSheet({
   const submit = async () => {
     if (!selected) {
       setErr("Выберите сотрудника.");
+      setErrCode(null);
       return;
     }
     setBusy(true);
     setErr(null);
+    setErrCode(null);
     try {
       await rolesApi.create({ userId: selected, role: "CLUB_MANAGER", scopeType: "CLUB", clubId });
       onAssigned();
     } catch (e) {
-      setErr(e instanceof ApiError && e.code === "assignment_already_active" ? "У клуба уже есть активный управляющий." : "Не удалось назначить управляющего.");
+      const code = e instanceof ApiError ? e.code : null;
+      // Safe, non-PII diagnostic — the short server error code only, so a
+      // real-device tester can always report exactly what happened.
+      console.error(`[assign-manager-error] ${JSON.stringify({ code, status: e instanceof ApiError ? e.status : null })}`);
+      setErrCode(code);
+      setErr(describeRoleAssignmentError(code));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const endPreviewAndRetry = async () => {
+    setEndingPreview(true);
+    try {
+      await viewAsApi.end();
+      setErr(null);
+      setErrCode(null);
+    } catch {
+      setErr(describeRoleAssignmentError(null));
+    } finally {
+      setEndingPreview(false);
     }
   };
 
@@ -354,19 +415,28 @@ function AssignManagerSheet({
                       key={m.userId}
                       onClick={() => setSelected(m.userId)}
                       className={cn(
-                        "flex items-center justify-between rounded-2xl border border-border px-4 py-3 text-left text-sm",
+                        "flex items-center gap-2 rounded-2xl border border-border px-4 py-3 text-left text-sm",
                         selected === m.userId && "border-brand bg-brand/10",
                       )}
                     >
-                      <span className="font-medium">{m.displayName}</span>
-                      <span className="text-xs text-muted-foreground">{m.position ?? "—"}</span>
+                      <span className="min-w-0 flex-1 truncate font-medium">{m.displayName}</span>
+                      <span className="shrink-0 truncate text-xs text-muted-foreground">{m.position ?? "—"}</span>
                     </button>
                   ))}
                 </div>
               )}
             </div>
 
-            {err && <p className="mt-3 text-sm text-red-500">{err}</p>}
+            {err && (
+              <div className="mt-3">
+                <p className="text-sm text-red-500">{err}</p>
+                {errCode === "VIEW_AS_READ_ONLY" && (
+                  <Button size="sm" variant="secondary" className="mt-2" onClick={endPreviewAndRetry} disabled={endingPreview}>
+                    {endingPreview ? "…" : "Завершить предпросмотр"}
+                  </Button>
+                )}
+              </div>
+            )}
 
             <div className="mt-5 flex gap-3">
               <Button variant="secondary" block onClick={onClose}>Отмена</Button>

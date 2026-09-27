@@ -3,6 +3,7 @@ import { jsonOk, jsonError, handleError } from "@/lib/server/http";
 import { meDTO } from "@/lib/server/dto";
 import { isAccessSuspended } from "@/lib/server/access-status-logic";
 import { resolveEffectiveReadContext } from "@/lib/server/rbac/effective-context";
+import { getClubById } from "@/content/cities";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,8 +38,16 @@ export async function GET() {
       return jsonError(403, "APP_TEMPORARILY_UNAVAILABLE");
     }
     const effective = await resolveEffectiveReadContext(user);
+    // Sprint: manual-test-round-2, section 3 — "club scope visible" during a
+    // preview: MANAGER/CLUB_MANAGER previews are always club-scoped
+    // (startViewAsSchema requires clubId for both), so ViewAsBanner can name
+    // the exact club being previewed, not just the role.
     const viewContext = effective.isPreviewing
-      ? { previewRole: effective.viewContext!.previewRole, realRoleLabel: "Ст. города" }
+      ? {
+          previewRole: effective.viewContext!.previewRole,
+          realRoleLabel: "Ст. города",
+          scopeLabel: effective.viewContext!.previewClubId ? getClubById(effective.viewContext!.previewClubId)?.name ?? null : null,
+        }
       : null;
     return jsonOk({ user: meDTO(effective.effectiveUser, viewContext) });
   } catch (error) {

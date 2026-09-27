@@ -49,6 +49,7 @@ export function AppShellFrame({ children }: { children: React.ReactNode }) {
           <ViewAsBanner
             previewRole={user.viewContext.previewRole}
             realRoleLabel={user.viewContext.realRoleLabel}
+            scopeLabel={user.viewContext.scopeLabel}
             onEnded={() => void refresh()}
           />
         )}

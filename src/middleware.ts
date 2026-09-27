@@ -60,6 +60,19 @@ export async function middleware(req: NextRequest) {
   const payload = await verifyViewAsToken(token, secret);
   if (!payload) return NextResponse.next(); // expired/tampered/foreign token — nothing active to guard
 
+  // Sprint: manual-test-round-2, section 1 (P0 root cause) — a CITY_MANAGER's
+  // own SELF-preview (role:"CITY_MANAGER") is not persona substitution (see
+  // rbac/view-as.ts's requireNoActiveViewAs for the full reasoning) and must
+  // not silently block every write app-wide until its cookie expires. Safe
+  // to decide from the signed payload alone, with no DB call: the signature
+  // is cryptographically verified above, and every real write's actual
+  // authorization is independently re-derived from the DB inside its own
+  // route handler regardless of this cookie — this check never WAS the
+  // authorization decision, only a coarse extra guard on top of it. A real
+  // MANAGER/CLUB_MANAGER preview (genuine persona substitution) is still
+  // fully blocked below, unchanged.
+  if (payload.role === "CITY_MANAGER") return NextResponse.next();
+
   return NextResponse.json({ error: "VIEW_AS_READ_ONLY", message: "Действие недоступно в режиме просмотра" }, { status: 403 });
 }
 

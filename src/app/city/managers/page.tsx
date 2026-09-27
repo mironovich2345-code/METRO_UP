@@ -11,6 +11,7 @@ import { ApiError } from "@/lib/api/client";
 import { cabinetApi } from "@/lib/api/cabinet-client";
 import { rolesApi } from "@/lib/api/roles-client";
 import type { CityManagerDashboardDTO } from "@/lib/api/cabinet-client";
+import { describeRoleAssignmentError } from "@/lib/cabinet-ui";
 import { cardIn, staggerStack } from "@/lib/motion";
 
 /**
@@ -46,8 +47,8 @@ export default function CityManagersPage() {
     try {
       await rolesApi.revoke(assignmentId);
       load();
-    } catch {
-      setMsg("Не удалось отозвать назначение.");
+    } catch (e) {
+      setMsg(describeRoleAssignmentError(e instanceof ApiError ? e.code : null));
     } finally {
       setBusyId(null);
     }

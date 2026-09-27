@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowDown,
+  ArrowLeft,
+  ArrowLeftRight,
   ArrowUp,
   Award,
   BookOpen,
@@ -39,6 +41,7 @@ import { cardIn, staggerStack, springSoft } from "@/lib/motion";
 import { cn, formatNumber } from "@/lib/utils";
 import { pluralRu } from "@/lib/cabinet-ui";
 import { fetchHome } from "@/lib/api/home-client";
+import { viewAsApi } from "@/lib/api/roles-client";
 import { loadStoredContext, saveStoredContext, type StoredHomeContext } from "@/lib/home-context-storage";
 import type {
   CityManagerHomeBlockDTO,
@@ -176,16 +179,30 @@ export default function HomeScreen() {
           </Link>
           <ThemeSwitcher />
         </div>
+        {/* Sprint: manual-test-round-2, section 2 — the previous control (bare
+            small text + tiny chevron) was too subtle for real-device testers
+            to recognize as interactive. A plain MANAGER with only PERSONAL
+            available renders NO switcher at all (no useless control) — the
+            original, unstyled identity line, unchanged. */}
         {contextLabel &&
           (showSwitcher ? (
-            <button
-              type="button"
-              onClick={() => setSwitcherOpen(true)}
-              className="mt-1.5 inline-flex max-w-full items-center gap-1 truncate pl-[60px] text-xs font-medium text-muted-foreground active:opacity-70"
-            >
-              <span className="truncate">{contextLabel}</span>
-              <ChevronDown className="size-3.5 shrink-0" />
-            </button>
+            <div className="mt-2 pl-[60px] pr-1">
+              <button
+                type="button"
+                onClick={() => setSwitcherOpen(true)}
+                aria-label="Переключить кабинет"
+                className="flex max-w-full items-center gap-2 rounded-2xl border border-brand/25 bg-brand/[0.08] py-1.5 pl-2.5 pr-2.5 text-left transition-colors active:bg-brand/15"
+              >
+                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-brand/15">
+                  <ArrowLeftRight className="size-3.5 text-brand" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[10px] font-bold uppercase leading-tight tracking-wide text-brand/80">Кабинет</span>
+                  <span className="block truncate text-xs font-semibold leading-tight text-foreground">{contextLabel}</span>
+                </span>
+                <ChevronDown className="size-4 shrink-0 text-brand/70" />
+              </button>
+            </div>
           ) : (
             <p className="mt-1.5 truncate pl-[60px] text-xs font-medium text-muted-foreground">{contextLabel}</p>
           ))}
@@ -295,6 +312,11 @@ export default function HomeScreen() {
             content, ends after "Мой клуб". */}
         {dashStatus === "ready" && dash && dash.kind === "club_manager" && (
           <>
+            {dash.block.isPreviewing && (
+              <motion.div variants={cardIn}>
+                <ReturnToCityCabinetCard onReturned={() => loadDash()} />
+              </motion.div>
+            )}
             <motion.div variants={cardIn}>
               <PlanCard plan={dash.plan} onOpen={() => router.push("/plan")} />
             </motion.div>
@@ -721,6 +743,43 @@ function CityManagerHomeSection({ block, router }: { block: CityManagerHomeBlock
         </div>
       </motion.div>
     </>
+  );
+}
+
+/**
+ * Sprint: manual-test-round-2, section 3 — a CITY_MANAGER previewing a club
+ * as CLUB_MANAGER (via /city/club's "Посмотреть кабинет Управляющего") gets
+ * a clearly visible, explicitly-worded return action right on Home itself,
+ * on top of the global ViewAsBanner's generic "Выйти из режима просмотра".
+ * Ends the EXISTING View As session (viewAsApi.end — no new mechanism) and
+ * reloads Home, which naturally resolves back to the real actor's own
+ * context once the preview is gone.
+ */
+function ReturnToCityCabinetCard({ onReturned }: { onReturned: () => void }) {
+  const [ending, setEnding] = useState(false);
+  const end = async () => {
+    setEnding(true);
+    try {
+      await viewAsApi.end();
+    } finally {
+      onReturned();
+    }
+  };
+  return (
+    <GlassCard variant="solid" pad="md" animateIn={false} className="border border-brand/25 bg-brand/[0.06]">
+      {/* Stacked, not a single row — "Вернуться к кабинету Ст. города" is long
+          enough (with Button's whitespace-nowrap) to overflow a 320px screen
+          if it shared a row with the icon + label (section 7's mobile pass). */}
+      <div className="flex items-center gap-3">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-2xl bg-brand/12">
+          <ArrowLeft className="size-4.5 text-brand" />
+        </span>
+        <p className="min-w-0 flex-1 text-sm text-muted-foreground">Вы просматриваете клуб как Управляющий</p>
+      </div>
+      <Button size="sm" variant="secondary" block className="mt-3" onClick={end} disabled={ending}>
+        {ending ? "…" : "Вернуться к кабинету Ст. города"}
+      </Button>
+    </GlassCard>
   );
 }
 

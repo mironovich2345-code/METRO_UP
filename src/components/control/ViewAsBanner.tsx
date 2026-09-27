@@ -30,10 +30,15 @@ const ROLE_LABEL: Record<string, string> = {
 export function ViewAsBanner({
   previewRole,
   realRoleLabel,
+  scopeLabel,
   onEnded,
 }: {
   previewRole: string;
   realRoleLabel: string;
+  /** Sprint: manual-test-round-2, section 3 — the club being previewed
+   * (CLUB_MANAGER/MANAGER previews are always club-scoped); omitted for a
+   * CITY_MANAGER self-preview, which has no single club to name. */
+  scopeLabel?: string | null;
   onEnded?: () => void;
 }) {
   const router = useRouter();
@@ -54,6 +59,7 @@ export function ViewAsBanner({
       <span className="inline-flex items-center gap-2">
         <Eye className="size-4" />
         Режим просмотра: {ROLE_LABEL[previewRole] ?? previewRole}
+        {scopeLabel && <span className="font-normal opacity-80">· {scopeLabel}</span>}
         <span className="font-normal opacity-80">· Ваша роль: {realRoleLabel}</span>
       </span>
       <button

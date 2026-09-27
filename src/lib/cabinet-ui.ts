@@ -1,5 +1,6 @@
 import type { AttentionItemDTO, CityManagerClubSummaryDTO } from "@/lib/api/cabinet-types";
-import type { HomeContextDTO } from "@/lib/api/home-types";
+import type { HomeContextDTO, HomeContextType } from "@/lib/api/home-types";
+import type { AcademyTargetRoleDTO } from "@/lib/api/content-types";
 
 /**
  * Sprint: role-cabinets, step 5 — pure render-model helpers for the
@@ -161,4 +162,61 @@ export function resolveActiveContext(
     (c) => c.type === requested.type && (c.type !== "CLUB_MANAGER" || c.clubId === requested.clubId),
   );
   return match ?? fallback;
+}
+
+/* ----------------------- Academy role sections (manual-test-round-2) ----------------------- */
+
+/**
+ * Section 4's "unauthorized role section cannot be fabricated through URL/
+ * localStorage" — the exact same pattern as resolveActiveContext above: a
+ * requested section is honored ONLY if it's exactly present in the
+ * CALLER-SUPPLIED `allowed` list, which the server always derives fresh from
+ * the real actor's CURRENT RoleAssignment grants
+ * (resolveAllowedAcademySections). Falls back to MANAGER when allowed (the
+ * universal baseline tier), else the first allowed section — never throws.
+ */
+export function resolveActiveAcademySection(
+  requested: string | null | undefined,
+  allowed: AcademyTargetRoleDTO[],
+): AcademyTargetRoleDTO {
+  const fallback = allowed.includes("MANAGER") ? "MANAGER" : (allowed[0] ?? "MANAGER");
+  if (!requested) return fallback;
+  return (allowed as string[]).includes(requested) ? (requested as AcademyTargetRoleDTO) : fallback;
+}
+
+/** Section 4 — "default selected Academy section should follow the active
+ * Mini App context when possible": PERSONAL has no Academy tier of its own,
+ * it trains as MANAGER. */
+export function homeContextToAcademySection(contextType: HomeContextType): AcademyTargetRoleDTO {
+  return contextType === "PERSONAL" ? "MANAGER" : contextType;
+}
+
+/* --------------------- role-assignment error messages (manual-test-round-2) --------------------- */
+
+/**
+ * Sprint: manual-test-round-2, section 1 — the P0 bug report's actual
+ * complaint was as much "the UI hid the real cause" as it was the
+ * VIEW_AS_READ_ONLY trap itself (see rbac/view-as.ts's requireNoActiveViewAs
+ * and middleware.ts for the root-cause fix). Every RoleAssignment write path
+ * (assign/revoke/restore, /team's approve) now shows a specific, actionable
+ * message for every KNOWN server error code, never one blanket string — and
+ * for anything unrecognized, still shows the raw code (a short, safe,
+ * non-PII enum-like string, never a stack trace or DB detail) rather than
+ * silently swallowing it, so a real-device tester can always report exactly
+ * what happened.
+ */
+const ROLE_ASSIGNMENT_ERROR_MESSAGES: Record<string, string> = {
+  VIEW_AS_READ_ONLY: "Действие недоступно в режиме просмотра. Завершите предпросмотр и попробуйте снова.",
+  forbidden: "Недостаточно прав для этого действия.",
+  club_not_found: "Клуб не найден.",
+  user_not_found: "Сотрудник не найден.",
+  assignment_already_active: "У клуба уже есть активный управляющий.",
+  duplicate_active_assignment: "У клуба уже есть активный управляющий.",
+  rate_limited: "Слишком много попыток. Попробуйте через минуту.",
+  unauthorized: "Сессия истекла. Войдите заново.",
+};
+
+export function describeRoleAssignmentError(code: string | null | undefined): string {
+  if (code && ROLE_ASSIGNMENT_ERROR_MESSAGES[code]) return ROLE_ASSIGNMENT_ERROR_MESSAGES[code];
+  return code ? `Не удалось выполнить действие (код: ${code}).` : "Не удалось выполнить действие.";
 }
