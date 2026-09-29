@@ -5,6 +5,7 @@ import type {
   DailyTaskDTO,
   HomeContextType,
   HomeResponseDTO,
+  ProfileManagementRoleDTO,
   RatingBoardDTO,
 } from "./home-types";
 
@@ -51,4 +52,9 @@ export function fetchRatingBoard() {
 }
 export function fetchAchievements() {
   return request<{ achievements: AchievementDTO[] }>("/api/achievements");
+}
+/** Sprint: manual-test-round-3, section 4 — Profile's "Роль в Metro UP" /
+ * "Доступные клубы". Empty array for a plain MANAGER. */
+export function fetchProfileManagementRoles() {
+  return request<{ roles: ProfileManagementRoleDTO[] }>("/api/profile/management-roles");
 }

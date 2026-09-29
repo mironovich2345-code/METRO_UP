@@ -88,6 +88,29 @@ export interface HomeContextDTO {
   label: string;
 }
 
+/**
+ * Sprint: manual-test-round-3, section 4 — Profile's "Роль в Metro UP" /
+ * "Доступные клубы" section. One entry PER management role the real actor
+ * holds — an array, not a single fixed shape, so the architecture already
+ * supports an actor with several management roles (e.g. CITY_MANAGER AND a
+ * separate CLUB_MANAGER grant) without a later redesign; today only
+ * CITY_MANAGER is actually populated. `clubs` is the effective, deduplicated,
+ * dynamically-resolved set (CITY-scope grants expand to every current club
+ * in that city; CLUB-scope grants add that one club) — never
+ * EmployeeProfile.clubId, which is the person's OWN employment record, a
+ * completely different thing from their management scope. Empty array
+ * overall for a plain MANAGER — the client renders no section at all then,
+ * never an empty placeholder block.
+ */
+export interface ProfileManagementRoleDTO {
+  type: "CITY_MANAGER" | "CLUB_MANAGER";
+  /** Bare role label, never a raw enum — "Ст. города", "Управляющий". No
+   * scope suffix here (unlike HomeContextDTO.label) — the scope is the
+   * separate "Доступные клубы" list right below it. */
+  label: string;
+  clubs: { id: string; name: string }[];
+}
+
 export interface HomeAttentionItemDTO {
   category: "CLUB_WITHOUT_CLUB_MANAGER" | "PENDING_EMPLOYEE_APPROVAL";
   entityId: string;

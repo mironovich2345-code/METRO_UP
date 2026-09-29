@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Building2, Check, MapPin, Briefcase, LayoutDashboard, Trophy } from "lucide-react";
+import { Building2, Check, MapPin, Briefcase, LayoutDashboard, Trophy, UserCog } from "lucide-react";
 import { BottomNavigation } from "@/components/bottom-navigation";
 import { AppHeader } from "@/components/app-header";
 import { GlassCard } from "@/components/ui/glass-card";
@@ -20,6 +20,8 @@ import { RANKS } from "@/lib/ranks";
 import type { AccessStatus, CareerLevel } from "@/lib/profile";
 import { cardIn, staggerStack } from "@/lib/motion";
 import { cn, formatNumber } from "@/lib/utils";
+import { fetchProfileManagementRoles } from "@/lib/api/home-client";
+import type { ProfileManagementRoleDTO } from "@/lib/api/home-types";
 
 const CAREER_RANK_INDEX: Record<CareerLevel, number> = {
   NEWCOMER: 0,
@@ -44,9 +46,21 @@ export default function ProfileScreen() {
   const canSpm = serverUser ? canAccessSpm(serverUser.role) : false; // SPM or ADMIN
   const router = useRouter();
 
+  // Sprint: manual-test-round-3, section 4 — "Роль в Metro UP" / "Доступные
+  // клубы", server-scoped (never derived from EmployeeProfile.clubId).
+  // Empty for a plain MANAGER — no empty block rendered then.
+  const [managementRoles, setManagementRoles] = useState<ProfileManagementRoleDTO[]>([]);
+
   useEffect(() => {
     if (hydrated && !isOnboarded) router.replace("/welcome");
   }, [hydrated, isOnboarded, router]);
+
+  useEffect(() => {
+    if (!hydrated || !isOnboarded) return;
+    fetchProfileManagementRoles()
+      .then((r) => setManagementRoles(r.roles))
+      .catch(() => setManagementRoles([]));
+  }, [hydrated, isOnboarded]);
 
   if (!hydrated || !profile) {
     return <div className="min-h-[100dvh]" />;
@@ -126,6 +140,37 @@ export default function ProfileScreen() {
             })}
           </GlassCard>
         </motion.div>
+
+        {/* Sprint: manual-test-round-3, section 4 — "Роль в Metro UP" /
+            "Доступные клубы". One card per management role the real actor
+            holds (today only ever CITY_MANAGER populates this); a plain
+            MANAGER gets managementRoles:[] and no card renders at all. */}
+        {managementRoles.map((role) => (
+          <motion.div key={role.type} variants={cardIn} className="flex flex-col gap-3">
+            <SectionHeader title="Роль в Metro UP" />
+            <GlassCard variant="solid" pad="md" animateIn={false}>
+              <div className="flex items-center gap-3">
+                <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-brand/12">
+                  <UserCog className="size-4.5 text-brand" />
+                </span>
+                <span className="text-[15px] font-semibold text-foreground">{role.label}</span>
+              </div>
+              {role.clubs.length > 0 && (
+                <div className="mt-3 border-t border-border pt-3">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Доступные клубы</p>
+                  <ul className="flex flex-col gap-1.5">
+                    {role.clubs.map((c) => (
+                      <li key={c.id} className="flex items-center gap-2 text-sm text-foreground">
+                        <span className="size-1.5 shrink-0 rounded-full bg-brand" />
+                        <span className="truncate">{c.name}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </GlassCard>
+          </motion.div>
+        ))}
 
         {/* Admin CMS entry — ONLY for server role ADMIN (never EMPLOYEE/SPM/CLUB_MANAGER). */}
         {isAdmin && (

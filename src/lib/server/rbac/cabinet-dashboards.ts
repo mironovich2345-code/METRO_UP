@@ -21,11 +21,18 @@ import type {
   CabinetTeamMemberDTO,
   CityManagerClubSummaryDTO,
   CityManagerDashboardDTO,
+  CityManagerTrainingClubRowDTO,
   OperationsDirectorCitySummaryDTO,
   OperationsDirectorDashboardDTO,
   TrainingSummaryDTO,
 } from "@/lib/api/cabinet-types";
-import type { CityManagerHomeBlockDTO, ClubManagerHomeBlockDTO, HomeAttentionItemDTO, HomeContextDTO } from "@/lib/api/home-types";
+import type {
+  CityManagerHomeBlockDTO,
+  ClubManagerHomeBlockDTO,
+  HomeAttentionItemDTO,
+  HomeContextDTO,
+  ProfileManagementRoleDTO,
+} from "@/lib/api/home-types";
 
 /**
  * Sprint: role-cabinets, step 4 — server read models for the
@@ -392,6 +399,46 @@ export async function getCityManagerDashboard(actor: ActorContext): Promise<City
   };
 }
 
+/**
+ * Sprint: manual-test-round-3, section 5A — "Обучение по клубам" drill-down
+ * (the clickable card on CITY_MANAGER Home / the /city/training screen).
+ * Reuses loadEmployees/loadTrainingRaw/summarizeTraining/summarizeClubTraining
+ * UNCHANGED — the exact same batched queries getCityManagerDashboard already
+ * runs, just grouped per club instead of folded into one network-wide
+ * average, with zero EXTRA queries (completedByUser is fetched once for
+ * every in-scope employee, then summarized per club in memory).
+ */
+export async function getCityManagerTrainingByClub(actor: ActorContext): Promise<CityManagerTrainingClubRowDTO[]> {
+  const clubs = await resolveCityManagerClubs(actor);
+  if (clubs.length === 0) return [];
+  const clubIds = clubs.map((c) => c.id);
+
+  const employees = await loadEmployees(clubIds);
+  const { totalPublishedLessons, completedByUser } = await loadTrainingRaw(employees.map((e) => e.userId));
+
+  const employeesByClub = new Map<string, EmployeeRow[]>();
+  for (const e of employees) {
+    const list = employeesByClub.get(e.clubId) ?? [];
+    list.push(e);
+    employeesByClub.set(e.clubId, list);
+  }
+
+  return clubs.map((club) => {
+    const clubEmployees = employeesByClub.get(club.id) ?? [];
+    const userIds = clubEmployees.map((e) => e.userId);
+    const training = summarizeTraining(userIds, totalPublishedLessons, completedByUser);
+    const split = summarizeClubTraining(userIds, totalPublishedLessons, completedByUser);
+    return {
+      clubId: club.id,
+      clubName: club.name,
+      employeeCount: clubEmployees.length,
+      averageProgressPercent: training?.averageProgressPercent ?? null,
+      employeesCompletedAll: split?.employeesCompleted ?? 0,
+      employeesInTraining: split?.employeesInTraining ?? 0,
+    };
+  });
+}
+
 /* ------------------------------ CLUB_MANAGER -------------------------------- */
 
 export interface ClubManagerCabinetAccess {
@@ -697,3 +744,34 @@ export async function getClubManagerHomeBlock(
 // top, which throws if ever imported outside a Next.js server build —
 // exactly what a plain `node --test` run would do to a pure function stranded
 // here).
+
+/* ------------------------- Profile management roles (manual-test-round-3) ------------------------- */
+
+/**
+ * Section 4 — Profile's "Роль в Metro UP" / "Доступные клубы". One entry per
+ * management role the real actor holds (array, not a fixed shape — see
+ * ProfileManagementRoleDTO's own doc comment on why); reuses
+ * resolveCityManagerClubs/resolveClubManagerClubs UNCHANGED — the exact same
+ * dynamic-resolution + dedup logic /city and Home's context switcher already
+ * rely on, never a fresh "just read EmployeeProfile.clubId" shortcut. Empty
+ * array for a plain MANAGER (neither grant) — the route/client then render
+ * nothing, never an empty block.
+ */
+export async function resolveProfileManagementRoles(
+  realUser: CurrentUser,
+  actor: ActorContext,
+): Promise<ProfileManagementRoleDTO[]> {
+  const roles: ProfileManagementRoleDTO[] = [];
+
+  if (hasActiveRole(actor.grants, "CITY_MANAGER")) {
+    const clubs = await resolveCityManagerClubs(actor);
+    roles.push({ type: "CITY_MANAGER", label: "Ст. города", clubs: clubs.map((c) => ({ id: c.id, name: c.name })) });
+  }
+
+  if (hasActiveRole(actor.grants, "CLUB_MANAGER")) {
+    const clubs = await resolveClubManagerClubs(realUser, actor);
+    roles.push({ type: "CLUB_MANAGER", label: "Управляющий", clubs: clubs.map((c) => ({ id: c.id, name: c.name })) });
+  }
+
+  return roles;
+}
