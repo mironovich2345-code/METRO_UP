@@ -21,6 +21,9 @@ export async function GET(req: NextRequest) {
     const access = await resolveClubManagerCabinetAccess(user, clubIdParam);
     if (!access) {
       if (!clubIdParam) throw new AuthError(400, "club_required");
+      // Sprint: manual-test-round-3, section 10 — safe observability, same
+      // convention as the /team sibling route.
+      console.warn(`[club-dashboard-access-denied] ${JSON.stringify({ actorUserId: user.id, clubId: clubIdParam })}`);
       throw new AuthError(403, "forbidden", "Недостаточно прав для просмотра этого клуба");
     }
     return jsonOk(await getClubManagerDashboard(access.clubId, access.clubName, access.effectiveUser, access.isPreviewing));
