@@ -243,9 +243,15 @@ export default function HomeScreen() {
 
         {/* PERSONAL — Sprint: mini-app-context-switcher, section 4: the
             pre-role-refactor MANAGER experience, unchanged, with NO
-            management content mixed in. */}
+            management content mixed in.
+            Sprint: manual-test-round-3, section 3 — wrapped in its own
+            tighter-gapped (gap-4, was the shared gap-6) container so this
+            feels like one coherent feed, matching CITY_MANAGER Home's
+            rhythm, without touching the outer gap-6 that city_manager/
+            club_manager/onboarding still use unchanged. Same cards, same
+            order, same functionality — layout only, no business logic. */}
         {dashStatus === "ready" && dash && dash.kind === "full" && (
-          <>
+          <div className="flex flex-col gap-4">
             <motion.div variants={cardIn}>
               <PlanCard plan={dash.plan} onOpen={() => router.push("/plan")} />
             </motion.div>
@@ -298,7 +304,7 @@ export default function HomeScreen() {
             <motion.div variants={cardIn}>
               <MysteryCard mystery={dash.mystery} />
             </motion.div>
-          </>
+          </div>
         )}
 
         {/* CITY_MANAGER — Sprint: mini-app-context-switcher, section 5:
@@ -739,6 +745,7 @@ function CityManagerHomeSection({ block, router }: { block: CityManagerHomeBlock
                 : "Нет данных"
             }
             line2={block.training ? `Завершили все опубликованные уроки: ${block.training.employeesCompletedAll}` : undefined}
+            onClick={() => router.push("/city/training")}
           />
         </div>
       </motion.div>
@@ -872,15 +879,32 @@ function AttentionRow({ icon: Icon, text, onClick }: { icon: LucideIcon; text: s
 
 /** Honest empty state ("Нет данных") whenever there's no published content or
  * no one in scope yet — never a fabricated percent. Never says "mandatory" /
- * "overdue" / "failed plan" (section 10). */
-function TrainingSummaryCard({ totalPublishedLessons, line1, line2 }: { totalPublishedLessons: number; line1: string; line2?: string }) {
+ * "overdue" / "failed plan" (section 10).
+ *
+ * Sprint: manual-test-round-3, section 5A — an optional `onClick` turns this
+ * into a drill-down entry point (CITY_MANAGER's "Обучение по клубам" →
+ * /city/training) without changing the CLUB_MANAGER's own "Обучение команды"
+ * call site, which omits onClick and stays a plain summary (its drill-down
+ * is already one tap away via the "Моя команда" card just above it). */
+function TrainingSummaryCard({
+  totalPublishedLessons,
+  line1,
+  line2,
+  onClick,
+}: {
+  totalPublishedLessons: number;
+  line1: string;
+  line2?: string;
+  onClick?: () => void;
+}) {
   return (
-    <GlassCard variant="solid" pad="lg" animateIn={false}>
+    <GlassCard variant="solid" pad="lg" animateIn={false} interactive={Boolean(onClick)} onClick={onClick}>
       <div className="flex items-center gap-2">
         <span className="flex size-9 items-center justify-center rounded-2xl bg-brand/12">
           <GraduationCap className="size-5 text-brand" />
         </span>
-        <p className="font-bold">{totalPublishedLessons > 0 ? `${totalPublishedLessons} уроков в Академии` : "Академия"}</p>
+        <p className="flex-1 font-bold">{totalPublishedLessons > 0 ? `${totalPublishedLessons} уроков в Академии` : "Академия"}</p>
+        {onClick && <ChevronRight className="size-4 shrink-0 text-muted-foreground" />}
       </div>
       <p className="mt-2 text-sm text-muted-foreground">{line1}</p>
       {line2 && <p className="mt-1 text-sm text-muted-foreground">{line2}</p>}
