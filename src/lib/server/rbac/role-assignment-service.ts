@@ -193,6 +193,20 @@ export async function createRoleAssignment(
 
   const roleTarget: RoleAssignmentTarget = { role: input.role, scopeType: input.scopeType, cityId, clubId };
   if (!authorize(actor, { action: "role.assign", target: roleTarget, targetClubCityId })) {
+    // Sprint: manual-test-round-3, section 10 — safe observability for the
+    // P0 assignment-authorization path: actor id, appRole, target role/scope,
+    // safe internal entity ids (club/city) — never PII, never a token/initData.
+    console.warn(
+      `[role-assign-denied] ${JSON.stringify({
+        actorUserId: actorUser.id,
+        actorAppRole: actor.appRole,
+        targetRole: input.role,
+        scopeType: input.scopeType,
+        clubId,
+        cityId,
+        targetClubCityId,
+      })}`,
+    );
     throw new AuthError(403, "forbidden", "Недостаточно прав для этого назначения");
   }
 

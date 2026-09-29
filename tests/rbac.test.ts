@@ -219,6 +219,38 @@ test("ASSIGN-B: PROJECT_ADMIN may NOT directly assign CLUB_MANAGER or MANAGER (t
   );
 });
 
+test(
+  "ASSIGN-B2: Sprint: manual-test-round-3, section 2 (P0 fix) — a DUAL-ROLE actor " +
+    "(legacy AppRole=ADMIN, e.g. a shared test/admin account) who ALSO holds a " +
+    "separate, genuine ACTIVE CITY_MANAGER grant covering the target club CAN " +
+    "assign CLUB_MANAGER through THAT grant — PROJECT_ADMIN authority no longer " +
+    "shadows a real CITY_MANAGER grant the same actor also holds (previously an " +
+    "unconditional `if (hasSystemAccess) return ...` made this always false, " +
+    "even though the CITY_MANAGER grant alone would have authorized it)",
+  () => {
+    const a = actor({ appRole: "ADMIN", grants: [grant({ role: "CITY_MANAGER", scopeType: "CITY", cityId: "voronezh" })] });
+    const ok = canAssignRole(
+      a,
+      { role: "CLUB_MANAGER", scopeType: "CLUB", cityId: null, clubId: "club-in-voronezh" },
+      { targetClubCityId: "voronezh" },
+    );
+    assert.equal(ok, true);
+  },
+);
+
+test(
+  "ASSIGN-B3: REGRESSION — the same dual-role actor's CITY_MANAGER grant does NOT cover a club outside its city; PROJECT_ADMIN authority still does not fill that gap for CLUB_MANAGER/MANAGER targets (unchanged — PROJECT_ADMIN's direct authority remains OPERATIONS_DIRECTOR/CITY_MANAGER only)",
+  () => {
+    const a = actor({ appRole: "ADMIN", grants: [grant({ role: "CITY_MANAGER", scopeType: "CITY", cityId: "voronezh" })] });
+    const ok = canAssignRole(
+      a,
+      { role: "CLUB_MANAGER", scopeType: "CLUB", cityId: null, clubId: "club-in-another-city" },
+      { targetClubCityId: "nizhny-novgorod" },
+    );
+    assert.equal(ok, false);
+  },
+);
+
 test("ASSIGN-C: a CITY_MANAGER may assign CLUB_MANAGER inside their city scope", () => {
   const a = actor({ grants: [grant({ role: "CITY_MANAGER", scopeType: "CITY", cityId: "voronezh" })] });
   const ok = canAssignRole(
@@ -861,11 +893,17 @@ test(
     "revokeRoleAssignment/restoreRoleAssignment take a CurrentUser obtained via " +
     "requireUser() (the real session), never the synthetic View-As persona from " +
     "rbac/effective-context.ts, which that module's own docs state is 'NEVER an " +
-    "authorization identity'; independently, requireNoActiveViewAs() rejects the " +
-    "request outright before authorize() even runs, and the global middleware " +
-    "(src/middleware.ts) blocks it a layer earlier still — three independent " +
-    "reasons a CITY_MANAGER mid-preview (of any role, including previewing " +
-    "'as' CITY_MANAGER itself) can never mutate role assignments",
+    "authorization identity'. For a genuine MANAGER/CLUB_MANAGER preview (real " +
+    "persona substitution), two FURTHER independent layers also reject the " +
+    "request outright before this identity rule even matters: " +
+    "requireNoActiveViewAs() and the global middleware (src/middleware.ts). " +
+    "Sprint: manual-test-round-2, section 1 — a CITY_MANAGER's OWN self-preview " +
+    "('previewing as CITY_MANAGER itself', not persona substitution) is " +
+    "DELIBERATELY exempted from those latter two layers, so mutation now " +
+    "succeeds during a self-preview exactly as it would with no preview at " +
+    "all — safe precisely BECAUSE this identity rule never changes: the write " +
+    "is still authorized against the real actor's real, DB-re-derived grants " +
+    "either way, preview or not",
   { skip: "integration: requires Postgres + running server (exercises the actual route)" },
   () => {},
 );

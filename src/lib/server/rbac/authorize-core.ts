@@ -74,14 +74,34 @@ export function canAssignRole(
 ): boolean {
   if (!isValidGrantShape(target)) return false;
 
-  if (hasSystemAccess(actor)) {
-    // PROJECT_ADMIN appoints the two top business tiers only. CITY_MANAGER
-    // may be created with either CITY or CLUB scope here (isValidGrantShape
-    // already confirmed the shape is one of the two legal ones). PROJECT_ADMIN
-    // keeps this capability permanently, even after OPERATIONS_DIRECTOR
-    // exists (Sprint: role-cabinets, section 3) — the two are independent
-    // grants of the same authority, not a handoff.
-    return target.role === "OPERATIONS_DIRECTOR" || target.role === "CITY_MANAGER";
+  // PROJECT_ADMIN appoints the two top business tiers only. CITY_MANAGER may
+  // be created with either CITY or CLUB scope here (isValidGrantShape
+  // already confirmed the shape is one of the two legal ones). PROJECT_ADMIN
+  // keeps this capability permanently, even after OPERATIONS_DIRECTOR exists
+  // (Sprint: role-cabinets, section 3) — the two are independent grants of
+  // the same authority, not a handoff.
+  //
+  // Sprint: manual-test-round-3, section 2 (P0 fix) — deliberately does NOT
+  // `return` unconditionally here, unlike the earlier version of this check.
+  // The old unconditional `if (hasSystemAccess(actor)) return ...` meant a
+  // dual-role actor (legacy AppRole=ADMIN, or a PROJECT_ADMIN grant, who ALSO
+  // separately holds a genuine, active CITY_MANAGER RoleAssignment — e.g. a
+  // test/admin account also granted CITY_MANAGER for a specific city) could
+  // never fall through to the CITY_MANAGER-grant check below: hasSystemAccess
+  // answered "does this actor have PROJECT_ADMIN-style authority" and, if so,
+  // that answer alone decided CLUB_MANAGER/MANAGER targets too — always "no",
+  // even when the SAME actor's separate CITY_MANAGER grant would have said
+  // "yes". This exactly mirrors the OPERATIONS_DIRECTOR branch a few lines
+  // below, which already gets this right (its own comment: "an actor who is
+  // OPERATIONS_DIRECTOR AND separately also holds an active CITY_MANAGER/
+  // CLUB_MANAGER grant must still be able to use THAT grant"). A PURE
+  // PROJECT_ADMIN/ADMIN with no separate CITY_MANAGER grant is completely
+  // unaffected — they still cannot assign CLUB_MANAGER/MANAGER directly (the
+  // CITY_MANAGER-grant check below still requires a real, active grant of
+  // their own); this only stops their PROJECT_ADMIN authority from SHADOWING
+  // a separate, genuine grant they also hold.
+  if (hasSystemAccess(actor) && (target.role === "OPERATIONS_DIRECTOR" || target.role === "CITY_MANAGER")) {
+    return true;
   }
 
   const grants = activeGrants(actor);
