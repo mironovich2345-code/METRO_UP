@@ -32,6 +32,11 @@ type RatingMode = "managers" | "clubs";
  * per this sprint's explicit instruction, this never fabricates one from an
  * average. See the final report's Rating section for 2-3 proposed formulas
  * awaiting product approval.
+ *
+ * Sprint: manual-test-round-3, section 6 — the user-facing copy below must
+ * never mention "формула"/"показатель"/internal product-development
+ * reasoning (a real user has no use for why it's missing, only that it's
+ * coming); the WHY stays in this comment, for developers only.
  */
 export default function RankingScreen() {
   const [board, setBoard] = useState<RatingBoardDTO | null>(null);
@@ -84,9 +89,9 @@ export default function RankingScreen() {
             <span className="mx-auto mb-3 flex size-12 items-center justify-center rounded-2xl bg-muted">
               <Building2 className="size-6 text-muted-foreground" />
             </span>
-            <p className="font-semibold">Рейтинг клубов пока недоступен</p>
+            <p className="font-semibold">Рейтинг клубов готовится</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              Для этого нужна согласованная формула расчёта — сейчас в системе нет готового клубного показателя.
+              Скоро здесь появится рейтинг клубов вашего города.
             </p>
           </GlassCard>
         </motion.div>
