@@ -191,6 +191,46 @@ export function homeContextToAcademySection(contextType: HomeContextType): Acade
   return contextType === "PERSONAL" ? "MANAGER" : contextType;
 }
 
+/* ------------------------- /team access mode (manual-test-round-3) ------------------------- */
+
+export interface TeamAccessMode {
+  /** True only for a CITY_MANAGER's read-only drill-down (explicit ?clubId=,
+   * no active preview) — hides "Подтвердить"; approval stays the real
+   * CLUB_MANAGER's job. */
+  isReadOnlyDrillDown: boolean;
+  /** The club id every fetch on /team should key off — never `selectedClubId`
+   * directly once an explicit clubId is present. */
+  activeClubId: string | null;
+}
+
+/**
+ * Sprint: manual-test-round-3, section 1 — the P0 fix's own decision logic,
+ * extracted out of /team/page.tsx so it has real, DB-free test coverage
+ * instead of being buried inline in a component (same reasoning as
+ * resolveActiveContext/resolveManagedClubSelection above).
+ *
+ * An active View-As-CLUB_MANAGER preview always wins over any `?clubId=` in
+ * the URL for the read-only DECISION (isReadOnlyDrillDown stays false while
+ * previewing, matching dashboard.isPreviewing's own independent, server-side
+ * guard) — a genuine drill-down is only ever a CITY_MANAGER hopping in from
+ * /city/club, never a preview. `activeClubId` still threads `explicitClubId`
+ * through even while previewing — harmless, since
+ * resolveClubManagerCabinetAccess's tier 1 (server-side) ignores any clubId
+ * whenever a preview is active and always resolves the exact previewed club
+ * instead; this is not a second, weaker access check.
+ */
+export function resolveTeamAccessMode(params: {
+  isPreviewing: boolean;
+  explicitClubId: string | null;
+  selectedClubId: string | null;
+}): TeamAccessMode {
+  const { isPreviewing, explicitClubId, selectedClubId } = params;
+  return {
+    isReadOnlyDrillDown: !isPreviewing && Boolean(explicitClubId),
+    activeClubId: explicitClubId ?? selectedClubId,
+  };
+}
+
 /* --------------------- role-assignment error messages (manual-test-round-2) --------------------- */
 
 /**

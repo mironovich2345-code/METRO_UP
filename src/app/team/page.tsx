@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
-import { CheckCircle2, Clock, GraduationCap, UserCheck, Users } from "lucide-react";
+import { CheckCircle2, ChevronRight, Clock, GraduationCap, UserCheck, Users } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
@@ -14,7 +15,7 @@ import type { CabinetTeamMemberDTO, ClubManagerDashboardDTO } from "@/lib/api/ca
 import type { ClubSummaryDTO } from "@/lib/api/roles-client";
 import { cardIn, staggerStack } from "@/lib/motion";
 import { cn } from "@/lib/utils";
-import { describeRoleAssignmentError, filterPendingEmployees, resolveManagedClubSelection } from "@/lib/cabinet-ui";
+import { describeRoleAssignmentError, filterPendingEmployees, resolveManagedClubSelection, resolveTeamAccessMode } from "@/lib/cabinet-ui";
 
 /**
  * Sprint: mini-app-role-experience, section 8-9 — CLUB_MANAGER's "Моя
@@ -26,6 +27,25 @@ import { describeRoleAssignmentError, filterPendingEmployees, resolveManagedClub
  * approval path. Multi-club selection reuses resolveManagedClubSelection
  * (cabinet-ui.ts, step 6) rather than guessing a club.
  *
+ * Sprint: manual-test-round-3, section 1 (P0 root cause) — a CITY_MANAGER
+ * drilling in from /city/club's "Открыть команда" was landing here with NO
+ * clubId at all, so this page unconditionally called
+ * cabinetApi.myManagedClubs() (GET /api/control/club/clubs) FIRST — a route
+ * that 403s anyone who isn't themselves a CLUB_MANAGER (legacy AppRole or an
+ * active grant), which a pure CITY_MANAGER is not. That 403 landed in the
+ * generic .catch(() => setStatus("error")), producing "Не удалось загрузить"
+ * even though the SAME club's roster loads fine elsewhere (e.g.
+ * AssignManagerSheet's cabinetApi.clubManagerTeam(clubId) call, which never
+ * goes through myManagedClubs at all — it's authorized per-request via
+ * resolveClubManagerCabinetAccess's tier 3, club.read). Fix: this page now
+ * accepts an explicit `?clubId=` — when present, it skips the self-lookup
+ * entirely and reads that club directly (same tier-3 club.read authority
+ * the working request already used), as a READ-ONLY drill-down (no
+ * "Подтвердить" — approval is the real CLUB_MANAGER's job, and
+ * requireClubManagerAccess() would 403 a pure CITY_MANAGER's approve call
+ * anyway). With no clubId (the CLUB_MANAGER's own bottom-of-Home tap-through,
+ * unchanged), the original self-managed-club flow applies exactly as before.
+ *
  * View As: while an active View-As-CLUB_MANAGER preview is running, club
  * selection is skipped entirely — the server always resolves the exact
  * previewed club when clubId is omitted (resolveClubManagerCabinetAccess's
@@ -33,10 +53,14 @@ import { describeRoleAssignmentError, filterPendingEmployees, resolveManagedClub
  * "Подтвердить"; the underlying route is independently guarded server-side
  * by requireClubManagerAccess() checking the REAL actor's own grants, never
  * the preview persona, so a preview can never approve anyone regardless of
- * what this screen renders).
+ * what this screen renders). An active preview always takes priority over
+ * any `?clubId=` in the URL.
  */
 export default function TeamPage() {
   const { user } = useAppUser();
+  const router = useRouter();
+  const search = useSearchParams();
+  const explicitClubId = search.get("clubId");
   const isPreviewing = user?.viewContext?.previewRole === "CLUB_MANAGER";
 
   const [clubs, setClubs] = useState<ClubSummaryDTO[] | null>(null);
@@ -47,9 +71,11 @@ export default function TeamPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
-  // Resolve which club(s) this real actor manages — skipped while previewing.
+  // Resolve which club(s) this real actor manages — skipped while previewing
+  // AND skipped entirely when an explicit clubId drill-down is given (that
+  // clubId is authorized per-request, never via "clubs I manage").
   useEffect(() => {
-    if (isPreviewing) return;
+    if (isPreviewing || explicitClubId) return;
     cabinetApi
       .myManagedClubs()
       .then((r) => {
@@ -59,20 +85,31 @@ export default function TeamPage() {
         else if (selection.kind === "auto") setSelectedClubId(selection.club.id);
       })
       .catch(() => setStatus("error"));
-  }, [isPreviewing]);
+  }, [isPreviewing, explicitClubId]);
+
+  const { isReadOnlyDrillDown, activeClubId } = resolveTeamAccessMode({ isPreviewing, explicitClubId, selectedClubId });
 
   const load = useCallback(() => {
-    if (!isPreviewing && !selectedClubId) return;
+    if (!isPreviewing && !activeClubId) return;
     setStatus("loading");
-    Promise.all([cabinetApi.clubManager(selectedClubId ?? undefined), cabinetApi.clubManagerTeam(selectedClubId ?? undefined)])
+    Promise.all([cabinetApi.clubManager(activeClubId ?? undefined), cabinetApi.clubManagerTeam(activeClubId ?? undefined)])
       .then(([d, t]) => {
         setDashboard(d);
         setMembers(t.members);
         setStatus("ready");
       })
       .catch((e) => setStatus(e instanceof ApiError && (e.status === 403 || e.status === 401) ? "denied" : "error"));
-  }, [isPreviewing, selectedClubId]);
+  }, [isPreviewing, activeClubId]);
   useEffect(load, [load]);
+
+  // Sprint: manual-test-round-3, sections 5B/5C — every roster row (pending
+  // and active alike) drills into the SAME shared, role-agnostic training
+  // detail screen (/team/employee), scoped server-side by club.read against
+  // the target employee's actual club — never trusted from this URL.
+  const goToEmployeeTraining = (userId: string) => {
+    const clubParam = dashboard?.clubId ? `&clubId=${dashboard.clubId}` : "";
+    router.push(`/team/employee?userId=${userId}${clubParam}`);
+  };
 
   const approve = async (userId: string) => {
     if (!dashboard?.clubId) return;
@@ -113,7 +150,13 @@ export default function TeamPage() {
 
   return (
     <div className="relative min-h-[100dvh] pb-24">
-      <AppHeader title="Моя команда" subtitle={dashboard?.clubName ?? undefined} showBack backHref="/home" showThemeSwitcher={false} />
+      <AppHeader
+        title={isReadOnlyDrillDown ? "Команда" : "Моя команда"}
+        subtitle={dashboard?.clubName ?? undefined}
+        showBack
+        backHref={explicitClubId ? `/city/club?clubId=${explicitClubId}` : "/home"}
+        showThemeSwitcher={false}
+      />
 
       <motion.main variants={staggerStack} initial="hidden" animate="show" className="flex flex-col gap-5 px-5 pt-2">
         {status === "no-club" && (
@@ -190,7 +233,15 @@ export default function TeamPage() {
                     ) : (
                       <div className="flex flex-col gap-2">
                         {pending.map((m) => (
-                          <GlassCard key={m.userId} variant="solid" pad="md" animateIn={false} className="flex items-center gap-3">
+                          <GlassCard
+                            key={m.userId}
+                            variant="solid"
+                            pad="md"
+                            animateIn={false}
+                            interactive
+                            onClick={() => goToEmployeeTraining(m.userId)}
+                            className="flex items-center gap-3"
+                          >
                             <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-brand/12">
                               <Clock className="size-4.5 text-brand" />
                             </span>
@@ -198,8 +249,15 @@ export default function TeamPage() {
                               <p className="truncate font-semibold">{m.displayName}</p>
                               <p className="truncate text-xs text-muted-foreground">{m.position ?? "—"}</p>
                             </div>
-                            {!dashboard.isPreviewing && (
-                              <Button size="sm" onClick={() => approve(m.userId)} disabled={busyId === m.userId}>
+                            {!dashboard.isPreviewing && !isReadOnlyDrillDown && (
+                              <Button
+                                size="sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  approve(m.userId);
+                                }}
+                                disabled={busyId === m.userId}
+                              >
                                 <UserCheck className="size-3.5" /> {busyId === m.userId ? "…" : "Подтвердить"}
                               </Button>
                             )}
@@ -215,7 +273,7 @@ export default function TeamPage() {
                       {rest.length === 0 ? (
                         <p className="p-4 text-sm text-muted-foreground">В клубе пока нет сотрудников.</p>
                       ) : (
-                        rest.map((m) => <MemberRow key={m.userId} member={m} />)
+                        rest.map((m) => <MemberRow key={m.userId} member={m} onClick={() => goToEmployeeTraining(m.userId)} />)
                       )}
                     </GlassCard>
                   </motion.div>
@@ -229,9 +287,13 @@ export default function TeamPage() {
   );
 }
 
-function MemberRow({ member }: { member: CabinetTeamMemberDTO }) {
+function MemberRow({ member, onClick }: { member: CabinetTeamMemberDTO; onClick: () => void }) {
   return (
-    <div className="flex items-center gap-3 p-4">
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-center gap-3 p-4 text-left transition-colors active:bg-muted/60"
+    >
       <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-muted">
         <Users className="size-4.5 text-muted-foreground" />
       </span>
@@ -249,6 +311,7 @@ function MemberRow({ member }: { member: CabinetTeamMemberDTO }) {
           </p>
         )}
       </div>
-    </div>
+      <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+    </button>
   );
 }

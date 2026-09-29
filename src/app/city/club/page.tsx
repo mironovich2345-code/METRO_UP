@@ -283,7 +283,11 @@ function ClubDetail({ clubId }: { clubId: string }) {
               )}
             </motion.div>
 
-            <Button variant="secondary" block onClick={() => router.push(`/team`)}>
+            {/* Sprint: manual-test-round-3, section 1 (P0 fix) — explicit
+                clubId, so /team reads this club directly instead of trying
+                (and 403ing) to resolve "clubs the CITY_MANAGER themselves
+                manage". */}
+            <Button variant="secondary" block onClick={() => router.push(`/team?clubId=${clubId}`)}>
               Открыть команду
             </Button>
           </>
