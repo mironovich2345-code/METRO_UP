@@ -2,10 +2,12 @@ import { ApiError } from "./client";
 import type { ClubSummaryDTO } from "./roles-client";
 import type {
   CityManagerDashboardDTO,
+  CityManagerTrainingClubRowDTO,
   ClubManagerDashboardDTO,
   ClubManagerTeamDTO,
   OperationsDirectorDashboardDTO,
 } from "./cabinet-types";
+import type { EmployeeTrainingDetailDTO } from "./content-types";
 
 /**
  * Sprint: role-cabinets, step 5 — thin client wrappers for the read-model
@@ -39,12 +41,19 @@ export const cabinetApi = {
   /** Sprint: role-cabinets, step 6 — the clubs the caller personally manages
    * (GET /api/control/club/clubs). Zero, one, or several — never assumed. */
   myManagedClubs: () => request<{ clubs: ClubSummaryDTO[] }>(`/api/control/club/clubs`),
+  /** Sprint: manual-test-round-3, section 5A — CITY_MANAGER-only club-level
+   * training rows. */
+  cityManagerTraining: () => request<{ clubs: CityManagerTrainingClubRowDTO[] }>(`/api/control/cabinet/city-manager/training`),
+  /** Sprint: manual-test-round-3, sections 5C/5D — the shared, role-agnostic
+   * per-employee training detail (CITY_MANAGER and CLUB_MANAGER alike). */
+  employeeTraining: (userId: string) => request<EmployeeTrainingDetailDTO>(`/api/control/cabinet/employee-training${qs({ userId })}`),
 };
 
 export type {
   AttentionItemDTO,
   CityManagerDashboardDTO,
   CityManagerClubSummaryDTO,
+  CityManagerTrainingClubRowDTO,
   ClubManagerAssignmentDTO,
   ClubManagerDashboardDTO,
   ClubManagerTeamDTO,
@@ -52,3 +61,4 @@ export type {
   OperationsDirectorDashboardDTO,
   TrainingSummaryDTO,
 } from "./cabinet-types";
+export type { EmployeeTrainingDetailDTO, EmployeeTrainingProgramDTO, EmployeeTrainingLessonDTO } from "./content-types";

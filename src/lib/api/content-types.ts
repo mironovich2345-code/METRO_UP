@@ -174,6 +174,42 @@ export interface AcademySectionsDTO {
   activeSection: AcademyTargetRoleDTO;
 }
 
+/**
+ * Sprint: manual-test-round-3, section 5C — the most detailed per-employee
+ * learning view CURRENT schema genuinely supports (audited: LessonProgress
+ * gives per-lesson status/completedAt; QuizAttempt gives a per-lesson score/
+ * pass, latest attempt only; TrainingProgram/Day/Course/Lesson give the
+ * structure). Deliberately does NOT include due dates, mandatory/overdue
+ * status, time-spent, or any score that isn't a real QuizAttempt row — none
+ * of that exists in the data model, so none of it is fabricated here.
+ */
+export interface EmployeeTrainingLessonDTO {
+  id: string;
+  slug: string;
+  title: string;
+  dayNumber: number;
+  isRequired: boolean;
+  durationMinutes: number;
+  completed: boolean;
+  completedAt: string | null;
+  /** null when the lesson has no quiz, or the employee has no attempt yet —
+   * never a fabricated score. */
+  quiz: { scorePercent: number; passed: boolean } | null;
+}
+export interface EmployeeTrainingProgramDTO {
+  id: string;
+  title: string;
+  completedLessons: number;
+  totalLessons: number;
+  lessons: EmployeeTrainingLessonDTO[];
+}
+export interface EmployeeTrainingDetailDTO {
+  displayName: string;
+  position: string | null;
+  programs: EmployeeTrainingProgramDTO[];
+  overall: { completed: number; total: number };
+}
+
 export interface AcademyLessonRowDTO {
   id: string;
   slug: string;

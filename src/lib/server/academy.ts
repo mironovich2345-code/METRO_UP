@@ -2,12 +2,14 @@ import "server-only";
 import { prisma } from "./db";
 import { accessAt, getProgramSequence, getCompletedLessonIds } from "./gating";
 import { getXpBalance } from "./progress";
+import { getPositionById } from "@/content/positions";
 import type {
   AcademyStateDTO,
   AcademyLessonStateDTO,
   AcademyOverviewDTO,
   AcademyDayDetailDTO,
   AcademyTargetRoleDTO,
+  EmployeeTrainingDetailDTO,
 } from "@/lib/api/content-types";
 
 /**
@@ -397,4 +399,107 @@ async function getVirtualDayDetail(
     programTitle: program.title,
     courses,
   };
+}
+
+/**
+ * Sprint: manual-test-round-3, section 5C — a manager's (CITY_MANAGER or
+ * CLUB_MANAGER, via the shared /api/control/cabinet/employee-training route
+ * — never duplicated per role, section 5D) detailed view of ONE employee's
+ * training. Reuses the exact same primitives getAcademyOverview already
+ * uses (programIdsWithPublishedLessons, getProgramSequence,
+ * getCompletedLessonIds) rather than a parallel query path, extended with
+ * per-lesson completedAt + the latest QuizAttempt per lesson (schema audit:
+ * LessonProgress/QuizAttempt genuinely support this; no due date/mandatory/
+ * overdue/time-spent concept exists anywhere, so none is fabricated here).
+ *
+ * Query strategy — bounded, no N+1: one query for published program ids,
+ * one for the programs themselves, one getProgramSequence call PER PROGRAM
+ * (same pattern getAcademyOverview already uses — programs are few), then
+ * exactly ONE batched query each for this employee's LessonProgress rows,
+ * this employee's Quiz rows (across every lesson in scope), and this
+ * employee's QuizAttempt rows — never per-lesson, never per-day.
+ */
+export async function getEmployeeTrainingDetail(employeeUserId: string): Promise<EmployeeTrainingDetailDTO> {
+  const [user, programIds] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: employeeUserId },
+      select: { displayName: true, employeeProfile: { select: { positionId: true } } },
+    }),
+    programIdsWithPublishedLessons(),
+  ]);
+
+  const displayName = user?.displayName ?? "—";
+  const position = user?.employeeProfile ? getPositionById(user.employeeProfile.positionId)?.title ?? null : null;
+
+  if (programIds.length === 0) {
+    return { displayName, position, programs: [], overall: { completed: 0, total: 0 } };
+  }
+
+  const [programs, completedIds] = await Promise.all([
+    prisma.trainingProgram.findMany({ where: { id: { in: programIds } }, orderBy: { order: "asc" }, select: { id: true, title: true } }),
+    getCompletedLessonIds(employeeUserId),
+  ]);
+
+  const sequencesByProgram = new Map<string, Awaited<ReturnType<typeof getProgramSequence>>>();
+  const allLessonIds: string[] = [];
+  for (const program of programs) {
+    const sequence = await getProgramSequence(program.id);
+    sequencesByProgram.set(program.id, sequence);
+    for (const l of sequence) allLessonIds.push(l.id);
+  }
+
+  const [progressRows, quizzes] = await Promise.all([
+    prisma.lessonProgress.findMany({
+      where: { userId: employeeUserId, lessonId: { in: allLessonIds } },
+      select: { lessonId: true, completedAt: true },
+    }),
+    allLessonIds.length
+      ? prisma.quiz.findMany({ where: { lessonId: { in: allLessonIds } }, select: { id: true, lessonId: true } })
+      : Promise.resolve([]),
+  ]);
+  const completedAtByLesson = new Map(progressRows.filter((r) => r.completedAt).map((r) => [r.lessonId, r.completedAt!.toISOString()]));
+  const quizIdToLessonId = new Map(quizzes.map((q) => [q.id, q.lessonId]));
+
+  const attempts = quizzes.length
+    ? await prisma.quizAttempt.findMany({
+        where: { userId: employeeUserId, quizId: { in: quizzes.map((q) => q.id) } },
+        orderBy: { attemptNumber: "desc" },
+        select: { quizId: true, scorePercent: true, passed: true },
+      })
+    : [];
+  const latestQuizByLesson = new Map<string, { scorePercent: number; passed: boolean }>();
+  for (const a of attempts) {
+    const lessonId = quizIdToLessonId.get(a.quizId);
+    if (!lessonId || latestQuizByLesson.has(lessonId)) continue; // already-seen = a later attempt (desc order)
+    latestQuizByLesson.set(lessonId, { scorePercent: a.scorePercent, passed: a.passed });
+  }
+
+  let overallCompleted = 0;
+  let overallTotal = 0;
+  const outPrograms: EmployeeTrainingDetailDTO["programs"] = [];
+  for (const program of programs) {
+    const sequence = sequencesByProgram.get(program.id) ?? [];
+    if (sequence.length === 0) continue;
+    let programCompleted = 0;
+    const lessons: EmployeeTrainingDetailDTO["programs"][number]["lessons"] = sequence.map((l) => {
+      const completed = completedIds.has(l.id);
+      if (completed) programCompleted += 1;
+      return {
+        id: l.id,
+        slug: l.slug,
+        title: l.title,
+        dayNumber: l.dayNumber,
+        isRequired: l.isRequired,
+        durationMinutes: l.durationMinutes ?? 0,
+        completed,
+        completedAt: completedAtByLesson.get(l.id) ?? null,
+        quiz: latestQuizByLesson.get(l.id) ?? null,
+      };
+    });
+    overallCompleted += programCompleted;
+    overallTotal += sequence.length;
+    outPrograms.push({ id: program.id, title: program.title, completedLessons: programCompleted, totalLessons: sequence.length, lessons });
+  }
+
+  return { displayName, position, programs: outPrograms, overall: { completed: overallCompleted, total: overallTotal } };
 }

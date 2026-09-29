@@ -122,12 +122,16 @@ export default function CityClubsPage() {
             </motion.div>
 
             <motion.div variants={cardIn}>
-              <GlassCard variant="solid" pad="lg" animateIn={false}>
+              {/* Sprint: manual-test-round-3, section 5A — tap-through to the
+                  per-club training drill-down (/city/training), scoped
+                  server-side to this same CITY_MANAGER's effective clubs. */}
+              <GlassCard variant="solid" pad="lg" animateIn={false} interactive onClick={() => router.push("/city/training")}>
                 <div className="flex items-center gap-2">
                   <span className="flex size-9 items-center justify-center rounded-2xl bg-brand/12">
                     <GraduationCap className="size-5 text-brand" />
                   </span>
-                  <p className="font-bold">Обучение по клубам</p>
+                  <p className="flex-1 font-bold">Обучение по клубам</p>
+                  <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
                 </div>
                 {dashboard.training ? (
                   <div className="mt-2 flex flex-col gap-1 text-sm text-muted-foreground">

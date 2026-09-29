@@ -117,6 +117,23 @@ export interface CityManagerClubSummaryDTO {
   trainingCompletionPercent: number | null;
 }
 
+/**
+ * Sprint: manual-test-round-3, section 5A — "Обучение по клубам" drill-down,
+ * one row per club in the CITY_MANAGER's effective scope. Same honest
+ * semantics as everywhere else in this file (see cabinet-dashboards.ts's own
+ * header comment): never "mandatory"/"overdue", just real completed/
+ * published-lesson counts. null averageProgressPercent when there's no
+ * published content or no employees to average over — never fabricated.
+ */
+export interface CityManagerTrainingClubRowDTO {
+  clubId: string;
+  clubName: string;
+  employeeCount: number;
+  averageProgressPercent: number | null;
+  employeesCompletedAll: number;
+  employeesInTraining: number;
+}
+
 /** One active CLUB_MANAGER RoleAssignment inside a CITY_MANAGER's scope —
  * enough to render a list and act on it later, no unrelated personal data. */
 export interface ClubManagerAssignmentDTO {
