@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useTelegram } from "@/providers/TelegramProvider";
@@ -23,7 +24,8 @@ import {
 } from "@/lib/profile";
 import { trackEvent } from "@/lib/analytics";
 import { serverOnboardingComplete } from "@/lib/onboarding-state";
-import { onboardingPersistTarget } from "@/lib/boot-state";
+import { onboardingPersistTarget, resolveIdentityPhase } from "@/lib/boot-state";
+import { logBootEvent } from "@/lib/client/perf-boot";
 import type { AppUserDTO } from "@/lib/api/types";
 import type { TelegramUser } from "@/lib/types";
 
@@ -35,10 +37,18 @@ interface OnboardingDraft {
 }
 
 interface AppContextValue {
-  /** True once a routing decision can be made (bootstrap + local read done). */
+  /** True once a routing decision can be made — a cached (unconfirmed)
+   * identity snapshot satisfies this just as well as a real one (sprint:
+   * mini-app-cold-start, sections 6/13). */
   hydrated: boolean;
-  /** True while the initial server bootstrap is still resolving. */
+  /** True only while NEITHER a cached snapshot nor a real response exists
+   * yet (EmployeeBootGate's loading spinner condition). */
   bootstrapping: boolean;
+  /** True once the REAL server session has confirmed identity/access —
+   * false while showing a merely-cached, speculative identity. The one flag
+   * that must gate anything privileged (section 7 — CITY_MANAGER/
+   * CLUB_MANAGER Home content must never render from a guess). */
+  identityConfirmed: boolean;
   /** True when the Telegram bootstrap failed and needs a retry. */
   bootstrapError: boolean;
   retryBootstrap: () => void;
@@ -137,14 +147,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   }, [serverProfile]);
 
-  // Bootstrap resolution: inside Telegram we wait for auth; in demo for "demo".
-  const bootstrapDecided =
-    appUser.status === "authenticated" ||
-    appUser.status === "anonymous" ||
-    appUser.status === "demo";
+  // Sprint: mini-app-cold-start, sections 6/7/13 — resolveIdentityPhase
+  // (boot-state.ts) is the actual, unit-tested decision; this provider just
+  // feeds it the two inputs it needs.
+  const { hydrated, identityConfirmed, hasCachedIdentity } = resolveIdentityPhase({
+    appUserStatus: appUser.status,
+    localReady,
+  });
   const bootstrapError = appUser.status === "error";
   const bootstrapping = appUser.isBootstrapping;
-  const hydrated = localReady && bootstrapDecided;
+
+  // Sprint: mini-app-cold-start, section 2 — logs once, the first time
+  // `hydrated` flips true (whichever of the two tiers gets there first) —
+  // this is the moment EmployeeBootGate stops showing its spinner.
+  const identityReadyLogged = useRef(false);
+  useEffect(() => {
+    if (!hydrated || identityReadyLogged.current) return;
+    identityReadyLogged.current = true;
+    logBootEvent("app_identity_ready", { cached: hasCachedIdentity && !identityConfirmed });
+  }, [hydrated, hasCachedIdentity, identityConfirmed]);
 
   // Source of truth: server inside Telegram, localStorage in browser demo.
   const profile = serverProfile ?? (isInsideTelegram ? null : localProfile);
@@ -267,6 +288,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     () => ({
       hydrated,
       bootstrapping,
+      identityConfirmed,
       bootstrapError,
       retryBootstrap: appUser.retry,
       telegramUser: user,
@@ -284,6 +306,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [
       hydrated,
       bootstrapping,
+      identityConfirmed,
       bootstrapError,
       appUser.retry,
       user,

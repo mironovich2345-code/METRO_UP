@@ -21,6 +21,50 @@ export function bootPhase(s: { bootstrapError: boolean; hydrated: boolean }): Bo
   return "ready";
 }
 
+/**
+ * Sprint: mini-app-cold-start — the app-user status values app-provider.tsx
+ * juggles. Duplicated here (not imported from AppUserProvider.tsx, a
+ * "use client" React file) so this stays a plain, DOM/React-free module.
+ */
+export type AppUserStatusLike = "loading" | "cached" | "authenticated" | "anonymous" | "demo" | "error";
+
+export interface IdentityPhase {
+  /** True once a routing/rendering decision can be made — a cached
+   * (unconfirmed) identity snapshot satisfies this exactly as well as a
+   * real one; every consumer (bootPhase, the onboarding redirects in
+   * /, /home, /profile) is already self-correcting once confirmation lands. */
+  hydrated: boolean;
+  /** True once the REAL server session has confirmed identity/access. The
+   * stricter signal for anything that must never render off a guess
+   * (Home's CITY_MANAGER/CLUB_MANAGER branches). */
+  identityConfirmed: boolean;
+  /** True while showing a merely-cached, speculative identity (status
+   * "cached" specifically — distinct from "loading", which has nothing to
+   * show at all yet). */
+  hasCachedIdentity: boolean;
+}
+
+/**
+ * Sprint: mini-app-cold-start, sections 6/7/8/13 — the ONE rule behind the
+ * whole "fast shell + safe early render" design. Pulled out of
+ * app-provider.tsx (a "use client" file this repo's test harness can't
+ * exercise without a DOM) so the actual decision has real, deterministic
+ * test coverage. `identityConfirmed` and `hasCachedIdentity` are mutually
+ * exclusive by construction (derived from the same single status value).
+ */
+export function resolveIdentityPhase(s: { appUserStatus: AppUserStatusLike; localReady: boolean }): IdentityPhase {
+  const identityConfirmed =
+    s.appUserStatus === "authenticated" ||
+    s.appUserStatus === "anonymous" ||
+    s.appUserStatus === "demo";
+  const hasCachedIdentity = s.appUserStatus === "cached";
+  return {
+    identityConfirmed,
+    hasCachedIdentity,
+    hydrated: s.localReady && (identityConfirmed || hasCachedIdentity),
+  };
+}
+
 /** Where onboarding must be persisted, given the runtime + auth state. */
 export type OnboardingTarget = "server" | "local" | "blocked";
 

@@ -68,6 +68,19 @@ export const MAX_ENTRY_BYTES = 200_000;
  *    ("knowledge-base metadata/content: longer"). Published content, no
  *    per-user data whatsoever — the same category of safety as Academy
  *    structure.
+ *  - identity-snapshot: 5 min. Sprint: mini-app-cold-start, sections 7-9 —
+ *    the ACTOR'S OWN last-known AppUserDTO (displayName/telegram/profile),
+ *    read directly by AppUserProvider (not through useQuery/cache-keys.ts
+ *    like every other category above) to paint a personal shell before the
+ *    real /api/auth/telegram round trip resolves. This is the one category
+ *    that comes closest to "persisting authorization" (it includes
+ *    accessStatus) — section 9 allows it explicitly as a DISPLAY HINT ONLY:
+ *    AppUserProvider never treats a cached snapshot as proof of anything,
+ *    it only picks which UI paints speculatively, and the real auth
+ *    response always overwrites it the moment it arrives (AppUserProvider's
+ *    reconciliation, never this module). 5 minutes bounds how stale that
+ *    hint can be; every actual data fetch and every mutation is
+ *    independently re-authorized server-side regardless of this value.
  *
  * Deliberately memory-only (never persisted), per section 6's "default
  * toward not persisting detailed employee PII":
@@ -97,6 +110,7 @@ const PERSIST_TTL_MS: Record<string, number> = {
   "script-detail": 30 * 60_000,
   instructions: 30 * 60_000,
   "instruction-detail": 30 * 60_000,
+  "identity-snapshot": 5 * 60_000,
 };
 
 /**

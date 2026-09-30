@@ -99,6 +99,11 @@ export const cacheKeys = {
   scriptDetail: (slug: string) => key("script-detail", slug),
   instructions: () => key("instructions"),
   instructionDetail: (slug: string) => key("instruction-detail", slug),
+
+  /** Sprint: mini-app-cold-start — read directly by AppUserProvider (never
+   * through useQuery), so this key is never inside a `previewTag`/context —
+   * it identifies one thing only: this owner's last confirmed identity. */
+  identitySnapshot: () => key("identity-snapshot"),
 } as const;
 
 /** Prefix helpers for coarse, category-wide invalidation (query-cache.ts's
