@@ -1,5 +1,6 @@
 import "server-only";
 import { prisma } from "../db";
+import { perfTimed } from "../perf";
 import type { CurrentUser } from "../session";
 import type { ActorContext } from "./types";
 
@@ -9,10 +10,21 @@ import type { ActorContext } from "./types";
  * piece of the RBAC foundation.
  */
 export async function getActorContext(user: CurrentUser): Promise<ActorContext> {
-  const grants = await prisma.roleAssignment.findMany({
-    where: { userId: user.id },
-    select: { id: true, role: true, scopeType: true, cityId: true, clubId: true, status: true },
-  });
+  // Sprint: mini-app-performance, section 3 — "ActorContext/RBAC resolution
+  // duration", instrumented once here rather than per-route, same reasoning
+  // as getCurrentUser (session.ts). This is the REAL, always-fresh
+  // resolution every authorization decision (including every mutation)
+  // uses — deliberately NOT cached (section 10's audit found the cross-
+  // request duplication this causes to be small in magnitude, and a rushed
+  // cache here risks exactly the "stale grant still authorizes a write"
+  // failure mode section 10 itself warns against; see the performance
+  // report's "Auth/context optimization" section for the full reasoning).
+  const grants = await perfTimed("rbac.getActorContext", () =>
+    prisma.roleAssignment.findMany({
+      where: { userId: user.id },
+      select: { id: true, role: true, scopeType: true, cityId: true, clubId: true, status: true },
+    }),
+  );
   return {
     userId: user.id,
     appRole: user.role,

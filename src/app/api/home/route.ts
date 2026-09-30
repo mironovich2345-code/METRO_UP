@@ -14,6 +14,7 @@ import { getActorContext } from "@/lib/server/rbac/context";
 import { resolveAvailableHomeContexts } from "@/lib/server/rbac/cabinet-dashboards";
 import { resolveActiveContext } from "@/lib/cabinet-ui";
 import { getClubById } from "@/content/cities";
+import { perfTimed } from "@/lib/server/perf";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,7 +52,19 @@ function parseRequestedContext(req: NextRequest): { type: string; clubId?: strin
  * before (requireActiveAccess widened only for PENDING_APPROVAL's onboarding
  * path; LIMITED still explicitly re-blocked with ACCESS_LIMITED).
  */
+/**
+ * Sprint: mini-app-performance, section 3/16 — "total request duration" for
+ * the single most-visited screen, as the concrete example of perfTimed's
+ * per-route usage (opt-in via PERF_LOG=1, see perf.ts). Not applied
+ * blanket-wide across the API surface this round — see the performance
+ * report's "Auth/context optimization" section for why that was judged out
+ * of proportion to the audit's findings.
+ */
 export async function GET(req: NextRequest) {
+  return perfTimed("api.home", () => handleGet(req));
+}
+
+async function handleGet(req: NextRequest) {
   try {
     const user = await requireActiveAccess();
     const status = user.employeeProfile!.accessStatus;

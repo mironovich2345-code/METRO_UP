@@ -2,6 +2,7 @@ import "server-only";
 import { cookies } from "next/headers";
 import { prisma } from "./db";
 import { getServerEnv, isProduction } from "./env";
+import { perfTimed } from "./perf";
 import {
   SESSION_COOKIE,
   buildSessionCookieOptions,
@@ -45,8 +46,13 @@ export type CurrentUser = NonNullable<Awaited<ReturnType<typeof getCurrentUser>>
 export async function getCurrentUser() {
   const userId = await getSessionUserId();
   if (!userId) return null;
-  return prisma.user.findUnique({
-    where: { id: userId },
-    include: { employeeProfile: true },
-  });
+  // Sprint: mini-app-performance, section 3 — "auth/session resolution
+  // duration", instrumented ONCE here rather than per-route: every route
+  // that calls requireUser()/getCurrentUser() is covered automatically.
+  return perfTimed("auth.getCurrentUser", () =>
+    prisma.user.findUnique({
+      where: { id: userId },
+      include: { employeeProfile: true },
+    }),
+  );
 }
