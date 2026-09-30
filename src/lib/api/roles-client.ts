@@ -1,5 +1,6 @@
 import { ApiError } from "./client";
 import type { NetworkRoleDTO, RoleScopeTypeDTO, RoleAssignmentRowDTO } from "./roles-types";
+import { clearAllQueries } from "@/lib/client/query-cache";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
@@ -46,17 +47,37 @@ export const rolesApi = {
     }),
 };
 
-/** Sprint 1 / Phase 2B — src/app/api/control/view-as/**. */
+/**
+ * Sprint 1 / Phase 2B — src/app/api/control/view-as/**.
+ *
+ * Sprint: mini-app-performance, section 17 — starting OR ending a preview
+ * flushes the ENTIRE client query cache (clearAllQueries), not just the
+ * screens the Mini App happens to render next. A previewed response must
+ * never remain reachable after the preview ends, and switching from one
+ * preview to another must never briefly show the first preview's cached
+ * data. This is a no-op wherever the SWR cache is unused (e.g. the desktop
+ * /control portal, which does not use useQuery) — clearing an empty cache
+ * costs nothing — so it is safe to call unconditionally from both surfaces
+ * that import this module.
+ */
 export const viewAsApi = {
-  start: (body: {
+  start: async (body: {
     role: "MANAGER" | "CLUB_MANAGER" | "CITY_MANAGER";
     clubId?: string | null;
     cityId?: string | null;
     /** Required when role === "MANAGER" — see view-as-schemas.ts. */
     previewPositionId?: "CLIENT_MANAGER" | "NIGHT_MANAGER" | "ADMINISTRATOR" | null;
     reason?: string | null;
-  }) => request<{ viewContext: unknown }>(`/api/control/view-as/start`, { method: "POST", body: JSON.stringify(body) }),
-  end: () => request<{ ended: true }>(`/api/control/view-as/end`, { method: "POST" }),
+  }) => {
+    const result = await request<{ viewContext: unknown }>(`/api/control/view-as/start`, { method: "POST", body: JSON.stringify(body) });
+    clearAllQueries();
+    return result;
+  },
+  end: async () => {
+    const result = await request<{ ended: true }>(`/api/control/view-as/end`, { method: "POST" });
+    clearAllQueries();
+    return result;
+  },
 };
 
 export interface ClubSummaryDTO {
