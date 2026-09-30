@@ -92,6 +92,13 @@ export const cacheKeys = {
   cityClub: (clubId: string) => key("city-club", clubId),
   cityManagers: () => key("city-managers"),
   cityTraining: () => key("city-training"),
+
+  /** Published, shareable knowledge-base content — no per-user data at all
+   * (section 5's own named "knowledge-base metadata/content" candidate). */
+  scripts: () => key("scripts"),
+  scriptDetail: (slug: string) => key("script-detail", slug),
+  instructions: () => key("instructions"),
+  instructionDetail: (slug: string) => key("instruction-detail", slug),
 } as const;
 
 /** Prefix helpers for coarse, category-wide invalidation (query-cache.ts's
