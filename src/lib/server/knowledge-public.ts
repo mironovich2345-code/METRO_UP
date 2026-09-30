@@ -3,6 +3,7 @@ import { prisma } from "./db";
 import { AuthError } from "./authz";
 import { scriptContentSchema } from "./knowledge-schemas";
 import { resolveInstructionBlocks } from "./knowledge-media";
+import { cachedForMs } from "./ttl-cache";
 import { SCRIPT_POSITIONS, canAccessScripts } from "@/lib/knowledge-access";
 import type {
   EmployeeScriptsPayload,
@@ -27,22 +28,30 @@ function parseScriptContent(raw: unknown): ScriptContentDTO {
 
 /* -------------------------------- scripts -------------------------------- */
 
+/** Sprint: mini-app-performance, section 9 — TTL-cached (60s): no
+ * user/club/city param at all, PUBLISHED/isActive-gated only — identical
+ * result for every caller by construction (see ttl-cache.ts's security
+ * doc). Position-gating (canAccessScripts) happens at the ROUTE, against
+ * the real actor, before this is ever called — never weakened by caching
+ * the shared content underneath it. */
 export async function getEmployeeScripts(): Promise<EmployeeScriptsPayload> {
-  const scripts = await prisma.script.findMany({
-    where: { status: "PUBLISHED", category: { isActive: true } },
-    orderBy: [{ order: "asc" }, { title: "asc" }],
-    select: { id: true, title: true, slug: true, description: true, categoryId: true },
+  return cachedForMs("knowledge:scripts", 60_000, async () => {
+    const scripts = await prisma.script.findMany({
+      where: { status: "PUBLISHED", category: { isActive: true } },
+      orderBy: [{ order: "asc" }, { title: "asc" }],
+      select: { id: true, title: true, slug: true, description: true, categoryId: true },
+    });
+    const categoryIds = new Set(scripts.map((s) => s.categoryId));
+    const categories = await prisma.scriptCategory.findMany({
+      where: { isActive: true, id: { in: [...categoryIds] } },
+      orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+      select: { id: true, title: true, slug: true, description: true, order: true, isActive: true },
+    });
+    return {
+      categories: categories.map((c) => ({ ...c })),
+      scripts,
+    };
   });
-  const categoryIds = new Set(scripts.map((s) => s.categoryId));
-  const categories = await prisma.scriptCategory.findMany({
-    where: { isActive: true, id: { in: [...categoryIds] } },
-    orderBy: [{ order: "asc" }, { createdAt: "asc" }],
-    select: { id: true, title: true, slug: true, description: true, order: true, isActive: true },
-  });
-  return {
-    categories: categories.map((c) => ({ ...c })),
-    scripts,
-  };
 }
 
 export async function getEmployeeScriptBySlug(slug: string): Promise<ScriptDetailDTO> {
@@ -61,19 +70,24 @@ export async function getEmployeeScriptBySlug(slug: string): Promise<ScriptDetai
 
 /* ------------------------------ instructions ----------------------------- */
 
+/** Same reasoning/TTL as getEmployeeScripts above — no scope param,
+ * PUBLISHED/isActive-gated only, available to every employee regardless of
+ * position (unlike scripts). */
 export async function getEmployeeInstructions(): Promise<EmployeeInstructionsPayload> {
-  const instructions = await prisma.workInstruction.findMany({
-    where: { status: "PUBLISHED", category: { isActive: true } },
-    orderBy: [{ order: "asc" }, { title: "asc" }],
-    select: { id: true, title: true, slug: true, summary: true, categoryId: true },
+  return cachedForMs("knowledge:instructions", 60_000, async () => {
+    const instructions = await prisma.workInstruction.findMany({
+      where: { status: "PUBLISHED", category: { isActive: true } },
+      orderBy: [{ order: "asc" }, { title: "asc" }],
+      select: { id: true, title: true, slug: true, summary: true, categoryId: true },
+    });
+    const categoryIds = new Set(instructions.map((i) => i.categoryId));
+    const categories = await prisma.workInstructionCategory.findMany({
+      where: { isActive: true, id: { in: [...categoryIds] } },
+      orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+      select: { id: true, title: true, slug: true, description: true, order: true, isActive: true },
+    });
+    return { categories: categories.map((c) => ({ ...c })), instructions };
   });
-  const categoryIds = new Set(instructions.map((i) => i.categoryId));
-  const categories = await prisma.workInstructionCategory.findMany({
-    where: { isActive: true, id: { in: [...categoryIds] } },
-    orderBy: [{ order: "asc" }, { createdAt: "asc" }],
-    select: { id: true, title: true, slug: true, description: true, order: true, isActive: true },
-  });
-  return { categories: categories.map((c) => ({ ...c })), instructions };
 }
 
 export async function getEmployeeInstructionBySlug(slug: string): Promise<InstructionDetailDTO> {

@@ -1,6 +1,7 @@
 import "server-only";
 import { prisma } from "./db";
 import { accessAt, type Access, type SequenceLesson } from "./gating-core";
+import { cachedForMs } from "./ttl-cache";
 
 /**
  * Server-side gating. Published lessons of a program form one ordered sequence
@@ -15,29 +16,40 @@ import { accessAt, type Access, type SequenceLesson } from "./gating-core";
 export { accessAt };
 export type { Access, SequenceLesson };
 
+/**
+ * Sprint: mini-app-performance, section 9 — TTL-cached (60s), same reasoning
+ * as programIdsWithPublishedLessons (academy.ts): the result depends only on
+ * `programId` (a published-content structure key, never a user/club/city),
+ * embedded in the cache key itself, so two different programs can never
+ * collide. Called once per program per Academy-related request (never per
+ * lesson) — this only removes the Postgres round trip on a cache hit, the
+ * call SHAPE this file already documents elsewhere is unchanged.
+ */
 export async function getProgramSequence(programId: string): Promise<SequenceLesson[]> {
-  const lessons = await prisma.lesson.findMany({
-    where: { status: "PUBLISHED", course: { programId } },
-    include: { course: { include: { trainingDay: true } } },
+  return cachedForMs(`academy:program-sequence:${programId}`, 60_000, async () => {
+    const lessons = await prisma.lesson.findMany({
+      where: { status: "PUBLISHED", course: { programId } },
+      include: { course: { include: { trainingDay: true } } },
+    });
+    return lessons
+      .map((l) => ({
+        id: l.id,
+        slug: l.slug,
+        title: l.title,
+        isRequired: l.isRequired,
+        dayNumber: l.course.trainingDay?.dayNumber ?? 9999,
+        courseOrder: l.course.order,
+        lessonOrder: l.order,
+        durationMinutes: l.durationMinutes,
+        trainingDayId: l.course.trainingDayId,
+      }))
+      .sort(
+        (a, b) =>
+          a.dayNumber - b.dayNumber ||
+          a.courseOrder - b.courseOrder ||
+          a.lessonOrder - b.lessonOrder,
+      );
   });
-  return lessons
-    .map((l) => ({
-      id: l.id,
-      slug: l.slug,
-      title: l.title,
-      isRequired: l.isRequired,
-      dayNumber: l.course.trainingDay?.dayNumber ?? 9999,
-      courseOrder: l.course.order,
-      lessonOrder: l.order,
-      durationMinutes: l.durationMinutes,
-      trainingDayId: l.course.trainingDayId,
-    }))
-    .sort(
-      (a, b) =>
-        a.dayNumber - b.dayNumber ||
-        a.courseOrder - b.courseOrder ||
-        a.lessonOrder - b.lessonOrder,
-    );
 }
 
 export async function getCompletedLessonIds(userId: string): Promise<Set<string>> {

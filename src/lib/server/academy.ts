@@ -3,6 +3,7 @@ import { prisma } from "./db";
 import { accessAt, getProgramSequence, getCompletedLessonIds } from "./gating";
 import { getXpBalance } from "./progress";
 import { getPositionById } from "@/content/positions";
+import { cachedForMs } from "./ttl-cache";
 import type {
   AcademyStateDTO,
   AcademyLessonStateDTO,
@@ -19,13 +20,25 @@ import type {
  * a lesson makes it appear even if its program/day are still DRAFT.
  */
 
-/** Program ids that currently have at least one PUBLISHED lesson. */
+/**
+ * Program ids that currently have at least one PUBLISHED lesson.
+ *
+ * Sprint: mini-app-performance, section 9 — TTL-cached (60s), NOT
+ * invalidation-based: this result is identical for every user (no scope
+ * param at all — see ttl-cache.ts's own security doc), and the write
+ * surface that could change it (lesson publish/status/edit, ~10 separate
+ * admin CMS routes) is small-frequency, deliberate, admin-only actions —
+ * a bounded staleness window here is a simpler, safer tradeoff than hand-
+ * wiring invalidation across every one of those routes.
+ */
 async function programIdsWithPublishedLessons(): Promise<string[]> {
-  const rows = await prisma.lesson.findMany({
-    where: { status: "PUBLISHED" },
-    select: { course: { select: { programId: true } } },
+  return cachedForMs("academy:published-program-ids", 60_000, async () => {
+    const rows = await prisma.lesson.findMany({
+      where: { status: "PUBLISHED" },
+      select: { course: { select: { programId: true } } },
+    });
+    return [...new Set(rows.map((r) => r.course.programId))];
   });
-  return [...new Set(rows.map((r) => r.course.programId))];
 }
 
 /**
