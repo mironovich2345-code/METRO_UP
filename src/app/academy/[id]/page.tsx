@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { CheckCircle2, Clock, Lock, PlayCircle, Star } from "lucide-react";
@@ -9,11 +9,15 @@ import { GlassCard } from "@/components/ui/glass-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SectionHeader } from "@/components/ui/section-header";
+import { RevalidatingBar } from "@/components/ui/revalidating-bar";
 import { cardIn, staggerStack, springSoft } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { haptic } from "@/lib/telegram";
+import { ApiError } from "@/lib/api/client";
 import { fetchAcademyDay } from "@/lib/api/content-client";
-import type { AcademyDayDetailDTO, AcademyLessonRowDTO } from "@/lib/api/content-types";
+import { useQuery, QUERY_POLICY } from "@/lib/client/query-cache";
+import { cacheKeys } from "@/lib/client/cache-keys";
+import type { AcademyLessonRowDTO } from "@/lib/api/content-types";
 
 /**
  * Training-day detail — real Courses/Lessons from PostgreSQL (PUBLISHED only),
@@ -21,22 +25,27 @@ import type { AcademyDayDetailDTO, AcademyLessonRowDTO } from "@/lib/api/content
  */
 export default function DayScreen() {
   const { id } = useParams<{ id: string }>();
-  const [day, setDay] = useState<AcademyDayDetailDTO | null>(null);
-  const [status, setStatus] = useState<"loading" | "ready" | "notfound" | "error">("loading");
-
-  const load = useCallback(async () => {
-    setStatus("loading");
-    try {
-      setDay(await fetchAcademyDay(id));
-      setStatus("ready");
-    } catch (e) {
-      setStatus((e as { status?: number })?.status === 404 ? "notfound" : "error");
-    }
-  }, [id]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const fetchDay = useCallback(() => fetchAcademyDay(id), [id]);
+  const { data: day, error, isLoading, isValidating, mutate } = useQuery(
+    cacheKeys.academyDay(id),
+    fetchDay,
+    // MEDIUM, not LONG: the response mixes published structure (rarely
+    // changes) with THIS user's own completed/locked state per lesson — the
+    // same "changes from the user's own actions" reasoning as Academy
+    // overview, and academy:* is force-invalidated on every lesson/quiz
+    // completion regardless of this window (see LessonRenderer/QuizFlow).
+    QUERY_POLICY.MEDIUM,
+  );
+  const status: "loading" | "ready" | "notfound" | "error" =
+    error instanceof ApiError && error.status === 404
+      ? "notfound"
+      : error
+        ? "error"
+        : !day && isLoading
+          ? "loading"
+          : day
+            ? "ready"
+            : "loading";
 
   const lessonCount = day?.courses.reduce((s, c) => s + c.lessons.length, 0) ?? 0;
 
@@ -49,6 +58,7 @@ export default function DayScreen() {
         backHref="/academy"
         showThemeSwitcher={false}
       />
+      <RevalidatingBar show={Boolean(day) && isValidating} />
 
       <motion.main variants={staggerStack} initial="hidden" animate="show" className="px-5">
         {status === "loading" && (
@@ -65,7 +75,7 @@ export default function DayScreen() {
         {status === "error" && (
           <div className="mt-16 text-center">
             <p className="font-semibold">Не удалось загрузить</p>
-            <Button className="mt-4" variant="secondary" onClick={load}>Повторить</Button>
+            <Button className="mt-4" variant="secondary" onClick={() => mutate()}>Повторить</Button>
           </div>
         )}
 

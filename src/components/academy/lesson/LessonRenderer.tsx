@@ -11,6 +11,8 @@ import { MetricCharacter } from "@/components/ui/metric-character";
 import { cardIn, staggerStack } from "@/lib/motion";
 import { hapticSuccess } from "@/lib/telegram";
 import { completeLessonApi, startLessonApi } from "@/lib/api/content-client";
+import { invalidatePrefix } from "@/lib/client/query-cache";
+import { cacheKeyPrefixes } from "@/lib/client/cache-keys";
 import type { LessonDetailDTO, QuizSubmitResultDTO } from "@/lib/api/content-types";
 import { LessonBlockRenderer } from "./LessonBlockRenderer";
 import { QuizFlow } from "./QuizFlow";
@@ -38,6 +40,18 @@ export function LessonRenderer({ lesson }: { lesson: LessonDetailDTO }) {
     }
   }, [preview, lesson.slug, lesson.access.locked, lesson.progress.status]);
 
+  // Sprint: mini-app-performance, section 7 — completing a lesson changes
+  // Academy progress everywhere it's summarized (this lesson's own cached
+  // response, the day it belongs to, the overview, the next lesson's own
+  // access/lock state) AND Home's XP widget. A coarse prefix invalidation is
+  // deliberate here (section 7: "do not let stale UI persist") — cheaper and
+  // safer than hand-listing every affected key (day id, program id, XP)
+  // across two components (this one and QuizFlow, below).
+  const invalidateAfterProgress = () => {
+    invalidatePrefix(cacheKeyPrefixes.academy);
+    invalidatePrefix(cacheKeyPrefixes.home);
+  };
+
   const onCtaComplete = async () => {
     if (preview) return;
     setCompleting(true);
@@ -47,6 +61,7 @@ export function LessonRenderer({ lesson }: { lesson: LessonDetailDTO }) {
       setNext(r.next);
       setCompleted(true);
       hapticSuccess();
+      invalidateAfterProgress();
     } finally {
       setCompleting(false);
     }
@@ -55,6 +70,7 @@ export function LessonRenderer({ lesson }: { lesson: LessonDetailDTO }) {
   const onQuizPassed = (r: QuizSubmitResultDTO) => {
     setXpAwarded(r.xpAwarded);
     setCompleted(true);
+    invalidateAfterProgress();
   };
 
   if (lesson.access.locked && !preview) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Building2, Check, MapPin, Briefcase, LayoutDashboard, Trophy, UserCog } from "lucide-react";
@@ -21,6 +21,8 @@ import type { AccessStatus, CareerLevel } from "@/lib/profile";
 import { cardIn, staggerStack } from "@/lib/motion";
 import { cn, formatNumber } from "@/lib/utils";
 import { fetchProfileManagementRoles } from "@/lib/api/home-client";
+import { useQuery, QUERY_POLICY } from "@/lib/client/query-cache";
+import { cacheKeys } from "@/lib/client/cache-keys";
 import type { ProfileManagementRoleDTO } from "@/lib/api/home-types";
 
 const CAREER_RANK_INDEX: Record<CareerLevel, number> = {
@@ -46,21 +48,19 @@ export default function ProfileScreen() {
   const canSpm = serverUser ? canAccessSpm(serverUser.role) : false; // SPM or ADMIN
   const router = useRouter();
 
-  // Sprint: manual-test-round-3, section 4 — "Роль в Metro UP" / "Доступные
-  // клубы", server-scoped (never derived from EmployeeProfile.clubId).
-  // Empty for a plain MANAGER — no empty block rendered then.
-  const [managementRoles, setManagementRoles] = useState<ProfileManagementRoleDTO[]>([]);
-
   useEffect(() => {
     if (hydrated && !isOnboarded) router.replace("/welcome");
   }, [hydrated, isOnboarded, router]);
 
-  useEffect(() => {
-    if (!hydrated || !isOnboarded) return;
-    fetchProfileManagementRoles()
-      .then((r) => setManagementRoles(r.roles))
-      .catch(() => setManagementRoles([]));
-  }, [hydrated, isOnboarded]);
+  // Sprint: manual-test-round-3, section 4 — "Роль в Metro UP" / "Доступные
+  // клубы", server-scoped (never derived from EmployeeProfile.clubId).
+  // Empty for a plain MANAGER — no empty block rendered then.
+  const { data: managementRolesData } = useQuery(
+    hydrated && isOnboarded ? cacheKeys.profileManagementRoles() : null,
+    () => fetchProfileManagementRoles().then((r) => r.roles),
+    QUERY_POLICY.MEDIUM,
+  );
+  const managementRoles: ProfileManagementRoleDTO[] = managementRolesData ?? [];
 
   if (!hydrated || !profile) {
     return <div className="min-h-[100dvh]" />;

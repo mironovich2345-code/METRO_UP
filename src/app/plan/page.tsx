@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { CheckCircle2, ChevronDown, ChevronRight, Circle, Clock, Lock } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
@@ -9,29 +9,34 @@ import { GlassCard } from "@/components/ui/glass-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { XPProgress } from "@/components/ui/xp-progress";
+import { RevalidatingBar } from "@/components/ui/revalidating-bar";
 import { cardIn, staggerStack } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { haptic, hapticSelection, hapticSuccess } from "@/lib/telegram";
 import { completePlanTask, fetchPlanToday, skipPlanTask, toggleChecklistItem } from "@/lib/api/home-client";
+import { useQuery, QUERY_POLICY, invalidatePrefix } from "@/lib/client/query-cache";
+import { cacheKeys, cacheKeyPrefixes } from "@/lib/client/cache-keys";
 import type { DailyPlanDTO, DailyTaskDTO } from "@/lib/api/home-types";
 
 export default function PlanScreen() {
-  const [plan, setPlan] = useState<DailyPlanDTO | null>(null);
-  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const { data: plan, error, isLoading, isValidating, mutate } = useQuery(
+    cacheKeys.planToday(),
+    fetchPlanToday,
+    QUERY_POLICY.MUTABLE,
+  );
+  const status: "loading" | "ready" | "error" = error ? "error" : !plan && isLoading ? "loading" : plan ? "ready" : "loading";
 
-  const load = useCallback(async () => {
-    setStatus("loading");
-    try {
-      setPlan(await fetchPlanToday());
-      setStatus("ready");
-    } catch {
-      setStatus("error");
-    }
-  }, []);
-  useEffect(() => { void load(); }, [load]);
-
-  const patchTask = (task: DailyTaskDTO) =>
-    setPlan((p) => (p ? recompute({ ...p, tasks: p.tasks.map((t) => (t.id === task.id ? task : t)) }) : p));
+  // Optimistic local patch (unchanged behavior — no round trip needed to
+  // reflect a change this screen itself just made), now written THROUGH the
+  // SWR cache (revalidate:false) so a later re-mount of /plan or Home's Plan
+  // card never reads the stale pre-mutation snapshot before the next real
+  // revalidation. Section 7: Home's own Plan summary is also invalidated —
+  // completing/skipping/toggling a checklist item (which can silently
+  // auto-complete a task) all change what Home's card would show.
+  const patchTask = (task: DailyTaskDTO) => {
+    mutate((p) => (p ? recompute({ ...p, tasks: p.tasks.map((t) => (t.id === task.id ? task : t)) }) : p), { revalidate: false });
+    invalidatePrefix(cacheKeyPrefixes.home);
+  };
 
   const dateLabel = plan
     ? new Date(plan.date).toLocaleDateString("ru-RU", { day: "numeric", month: "long", weekday: "long" })
@@ -41,6 +46,7 @@ export default function PlanScreen() {
   return (
     <div className="relative min-h-[100dvh] pb-24">
       <AppHeader title="План на сегодня" subtitle={dateLabel} showBack backHref="/home" showThemeSwitcher={false} />
+      <RevalidatingBar show={Boolean(plan) && isValidating} />
 
       <motion.main variants={staggerStack} initial="hidden" animate="show" className="px-5">
         {status === "loading" && (
@@ -53,7 +59,7 @@ export default function PlanScreen() {
         {status === "error" && (
           <div className="mt-16 text-center">
             <p className="font-semibold">Не удалось загрузить план</p>
-            <Button className="mt-4" variant="secondary" onClick={load}>Повторить</Button>
+            <Button className="mt-4" variant="secondary" onClick={() => mutate()}>Повторить</Button>
           </div>
         )}
 

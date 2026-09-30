@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowDown, ArrowUp, Building2, Crown, Trophy, Users } from "lucide-react";
 import { BottomNavigation } from "@/components/bottom-navigation";
@@ -8,9 +8,12 @@ import { AppHeader } from "@/components/app-header";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { RevalidatingBar } from "@/components/ui/revalidating-bar";
 import { cardIn, staggerStack } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { fetchRatingBoard } from "@/lib/api/home-client";
+import { useQuery, QUERY_POLICY } from "@/lib/client/query-cache";
+import { cacheKeys } from "@/lib/client/cache-keys";
 import type { RatingBoardDTO, RatingBoardRowDTO } from "@/lib/api/home-types";
 
 type RatingMode = "managers" | "clubs";
@@ -39,24 +42,18 @@ type RatingMode = "managers" | "clubs";
  * coming); the WHY stays in this comment, for developers only.
  */
 export default function RankingScreen() {
-  const [board, setBoard] = useState<RatingBoardDTO | null>(null);
-  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [mode, setMode] = useState<RatingMode>("managers");
-
-  const load = () => {
-    setStatus("loading");
-    fetchRatingBoard()
-      .then((b) => {
-        setBoard(b);
-        setStatus("ready");
-      })
-      .catch(() => setStatus("error"));
-  };
-  useEffect(load, []);
+  const { data: board, error, isLoading, isValidating, mutate } = useQuery<RatingBoardDTO>(
+    cacheKeys.ratingBoard(),
+    fetchRatingBoard,
+    QUERY_POLICY.MEDIUM,
+  );
+  const status: "loading" | "ready" | "error" = error ? "error" : !board && isLoading ? "loading" : board ? "ready" : "loading";
 
   return (
     <div className="relative min-h-[100dvh] pb-32">
       <AppHeader title="Рейтинг" subtitle={board?.hasData ? board.periodLabel : "Ежемесячный рейтинг"} />
+      <RevalidatingBar show={Boolean(board) && isValidating} />
 
       {status === "ready" && board?.canViewClubMode && (
         <div className="flex gap-2 px-5 pb-1">
@@ -109,7 +106,7 @@ export default function RankingScreen() {
         {status === "error" && (
           <div className="mt-16 text-center">
             <p className="font-semibold">Не удалось загрузить рейтинг</p>
-            <Button className="mt-4" variant="secondary" onClick={load}>Повторить</Button>
+            <Button className="mt-4" variant="secondary" onClick={() => mutate()}>Повторить</Button>
           </div>
         )}
 

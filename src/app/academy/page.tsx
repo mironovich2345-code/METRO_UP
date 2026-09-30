@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { CheckCircle2, Clock, GraduationCap, Lock } from "lucide-react";
@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { XPProgress } from "@/components/ui/xp-progress";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Button } from "@/components/ui/button";
+import { RevalidatingBar } from "@/components/ui/revalidating-bar";
 import { useApp } from "@/providers/app-provider";
 import { cardIn, staggerStack } from "@/lib/motion";
 import { cn } from "@/lib/utils";
@@ -18,6 +19,8 @@ import { haptic } from "@/lib/telegram";
 import { homeContextToAcademySection } from "@/lib/cabinet-ui";
 import { loadStoredContext } from "@/lib/home-context-storage";
 import { fetchAcademyOverview } from "@/lib/api/content-client";
+import { useQuery, QUERY_POLICY } from "@/lib/client/query-cache";
+import { cacheKeys } from "@/lib/client/cache-keys";
 import type { AcademyDayCardDTO, AcademyOverviewDTO, AcademySectionsDTO, AcademyTargetRoleDTO } from "@/lib/api/content-types";
 
 const SECTION_LABEL: Record<AcademyTargetRoleDTO, string> = {
@@ -40,23 +43,15 @@ const SECTION_LABEL: Record<AcademyTargetRoleDTO, string> = {
  */
 export default function AcademyScreen() {
   const { telegramUser } = useApp();
-  const [data, setData] = useState<(AcademyOverviewDTO & Partial<AcademySectionsDTO>) | null>(null);
-  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
-  const seededDefault = useRef(false);
-
-  const load = (section?: AcademyTargetRoleDTO) => {
-    setStatus("loading");
-    fetchAcademyOverview(section)
-      .then((d) => {
-        setData(d);
-        setStatus("ready");
-      })
-      .catch(() => setStatus("error"));
-  };
+  // Sprint: mini-app-performance — `undefined` = not yet resolved from
+  // storage (key stays null, nothing fetched yet); `"default"` = resolved,
+  // no stored preference, ask the server for its own MANAGER-first fallback;
+  // otherwise the persisted section itself. Kept as a cache-key-shaped
+  // string (never AcademyTargetRoleDTO | undefined directly) so "default"
+  // and a real section can never collide with each other in the SWR cache.
+  const [sectionKey, setSectionKey] = useState<string | undefined>(undefined);
 
   useEffect(() => {
-    if (seededDefault.current) return;
-    seededDefault.current = true;
     // Section 4 — "default selected Academy section should follow the active
     // Mini App context when possible": reads the SAME persisted context Home
     // uses (home-context-storage.ts) rather than a separate Academy-only
@@ -64,17 +59,26 @@ export default function AcademyScreen() {
     // server's own MANAGER-first fallback applies).
     const ownerKey = telegramUser?.id != null ? String(telegramUser.id) : "demo";
     const stored = loadStoredContext(ownerKey);
-    load(stored ? homeContextToAcademySection(stored.type) : undefined);
+    setSectionKey(stored ? homeContextToAcademySection(stored.type) : "default");
   }, [telegramUser?.id]);
+
+  const requestedSection = sectionKey && sectionKey !== "default" ? (sectionKey as AcademyTargetRoleDTO) : undefined;
+  const { data, error, isLoading, isValidating, mutate } = useQuery<AcademyOverviewDTO & Partial<AcademySectionsDTO>>(
+    sectionKey ? cacheKeys.academyOverview(sectionKey) : null,
+    () => fetchAcademyOverview(requestedSection),
+    QUERY_POLICY.MEDIUM,
+  );
+  const status: "loading" | "ready" | "error" = error ? "error" : !data && isLoading ? "loading" : data ? "ready" : "loading";
 
   const switchSection = (section: AcademyTargetRoleDTO) => {
     haptic("light");
-    load(section);
+    setSectionKey(section);
   };
 
   return (
     <div className="relative min-h-[100dvh] pb-32">
       <AppHeader title="Академия" subtitle="Твои курсы и прогресс" />
+      <RevalidatingBar show={Boolean(data) && isValidating} />
 
       {status === "ready" && data?.allowedSections && data.allowedSections.length > 1 && (
         <div className="flex gap-2 overflow-x-auto px-5 pb-1">
@@ -108,7 +112,7 @@ export default function AcademyScreen() {
         {status === "error" && (
           <div className="mt-16 text-center">
             <p className="font-semibold">Не удалось загрузить</p>
-            <Button className="mt-4" variant="secondary" onClick={() => load(data?.activeSection)}>
+            <Button className="mt-4" variant="secondary" onClick={() => mutate()}>
               Повторить
             </Button>
           </div>
