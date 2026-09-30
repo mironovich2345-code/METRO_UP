@@ -18,7 +18,6 @@ import {
 } from "@/lib/api/client";
 import { runWithTimeout, TimeoutError } from "@/lib/async-timeout";
 import { clearAllQueries } from "@/lib/client/query-cache";
-import { setOwnerKey } from "@/lib/client/owner";
 import type { AppUserDTO, OnboardingInputDTO } from "@/lib/api/types";
 
 /** Hard ceiling for the Telegram bootstrap; production must never load forever. */
@@ -55,20 +54,15 @@ interface AppUserContextValue {
 const AppUserContext = createContext<AppUserContextValue | null>(null);
 
 export function AppUserProvider({ children }: { children: React.ReactNode }) {
-  const { isReady, isInsideTelegram, initData, telegramUser } = useTelegram();
+  const { isReady, isInsideTelegram, initData } = useTelegram();
   const [status, setStatus] = useState<AppUserStatus>("loading");
   const [user, setUser] = useState<AppUserDTO | null>(null);
   const started = useRef(false);
 
-  // Sprint: mini-app-performance, section 5/17 — every client cache key
-  // (cache-keys.ts) embeds this as defense-in-depth against cross-account
-  // reuse. Same source/derivation home-context-storage.ts's own `ownerKey`
-  // already uses (the raw Telegram WebApp user id, independent of the
-  // server's auth response) — set as soon as it's known, not gated on
-  // bootstrap succeeding, so it's never briefly "anon" for a real account.
-  useEffect(() => {
-    setOwnerKey(telegramUser?.id != null ? String(telegramUser.id) : "demo");
-  }, [telegramUser]);
+  // Sprint: mini-app-persistent-cache — the owner key (cache-keys.ts's
+  // defense-in-depth identity segment) is now set earlier, by
+  // PersistentCacheProvider (which needs it BEFORE this provider even
+  // mounts, to hydrate L2 first) — not duplicated here.
 
   const bootstrap = useCallback(async () => {
     const startedAt = performance.now();

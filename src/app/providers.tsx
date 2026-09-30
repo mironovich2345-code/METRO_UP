@@ -5,6 +5,7 @@ import {
   TelegramProvider,
   useTelegramBackButton,
 } from "@/providers/TelegramProvider";
+import { PersistentCacheProvider } from "@/providers/PersistentCacheProvider";
 import { AppUserProvider } from "@/providers/AppUserProvider";
 import { ThemeProvider } from "@/providers/theme-provider";
 import { AppProvider } from "@/providers/app-provider";
@@ -29,14 +30,16 @@ function TelegramChrome() {
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <TelegramProvider>
-      <AppUserProvider>
-        <ThemeProvider>
-          <AppProvider>
-            <TelegramChrome />
-            {children}
-          </AppProvider>
-        </ThemeProvider>
-      </AppUserProvider>
+      <PersistentCacheProvider>
+        <AppUserProvider>
+          <ThemeProvider>
+            <AppProvider>
+              <TelegramChrome />
+              {children}
+            </AppProvider>
+          </ThemeProvider>
+        </AppUserProvider>
+      </PersistentCacheProvider>
     </TelegramProvider>
   );
 }
