@@ -1,16 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ShieldOff, UserCog } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
+import { RevalidatingBar } from "@/components/ui/revalidating-bar";
 import { ApiError } from "@/lib/api/client";
 import { cabinetApi } from "@/lib/api/cabinet-client";
 import { rolesApi } from "@/lib/api/roles-client";
 import type { CityManagerDashboardDTO } from "@/lib/api/cabinet-client";
+import { useQuery, QUERY_POLICY, invalidatePrefix } from "@/lib/client/query-cache";
+import { cacheKeys, cacheKeyPrefixes } from "@/lib/client/cache-keys";
 import { describeRoleAssignmentError } from "@/lib/cabinet-ui";
 import { cardIn, staggerStack } from "@/lib/motion";
 
@@ -24,29 +27,38 @@ import { cardIn, staggerStack } from "@/lib/motion";
  */
 export default function CityManagersPage() {
   const router = useRouter();
-  const [dashboard, setDashboard] = useState<CityManagerDashboardDTO | null>(null);
-  const [status, setStatus] = useState<"loading" | "ready" | "error" | "denied">("loading");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
-  const load = useCallback(() => {
-    setStatus("loading");
-    cabinetApi
-      .cityManager()
-      .then((d) => {
-        setDashboard(d);
-        setStatus("ready");
-      })
-      .catch((e) => setStatus(e instanceof ApiError && (e.status === 403 || e.status === 401) ? "denied" : "error"));
-  }, []);
-  useEffect(load, [load]);
+  // Same underlying GET /api/control/cabinet/city-manager as /city — same
+  // cache key, deliberately, so jumping between the two costs zero extra
+  // requests (they render the SAME response two different ways).
+  const { data: dashboard, error, isLoading, isValidating, mutate } = useQuery<CityManagerDashboardDTO>(
+    cacheKeys.cityDashboard(),
+    cabinetApi.cityManager,
+    QUERY_POLICY.MUTABLE,
+  );
+  const status: "loading" | "ready" | "error" | "denied" =
+    error instanceof ApiError && (error.status === 403 || error.status === 401)
+      ? "denied"
+      : error
+        ? "error"
+        : !dashboard && isLoading
+          ? "loading"
+          : dashboard
+            ? "ready"
+            : "loading";
 
   const revoke = async (assignmentId: string) => {
     setBusyId(assignmentId);
     setMsg(null);
     try {
       await rolesApi.revoke(assignmentId);
-      load();
+      // Section 7 — a revoked manager changes city dashboard/club
+      // detail/managers list all at once; Home's own city_manager block
+      // shows the same clubsWithoutManager/attention derivation too.
+      invalidatePrefix(cacheKeyPrefixes.city);
+      invalidatePrefix(cacheKeyPrefixes.home);
     } catch (e) {
       setMsg(describeRoleAssignmentError(e instanceof ApiError ? e.code : null));
     } finally {
@@ -57,6 +69,7 @@ export default function CityManagersPage() {
   return (
     <div className="relative min-h-[100dvh] pb-24">
       <AppHeader title="Управляющие" showBack backHref="/city" showThemeSwitcher={false} />
+      <RevalidatingBar show={Boolean(dashboard) && isValidating} />
 
       <motion.main variants={staggerStack} initial="hidden" animate="show" className="flex flex-col gap-4 px-5 pt-2">
         {status === "loading" && <div className="h-40 animate-pulse rounded-3xl bg-muted" />}
@@ -68,7 +81,7 @@ export default function CityManagersPage() {
         {status === "error" && (
           <GlassCard variant="solid" pad="lg" animateIn={false} className="text-center">
             <p className="font-semibold">Не удалось загрузить</p>
-            <Button className="mt-4" variant="secondary" onClick={load}>Повторить</Button>
+            <Button className="mt-4" variant="secondary" onClick={() => mutate()}>Повторить</Button>
           </GlassCard>
         )}
 

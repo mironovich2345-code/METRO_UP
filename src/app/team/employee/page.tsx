@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { CheckCircle2, Circle, Clock, GraduationCap } from "lucide-react";
@@ -8,9 +8,12 @@ import { AppHeader } from "@/components/app-header";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
 import { XPProgress } from "@/components/ui/xp-progress";
+import { RevalidatingBar } from "@/components/ui/revalidating-bar";
 import { ApiError } from "@/lib/api/client";
 import { cabinetApi } from "@/lib/api/cabinet-client";
-import type { EmployeeTrainingDetailDTO, EmployeeTrainingLessonDTO } from "@/lib/api/cabinet-client";
+import type { EmployeeTrainingLessonDTO } from "@/lib/api/cabinet-client";
+import { useQuery, QUERY_POLICY } from "@/lib/client/query-cache";
+import { cacheKeys } from "@/lib/client/cache-keys";
 import { cardIn, staggerStack } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
@@ -28,21 +31,22 @@ export default function EmployeeTrainingPage() {
   const userId = search.get("userId");
   const clubId = search.get("clubId");
 
-  const [data, setData] = useState<EmployeeTrainingDetailDTO | null>(null);
-  const [status, setStatus] = useState<"loading" | "ready" | "error" | "denied">("loading");
-
-  const load = useCallback(() => {
-    if (!userId) return;
-    setStatus("loading");
-    cabinetApi
-      .employeeTraining(userId)
-      .then((d) => {
-        setData(d);
-        setStatus("ready");
-      })
-      .catch((e) => setStatus(e instanceof ApiError && (e.status === 403 || e.status === 401) ? "denied" : "error"));
-  }, [userId]);
-  useEffect(load, [load]);
+  const fetchDetail = useCallback(() => cabinetApi.employeeTraining(userId!), [userId]);
+  const { data, error, isLoading, isValidating, mutate } = useQuery(
+    userId ? cacheKeys.employeeTraining(userId) : null,
+    fetchDetail,
+    QUERY_POLICY.MUTABLE, // per-employee progress — changes whenever they complete a lesson
+  );
+  const status: "loading" | "ready" | "error" | "denied" =
+    error instanceof ApiError && (error.status === 403 || error.status === 401)
+      ? "denied"
+      : error
+        ? "error"
+        : !data && isLoading
+          ? "loading"
+          : data
+            ? "ready"
+            : "loading";
 
   const backHref = clubId ? `/team?clubId=${clubId}` : "/team";
 
@@ -64,6 +68,7 @@ export default function EmployeeTrainingPage() {
   return (
     <div className="relative min-h-[100dvh] pb-24">
       <AppHeader title={data?.displayName ?? "Сотрудник"} subtitle={data?.position ?? undefined} showBack backHref={backHref} showThemeSwitcher={false} />
+      <RevalidatingBar show={Boolean(data) && isValidating} />
 
       <motion.main variants={staggerStack} initial="hidden" animate="show" className="flex flex-col gap-5 px-5 pt-2">
         {status === "loading" && (
@@ -80,7 +85,7 @@ export default function EmployeeTrainingPage() {
         {status === "error" && (
           <GlassCard variant="solid" pad="lg" animateIn={false} className="text-center">
             <p className="font-semibold">Не удалось загрузить</p>
-            <Button className="mt-4" variant="secondary" onClick={load}>Повторить</Button>
+            <Button className="mt-4" variant="secondary" onClick={() => mutate()}>Повторить</Button>
           </GlassCard>
         )}
 

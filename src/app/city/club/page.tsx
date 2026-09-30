@@ -1,17 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { CheckCircle2, Clock, Eye, GraduationCap, RotateCw, ShieldOff, UserCog, Users } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
+import { RevalidatingBar } from "@/components/ui/revalidating-bar";
 import { ApiError } from "@/lib/api/client";
 import { cabinetApi } from "@/lib/api/cabinet-client";
 import { rolesApi, viewAsApi } from "@/lib/api/roles-client";
-import type { CabinetTeamMemberDTO, ClubManagerDashboardDTO } from "@/lib/api/cabinet-client";
-import type { RoleAssignmentRowDTO } from "@/lib/api/roles-types";
+import type { CabinetTeamMemberDTO } from "@/lib/api/cabinet-client";
+import { useQuery, QUERY_POLICY, invalidatePrefix } from "@/lib/client/query-cache";
+import { cacheKeys, cacheKeyPrefixes } from "@/lib/client/cache-keys";
 import { canRestoreAssignment, describeRoleAssignmentError } from "@/lib/cabinet-ui";
 import { cardIn, staggerStack, springSoft } from "@/lib/motion";
 import { cn } from "@/lib/utils";
@@ -44,29 +46,49 @@ function MissingClub() {
   );
 }
 
+// Sprint: mini-app-performance — a coarse, shared "this changed a club's
+// role/roster state" invalidation, reused by assign/revoke/restore below.
+function invalidateAfterClubRoleChange() {
+  invalidatePrefix(cacheKeyPrefixes.city);
+  invalidatePrefix(cacheKeyPrefixes.home);
+  invalidatePrefix(cacheKeyPrefixes.team);
+}
+
 function ClubDetail({ clubId }: { clubId: string }) {
   const router = useRouter();
-  const [dashboard, setDashboard] = useState<ClubManagerDashboardDTO | null>(null);
-  const [team, setTeam] = useState<CabinetTeamMemberDTO[] | null>(null);
-  const [managerRows, setManagerRows] = useState<RoleAssignmentRowDTO[] | null>(null);
-  const [status, setStatus] = useState<"loading" | "ready" | "error" | "denied">("loading");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [assigning, setAssigning] = useState(false);
   const [startingPreview, setStartingPreview] = useState(false);
 
-  const load = useCallback(() => {
-    setStatus("loading");
-    Promise.all([cabinetApi.clubManager(clubId), cabinetApi.clubManagerTeam(clubId), rolesApi.list({ clubId, role: "CLUB_MANAGER" })])
-      .then(([d, t, r]) => {
-        setDashboard(d);
-        setTeam(t.members);
-        setManagerRows(r.assignments);
-        setStatus("ready");
-      })
-      .catch((e) => setStatus(e instanceof ApiError && (e.status === 403 || e.status === 401) ? "denied" : "error"));
-  }, [clubId]);
-  useEffect(load, [load]);
+  // The SAME three independent, already-scope-checked reads as before,
+  // bundled under one cache key/fetcher — MUTABLE: pendingApprovalCount,
+  // the manager assignment, and attention items all change from another
+  // actor's action at any time.
+  const {
+    data,
+    error,
+    isValidating,
+    mutate: reload,
+  } = useQuery(
+    cacheKeys.cityClub(clubId),
+    () =>
+      Promise.all([cabinetApi.clubManager(clubId), cabinetApi.clubManagerTeam(clubId), rolesApi.list({ clubId, role: "CLUB_MANAGER" })]).then(
+        ([d, t, r]) => ({ dashboard: d, team: t.members, managerRows: r.assignments }),
+      ),
+    QUERY_POLICY.MUTABLE,
+  );
+  const dashboard = data?.dashboard ?? null;
+  const team = data?.team ?? null;
+  const managerRows = data?.managerRows ?? null;
+  const status: "loading" | "ready" | "error" | "denied" =
+    error instanceof ApiError && (error.status === 403 || error.status === 401)
+      ? "denied"
+      : error
+        ? "error"
+        : data
+          ? "ready"
+          : "loading";
 
   const currentManager = managerRows?.find((r) => r.status === "ACTIVE") ?? null;
   const history = managerRows?.filter((r) => r.status !== "ACTIVE") ?? [];
@@ -76,7 +98,8 @@ function ClubDetail({ clubId }: { clubId: string }) {
     setMsg(null);
     try {
       await rolesApi.revoke(id);
-      load();
+      await reload();
+      invalidateAfterClubRoleChange();
     } catch (e) {
       setMsg(describeRoleAssignmentError(e instanceof ApiError ? e.code : null));
     } finally {
@@ -89,7 +112,8 @@ function ClubDetail({ clubId }: { clubId: string }) {
     setMsg(null);
     try {
       await rolesApi.restore(id);
-      load();
+      await reload();
+      invalidateAfterClubRoleChange();
     } catch (e) {
       setMsg(describeRoleAssignmentError(e instanceof ApiError ? e.code : null));
     } finally {
@@ -123,6 +147,7 @@ function ClubDetail({ clubId }: { clubId: string }) {
   return (
     <div className="relative min-h-[100dvh] pb-24">
       <AppHeader title={dashboard?.clubName ?? "Клуб"} showBack backHref="/city" showThemeSwitcher={false} />
+      <RevalidatingBar show={Boolean(data) && isValidating} />
 
       <motion.main variants={staggerStack} initial="hidden" animate="show" className="flex flex-col gap-5 px-5 pt-2">
         {msg && <p className="text-sm text-red-500">{msg}</p>}
@@ -141,7 +166,7 @@ function ClubDetail({ clubId }: { clubId: string }) {
         {status === "error" && (
           <GlassCard variant="solid" pad="lg" animateIn={false} className="text-center">
             <p className="font-semibold">Не удалось загрузить</p>
-            <Button className="mt-4" variant="secondary" onClick={load}>Повторить</Button>
+            <Button className="mt-4" variant="secondary" onClick={() => reload()}>Повторить</Button>
           </GlassCard>
         )}
 
@@ -301,7 +326,8 @@ function ClubDetail({ clubId }: { clubId: string }) {
         onClose={() => setAssigning(false)}
         onAssigned={() => {
           setAssigning(false);
-          load();
+          reload();
+          invalidateAfterClubRoleChange();
         }}
       />
     </div>

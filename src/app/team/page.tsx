@@ -1,18 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { CheckCircle2, ChevronRight, Clock, GraduationCap, UserCheck, Users } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
+import { RevalidatingBar } from "@/components/ui/revalidating-bar";
 import { useAppUser } from "@/providers/AppUserProvider";
 import { ApiError } from "@/lib/api/client";
 import { cabinetApi } from "@/lib/api/cabinet-client";
 import { managerApi } from "@/lib/api/club-plan-client";
 import type { CabinetTeamMemberDTO, ClubManagerDashboardDTO } from "@/lib/api/cabinet-client";
-import type { ClubSummaryDTO } from "@/lib/api/roles-client";
+import { useQuery, QUERY_POLICY, invalidatePrefix } from "@/lib/client/query-cache";
+import { cacheKeys, cacheKeyPrefixes } from "@/lib/client/cache-keys";
 import { cardIn, staggerStack } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { describeRoleAssignmentError, filterPendingEmployees, resolveManagedClubSelection, resolveTeamAccessMode } from "@/lib/cabinet-ui";
@@ -63,44 +65,56 @@ export default function TeamPage() {
   const explicitClubId = search.get("clubId");
   const isPreviewing = user?.viewContext?.previewRole === "CLUB_MANAGER";
 
-  const [clubs, setClubs] = useState<ClubSummaryDTO[] | null>(null);
   const [selectedClubId, setSelectedClubId] = useState<string | null>(null);
-  const [dashboard, setDashboard] = useState<ClubManagerDashboardDTO | null>(null);
-  const [members, setMembers] = useState<CabinetTeamMemberDTO[] | null>(null);
-  const [status, setStatus] = useState<"loading" | "ready" | "error" | "no-club" | "denied">("loading");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
   // Resolve which club(s) this real actor manages — skipped while previewing
   // AND skipped entirely when an explicit clubId drill-down is given (that
-  // clubId is authorized per-request, never via "clubs I manage").
+  // clubId is authorized per-request, never via "clubs I manage"). MUTABLE:
+  // a brand-new CLUB_MANAGER assignment must be reflected quickly.
+  const { data: clubs, error: clubsError } = useQuery(
+    !isPreviewing && !explicitClubId ? cacheKeys.myManagedClubs() : null,
+    () => cabinetApi.myManagedClubs().then((r) => r.clubs),
+    QUERY_POLICY.MUTABLE,
+  );
   useEffect(() => {
-    if (isPreviewing || explicitClubId) return;
-    cabinetApi
-      .myManagedClubs()
-      .then((r) => {
-        setClubs(r.clubs);
-        const selection = resolveManagedClubSelection(r.clubs);
-        if (selection.kind === "none") setStatus("no-club");
-        else if (selection.kind === "auto") setSelectedClubId(selection.club.id);
-      })
-      .catch(() => setStatus("error"));
-  }, [isPreviewing, explicitClubId]);
+    if (!clubs) return;
+    const selection = resolveManagedClubSelection(clubs);
+    if (selection.kind === "auto") setSelectedClubId(selection.club.id);
+  }, [clubs]);
 
   const { isReadOnlyDrillDown, activeClubId } = resolveTeamAccessMode({ isPreviewing, explicitClubId, selectedClubId });
 
-  const load = useCallback(() => {
-    if (!isPreviewing && !activeClubId) return;
-    setStatus("loading");
-    Promise.all([cabinetApi.clubManager(activeClubId ?? undefined), cabinetApi.clubManagerTeam(activeClubId ?? undefined)])
-      .then(([d, t]) => {
-        setDashboard(d);
-        setMembers(t.members);
-        setStatus("ready");
-      })
-      .catch((e) => setStatus(e instanceof ApiError && (e.status === 403 || e.status === 401) ? "denied" : "error"));
-  }, [isPreviewing, activeClubId]);
-  useEffect(load, [load]);
+  const canLoad = isPreviewing || Boolean(activeClubId);
+  const teamKey = canLoad ? cacheKeys.team(explicitClubId ?? selectedClubId, isPreviewing) : null;
+  const {
+    data: teamData,
+    error: teamError,
+    isValidating,
+    mutate: reloadTeam,
+  } = useQuery(
+    teamKey,
+    () =>
+      Promise.all([cabinetApi.clubManager(activeClubId ?? undefined), cabinetApi.clubManagerTeam(activeClubId ?? undefined)]).then(
+        ([d, t]) => ({ dashboard: d, members: t.members }),
+      ),
+    QUERY_POLICY.MUTABLE, // roster/pending-approval — changes from another actor's action at any time
+  );
+  const dashboard: ClubManagerDashboardDTO | null = teamData?.dashboard ?? null;
+  const members: CabinetTeamMemberDTO[] | null = teamData?.members ?? null;
+
+  const error = clubsError ?? teamError;
+  const status: "loading" | "ready" | "error" | "no-club" | "denied" =
+    error instanceof ApiError && (error.status === 403 || error.status === 401)
+      ? "denied"
+      : error
+        ? "error"
+        : clubs && resolveManagedClubSelection(clubs).kind === "none"
+          ? "no-club"
+          : teamData
+            ? "ready"
+            : "loading";
 
   // Sprint: manual-test-round-3, sections 5B/5C — every roster row (pending
   // and active alike) drills into the SAME shared, role-agnostic training
@@ -117,7 +131,13 @@ export default function TeamPage() {
     setMsg(null);
     try {
       await managerApi.approve(userId, "FULL", dashboard.clubId);
-      load();
+      // Section 7 — an approval changes this team's own pending count AND
+      // Home's club_manager block (same numbers, summarized); a defensive
+      // city:* invalidation covers the rare case this same browser is also
+      // mid a CITY_MANAGER View-As of the same club.
+      await reloadTeam();
+      invalidatePrefix(cacheKeyPrefixes.home);
+      invalidatePrefix(cacheKeyPrefixes.city);
     } catch (e) {
       setMsg(describeRoleAssignmentError(e instanceof ApiError ? e.code : null));
     } finally {
@@ -157,6 +177,7 @@ export default function TeamPage() {
         backHref={explicitClubId ? `/city/club?clubId=${explicitClubId}` : "/home"}
         showThemeSwitcher={false}
       />
+      <RevalidatingBar show={Boolean(teamData) && isValidating} />
 
       <motion.main variants={staggerStack} initial="hidden" animate="show" className="flex flex-col gap-5 px-5 pt-2">
         {status === "no-club" && (
@@ -181,7 +202,7 @@ export default function TeamPage() {
         {status === "error" && (
           <GlassCard variant="solid" pad="lg" animateIn={false} className="text-center">
             <p className="font-semibold">Не удалось загрузить</p>
-            <Button className="mt-4" variant="secondary" onClick={load}>Повторить</Button>
+            <Button className="mt-4" variant="secondary" onClick={() => reloadTeam()}>Повторить</Button>
           </GlassCard>
         )}
 
