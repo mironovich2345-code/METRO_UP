@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
@@ -47,6 +47,7 @@ import { useQuery, QUERY_POLICY } from "@/lib/client/query-cache";
 import { cacheKeys } from "@/lib/client/cache-keys";
 import { prefetchPersonalDestinations, prefetchCityManagerDestinations, prefetchClubManagerDestinations } from "@/lib/client/prefetch";
 import { useScreenPerfLog } from "@/lib/client/perf";
+import { logBootEvent } from "@/lib/client/perf-boot";
 import { loadStoredContext, saveStoredContext, type StoredHomeContext } from "@/lib/home-context-storage";
 import type {
   CityManagerHomeBlockDTO,
@@ -70,7 +71,7 @@ function computeGreeting() {
 }
 
 export default function HomeScreen() {
-  const { profile, isOnboarded, hydrated, telegramUser } = useApp();
+  const { profile, isOnboarded, hydrated, identityConfirmed, telegramUser } = useApp();
   const { user: appUser } = useAppUser();
   const router = useRouter();
 
@@ -122,6 +123,19 @@ export default function HomeScreen() {
   const dashStatus: "loading" | "ready" | "error" = dashError ? "error" : dash ? "ready" : "loading";
   useScreenPerfLog("home", dashStatus === "ready", dashLoading);
 
+  // Sprint: mini-app-cold-start, section 2 — the two boot-trace events that
+  // distinguish "the persisted cache actually made this instant" from "this
+  // was a genuine cold fetch," the same cache-hit derivation useScreenPerfLog
+  // already uses (isLoading never observed true before the first ready render).
+  const everDashLoading = useRef(false);
+  if (dashLoading) everDashLoading.current = true;
+  const dashRenderLogged = useRef(false);
+  useEffect(() => {
+    if (dashRenderLogged.current || dashStatus !== "ready") return;
+    dashRenderLogged.current = true;
+    logBootEvent(everDashLoading.current ? "home_first_fresh_render" : "home_first_cached_render");
+  }, [dashStatus]);
+
   // Persist exactly what the server resolved — never a client guess — so a
   // revoked/invalid persisted context self-corrects (section 9).
   useEffect(() => {
@@ -140,9 +154,13 @@ export default function HomeScreen() {
   useEffect(() => {
     if (!dash) return;
     if (dash.kind === "full") prefetchPersonalDestinations();
-    else if (dash.kind === "city_manager") prefetchCityManagerDestinations();
-    else if (dash.kind === "club_manager" && !dash.block.isPreviewing) prefetchClubManagerDestinations();
-  }, [dash]);
+    // Sprint: mini-app-cold-start, section 7 — never warm management routes
+    // (team/city clubs/training) off a merely-cached, unconfirmed "kind" —
+    // only once the real session has confirmed this actor genuinely holds
+    // that grant right now.
+    else if (dash.kind === "city_manager" && identityConfirmed) prefetchCityManagerDestinations();
+    else if (dash.kind === "club_manager" && !dash.block.isPreviewing && identityConfirmed) prefetchClubManagerDestinations();
+  }, [dash, identityConfirmed]);
 
   const switchContext = (ctx: HomeContextDTO) => {
     setSwitcherOpen(false);
@@ -347,26 +365,42 @@ export default function HomeScreen() {
         )}
 
         {/* CITY_MANAGER — Sprint: mini-app-context-switcher, section 5:
-            management content ONLY, ends after "Обучение по клубам". */}
+            management content ONLY, ends after "Обучение по клубам".
+            Sprint: mini-app-cold-start, section 7 — a `dash` of this kind
+            CAN arrive from the persisted home cache before the real session
+            has confirmed the actor still holds this grant (e.g. right after
+            a cold reopen, while `identityConfirmed` is still false). Never
+            paint management content off that guess — show a neutral
+            confirming placeholder instead; the real branch renders the
+            instant confirmation lands, which races the same auth call this
+            whole screen is already waiting on, so it's rarely visible. */}
         {dashStatus === "ready" && dash && dash.kind === "city_manager" && (
-          <CityManagerHomeSection block={dash.block} router={router} />
+          identityConfirmed ? (
+            <CityManagerHomeSection block={dash.block} router={router} />
+          ) : (
+            <ConfirmingAccessPlaceholder />
+          )
         )}
 
         {/* CLUB_MANAGER — Sprint: mini-app-context-switcher, section 6:
             План на сегодня (this context's own Daily Plan) → management
-            content, ends after "Мой клуб". */}
+            content, ends after "Мой клуб". Same cold-start guard as above. */}
         {dashStatus === "ready" && dash && dash.kind === "club_manager" && (
-          <>
-            {dash.block.isPreviewing && (
+          identityConfirmed ? (
+            <>
+              {dash.block.isPreviewing && (
+                <motion.div variants={cardIn}>
+                  <ReturnToCityCabinetCard onReturned={() => reloadDash()} />
+                </motion.div>
+              )}
               <motion.div variants={cardIn}>
-                <ReturnToCityCabinetCard onReturned={() => reloadDash()} />
+                <PlanCard plan={dash.plan} onOpen={() => router.push("/plan")} />
               </motion.div>
-            )}
-            <motion.div variants={cardIn}>
-              <PlanCard plan={dash.plan} onOpen={() => router.push("/plan")} />
-            </motion.div>
-            <ClubManagerHomeSection block={dash.block} router={router} />
-          </>
+              <ClubManagerHomeSection block={dash.block} router={router} />
+            </>
+          ) : (
+            <ConfirmingAccessPlaceholder />
+          )
         )}
       </motion.main>
 
@@ -675,6 +709,25 @@ function EmptyAttention() {
         <CheckCircle2 className="size-5 text-success" />
       </span>
       <p className="text-sm text-muted-foreground">Сейчас ничего не требует внимания.</p>
+    </GlassCard>
+  );
+}
+
+/**
+ * Sprint: mini-app-cold-start, section 7 — shown instead of
+ * CityManagerHomeSection/ClubManagerHomeSection while `dash.kind` is a
+ * management kind but the real session hasn't confirmed the grant yet (a
+ * cached, speculative Home render). Deliberately says nothing that reveals
+ * WHICH management role is pending confirmation — that itself is still
+ * unconfirmed — and never a skeleton mimicking real management widgets.
+ */
+function ConfirmingAccessPlaceholder() {
+  return (
+    <GlassCard variant="solid" pad="lg" animateIn={false} className="flex items-center gap-3">
+      <span className="flex size-9 shrink-0 animate-pulse items-center justify-center rounded-2xl bg-muted">
+        <Lock className="size-4.5 text-muted-foreground" />
+      </span>
+      <p className="text-sm text-muted-foreground">Подтверждаем доступ…</p>
     </GlassCard>
   );
 }
