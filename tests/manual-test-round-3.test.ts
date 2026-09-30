@@ -242,8 +242,14 @@ test("LAYOUT-A: the Personal ('full') branch is wrapped in its own tighter gap-4
 });
 
 test("LAYOUT-B: every Personal-context widget still renders inside that branch — Plan, Continue Learning, Knowledge Base, XP, Achievement, Rating, Mystery Shopper — nothing removed, only re-spaced", () => {
-  const fullBranchStart = homeSrc.indexOf('dash.kind === "full"');
-  const fullBranchEnd = homeSrc.indexOf('dash.kind === "city_manager"');
+  // Anchored to the actual JSX render-guard strings, not the bare
+  // "dash.kind === ..." fragment — mini-app-performance's prefetch dispatch
+  // (home/page.tsx) legitimately mentions dash.kind earlier in the file
+  // (deciding WHICH destinations to warm), so a bare indexOf would find that
+  // instead of the render branch this test means to slice out.
+  const fullBranchStart = homeSrc.indexOf('dash && dash.kind === "full" && (');
+  const fullBranchEnd = homeSrc.indexOf('dash && dash.kind === "city_manager" && (');
+  assert.ok(fullBranchStart >= 0 && fullBranchEnd > fullBranchStart, "expected to find the Personal render branch bounds");
   const fullBranch = homeSrc.slice(fullBranchStart, fullBranchEnd);
   assert.match(fullBranch, /<PlanCard/);
   assert.match(fullBranch, /ContinueLearningCard/);
