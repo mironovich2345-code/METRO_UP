@@ -1,26 +1,22 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { ChevronRight, Search } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
 import { BottomNavigation } from "@/components/bottom-navigation";
+import { RevalidatingBar } from "@/components/ui/revalidating-bar";
 import { cardIn, staggerStack } from "@/lib/motion";
 import { knowledgeApi } from "@/lib/api/knowledge-client";
-import type { EmployeeInstructionsPayload } from "@/lib/api/knowledge-types";
+import { useQuery, QUERY_POLICY } from "@/lib/client/query-cache";
+import { cacheKeys } from "@/lib/client/cache-keys";
 
 export default function InstructionsScreen() {
-  const [data, setData] = useState<EmployeeInstructionsPayload | null>(null);
-  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const { data, error, isLoading, isValidating } = useQuery(cacheKeys.instructions(), knowledgeApi.instructions, QUERY_POLICY.LONG);
+  const status: "loading" | "ready" | "error" = error ? "error" : !data && isLoading ? "loading" : data ? "ready" : "loading";
   const [q, setQ] = useState("");
   const [activeCat, setActiveCat] = useState("");
-
-  useEffect(() => {
-    knowledgeApi.instructions()
-      .then((d) => { setData(d); setStatus("ready"); })
-      .catch(() => setStatus("error"));
-  }, []);
 
   const grouped = useMemo(() => {
     if (!data) return [];
@@ -38,6 +34,7 @@ export default function InstructionsScreen() {
   return (
     <div className="relative min-h-[100dvh] pb-32">
       <AppHeader title="Инструкции" subtitle="Рабочие регламенты" showBack backHref="/knowledge" sticky />
+      <RevalidatingBar show={Boolean(data) && isValidating} />
       <main className="px-5 pt-2">
         <div className="relative">
           <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />

@@ -1,27 +1,32 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { ChevronRight, Search } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
 import { BottomNavigation } from "@/components/bottom-navigation";
+import { RevalidatingBar } from "@/components/ui/revalidating-bar";
 import { cardIn, staggerStack } from "@/lib/motion";
 import { ApiError } from "@/lib/api/client";
 import { knowledgeApi } from "@/lib/api/knowledge-client";
-import type { EmployeeScriptsPayload } from "@/lib/api/knowledge-types";
+import { useQuery, QUERY_POLICY } from "@/lib/client/query-cache";
+import { cacheKeys } from "@/lib/client/cache-keys";
 
 export default function ScriptsScreen() {
-  const [data, setData] = useState<EmployeeScriptsPayload | null>(null);
-  const [status, setStatus] = useState<"loading" | "ready" | "error" | "denied">("loading");
+  const { data, error, isLoading, isValidating } = useQuery(cacheKeys.scripts(), knowledgeApi.scripts, QUERY_POLICY.LONG);
+  const status: "loading" | "ready" | "error" | "denied" =
+    error instanceof ApiError && error.status === 403
+      ? "denied"
+      : error
+        ? "error"
+        : !data && isLoading
+          ? "loading"
+          : data
+            ? "ready"
+            : "loading";
   const [q, setQ] = useState("");
   const [activeCat, setActiveCat] = useState<string>("");
-
-  useEffect(() => {
-    knowledgeApi.scripts()
-      .then((d) => { setData(d); setStatus("ready"); })
-      .catch((e) => setStatus(e instanceof ApiError && e.status === 403 ? "denied" : "error"));
-  }, []);
 
   const filtered = useMemo(() => {
     if (!data) return [];
@@ -43,6 +48,7 @@ export default function ScriptsScreen() {
   return (
     <div className="relative min-h-[100dvh] pb-32">
       <AppHeader title="Скрипты" subtitle="Сценарии разговоров" showBack backHref="/knowledge" sticky />
+      <RevalidatingBar show={Boolean(data) && isValidating} />
 
       <main className="px-5 pt-2">
         <div className="relative">

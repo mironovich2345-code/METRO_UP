@@ -1,29 +1,36 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { use, useCallback, useState } from "react";
 import { motion } from "framer-motion";
 import { ChevronDown, HelpCircle, Target, XCircle } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
 import { BottomNavigation } from "@/components/bottom-navigation";
+import { RevalidatingBar } from "@/components/ui/revalidating-bar";
 import { RichText } from "@/components/academy/lesson/RichText";
 import { ApiError } from "@/lib/api/client";
 import { knowledgeApi } from "@/lib/api/knowledge-client";
-import type { ScriptDetailDTO } from "@/lib/api/knowledge-types";
+import { useQuery, QUERY_POLICY } from "@/lib/client/query-cache";
+import { cacheKeys } from "@/lib/client/cache-keys";
 
 export default function ScriptDetailScreen({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params);
-  const [script, setScript] = useState<ScriptDetailDTO | null>(null);
-  const [status, setStatus] = useState<"loading" | "ready" | "error" | "denied">("loading");
-
-  useEffect(() => {
-    knowledgeApi.script(slug)
-      .then((d) => { setScript(d.script); setStatus("ready"); })
-      .catch((e) => setStatus(e instanceof ApiError && e.status === 403 ? "denied" : e instanceof ApiError && e.status === 404 ? "error" : "error"));
-  }, [slug]);
+  const fetchScript = useCallback(() => knowledgeApi.script(slug).then((d) => d.script), [slug]);
+  const { data: script, error, isLoading, isValidating } = useQuery(cacheKeys.scriptDetail(slug), fetchScript, QUERY_POLICY.LONG);
+  const status: "loading" | "ready" | "error" | "denied" =
+    error instanceof ApiError && error.status === 403
+      ? "denied"
+      : error
+        ? "error"
+        : !script && isLoading
+          ? "loading"
+          : script
+            ? "ready"
+            : "loading";
 
   return (
     <div className="relative min-h-[100dvh] pb-32">
       <AppHeader title="Скрипт" showBack backHref="/scripts" sticky />
+      <RevalidatingBar show={Boolean(script) && isValidating} />
       <main className="px-5 pt-2">
         {status === "loading" && <div className="space-y-3">{[0, 1, 2].map((i) => <div key={i} className="h-20 animate-pulse rounded-2xl bg-muted" />)}</div>}
         {status === "denied" && <p className="mt-8 text-center text-sm text-muted-foreground">Скрипты доступны менеджерам продаж.</p>}

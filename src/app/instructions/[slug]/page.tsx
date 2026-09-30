@@ -1,28 +1,25 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { use, useCallback } from "react";
 import { motion } from "framer-motion";
 import { AppHeader } from "@/components/app-header";
 import { BottomNavigation } from "@/components/bottom-navigation";
+import { RevalidatingBar } from "@/components/ui/revalidating-bar";
 import { InstructionBlocksView } from "@/components/knowledge/InstructionBlocksView";
-import { ApiError } from "@/lib/api/client";
 import { knowledgeApi } from "@/lib/api/knowledge-client";
-import type { InstructionDetailDTO } from "@/lib/api/knowledge-types";
+import { useQuery, QUERY_POLICY } from "@/lib/client/query-cache";
+import { cacheKeys } from "@/lib/client/cache-keys";
 
 export default function InstructionDetailScreen({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params);
-  const [instruction, setInstruction] = useState<InstructionDetailDTO | null>(null);
-  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
-
-  useEffect(() => {
-    knowledgeApi.instruction(slug)
-      .then((d) => { setInstruction(d.instruction); setStatus("ready"); })
-      .catch((e) => setStatus(e instanceof ApiError ? "error" : "error"));
-  }, [slug]);
+  const fetchInstruction = useCallback(() => knowledgeApi.instruction(slug).then((d) => d.instruction), [slug]);
+  const { data: instruction, error, isLoading, isValidating } = useQuery(cacheKeys.instructionDetail(slug), fetchInstruction, QUERY_POLICY.LONG);
+  const status: "loading" | "ready" | "error" = error ? "error" : !instruction && isLoading ? "loading" : instruction ? "ready" : "loading";
 
   return (
     <div className="relative min-h-[100dvh] pb-32">
       <AppHeader title="Инструкция" showBack backHref="/instructions" sticky />
+      <RevalidatingBar show={Boolean(instruction) && isValidating} />
       <main className="px-5 pt-2">
         {status === "loading" && <div className="space-y-3">{[0, 1, 2].map((i) => <div key={i} className="h-20 animate-pulse rounded-2xl bg-muted" />)}</div>}
         {status === "error" && <p className="mt-8 text-center text-sm text-muted-foreground">Инструкция не найдена.</p>}
