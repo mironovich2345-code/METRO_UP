@@ -15,6 +15,7 @@ import {
   type TgThemeParams,
 } from "@/lib/telegram";
 import type { TelegramUser } from "@/lib/types";
+import { logBootEvent } from "@/lib/client/perf-boot";
 
 /**
  * Demo user used when the app runs outside Telegram (normal browser, local dev,
@@ -118,6 +119,8 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const wa = getWebApp();
     setWebApp(wa);
+    logBootEvent("telegram_ready");
+    if (mapUser(wa)) logBootEvent("telegram_owner_known");
 
     if (wa) {
       // Required Telegram lifecycle.
