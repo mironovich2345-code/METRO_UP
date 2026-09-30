@@ -13,7 +13,7 @@ import { CACHE_SCHEMA_VERSION, MAX_ENTRIES, MAX_ENTRY_BYTES, isEntryUsable, type
  * keeps this at zero new dependencies (unlike swr, this genuinely didn't
  * need one).
  *
- * Feature-detected: every exported function no-ops safely (resolch/return
+ * Feature-detected: every exported function no-ops safely (resolves/returns
  * empty) when `indexedDB` is unavailable, so the rest of the app — L1 SWR
  * caching included — keeps working exactly as before on a WebView that
  * somehow lacks it. Never throws to its caller; a storage failure degrades
@@ -121,6 +121,25 @@ export async function hydrateOwnerEntries(ownerKey: string): Promise<Map<string,
     return new Map();
   }
   return result;
+}
+
+/**
+ * Sprint: mini-app-cold-start — single-key read, used by AppUserProvider to
+ * fetch the identity snapshot directly (it runs OUTSIDE PersistentCacheProvider's
+ * SWR cache Map entirely — see the provider tree reordering in the cold-start
+ * report — so it needs its own tiny, independent read, not the bulk
+ * per-owner scan hydrateOwnerEntries does for the SWR layer). Same
+ * usability check (version + expiry), same silent-empty-on-failure contract.
+ */
+export async function getEntry<T>(key: string): Promise<T | null> {
+  if (!available()) return null;
+  try {
+    const entry = (await withStore("readonly", (store) => store.get(key))) as PersistedEntry | undefined;
+    if (!entry || !isEntryUsable(entry, Date.now())) return null;
+    return entry.data as T;
+  } catch {
+    return null;
+  }
 }
 
 /** Fire-and-forget upsert — never awaited by a screen, never throws.

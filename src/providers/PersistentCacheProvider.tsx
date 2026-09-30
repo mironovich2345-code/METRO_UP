@@ -1,33 +1,36 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { SWRConfig, type Cache } from "swr";
+import { SWRConfig, type Cache, type State } from "swr";
 import { useTelegram } from "@/providers/TelegramProvider";
-import { setOwnerKey } from "@/lib/client/owner";
+import { setOwnerKey, deriveOwnerKey } from "@/lib/client/owner";
 import { hydrateOwnerEntries, deleteAllForOwner } from "@/lib/client/persistent-cache";
 import { createPersistentCache } from "@/lib/client/persistent-swr-cache";
 import { markAppOpened } from "@/lib/client/reopen-grace";
+import { logBootEvent } from "@/lib/client/perf-boot";
 
 /**
- * Sprint: mini-app-persistent-cache, sections 1/3/10/13 — the ONE place that
- * establishes the L1(SWR)/L2(IndexedDB) cache for the whole app, BEFORE
- * anything below it (AppUserProvider, every screen) mounts. Placement in
- * the provider tree matters: it sits inside TelegramProvider (needs the
- * Telegram WebApp user id — available client-side as soon as Telegram's
- * script has initialized, independent of any server round trip) and
- * outside AppUserProvider/every screen (its own server auth bootstrap runs
- * IN PARALLEL with this, never blocked by it, and never the other way
- * around either — see the report's "App bootstrap" section for the
- * deliberate boundary: this unblocks the DATA cache only, never the
- * identity/access gate itself).
+ * Sprint: mini-app-persistent-cache / mini-app-cold-start — establishes the
+ * L1(SWR)/L2(IndexedDB) cache for the whole app.
  *
- * Step 1 (identify owner) + step 2 (hydrate) happen here, synchronously
- * with respect to render: `{children}` — the whole rest of the app,
- * including every useQuery call site — does not mount until the hydrated
- * Map is ready (or a short timeout elapses), so the very first render of
- * any screen already has L2 data available in L1, with zero extra fetch.
+ * REVISED (mini-app-cold-start, section 5): this used to `return null` —
+ * blocking ALL of `{children}` (the whole rest of the app, AppShellFrame's
+ * EmployeeBootGate included) until hydration resolved, up to a 400ms
+ * timeout. That serialized "IndexedDB THEN app" even though the two are
+ * independent, and it sat ABOVE AppUserProvider in the tree, so it
+ * incidentally delayed the auth request's START too. Both are now fixed:
+ * AppUserProvider has moved above this provider (see providers.tsx — its
+ * bootstrap effect fires on its own mount, never gated by this one), and
+ * this provider now ALWAYS renders `{children}` synchronously on first
+ * render, with a cache that starts empty and is populated in place once
+ * hydration resolves. A screen that happens to mount and read a key before
+ * hydration finishes just sees a cache miss and fetches fresh — never worse
+ * than pre-cache behavior, only occasionally not as fast as possible; in
+ * practice EmployeeBootGate's own gate (identity must be at least
+ * cache-confirmed or server-confirmed) means real screens mount well after
+ * this hydration — itself a fast local IndexedDB read — has finished.
  */
-const HYDRATION_TIMEOUT_MS = 400;
+const HYDRATION_TIMEOUT_MS = 2_000;
 
 function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
   return new Promise((resolve) => {
@@ -47,13 +50,14 @@ function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
 
 export function PersistentCacheProvider({ children }: { children: React.ReactNode }) {
   const { telegramUser, isReady } = useTelegram();
-  const [cache, setCache] = useState<Cache | null>(null);
-  const [ownerKeyForRemount, setOwnerKeyForRemount] = useState<string | null>(null);
+  const rawMap = useRef<Map<string, State>>(new Map());
+  const [cache] = useState<Cache>(() => createPersistentCache(rawMap.current));
+  const [remountKey, setRemountKey] = useState(0);
   const previousOwner = useRef<string | null>(null);
 
   useEffect(() => {
     if (!isReady) return;
-    const ownerKey = telegramUser?.id != null ? String(telegramUser.id) : "demo";
+    const ownerKey = deriveOwnerKey(telegramUser);
     if (previousOwner.current === ownerKey) return; // already hydrated for this owner this session
 
     const priorOwner = previousOwner.current;
@@ -61,19 +65,30 @@ export function PersistentCacheProvider({ children }: { children: React.ReactNod
     let cancelled = false;
 
     void (async () => {
+      logBootEvent("persistent_cache_start");
       // Section 10 — a genuine owner change (NOT the initial null -> ownerKey
-      // transition every launch goes through) must not rely on TTL expiry
-      // alone: the prior owner's rows are removed before the new owner's
-      // are ever read.
+      // transition every launch goes through): the prior owner's rows must
+      // not rely on TTL expiry alone, AND the in-memory Map (which still
+      // holds them) must be cleared too — deleteAllForOwner only touches
+      // IndexedDB. A key-change remount then resets SWR's own per-hook
+      // subscription state on top of the now-empty Map.
       if (priorOwner && priorOwner !== ownerKey) {
         await deleteAllForOwner(priorOwner);
+        rawMap.current.clear();
+        setRemountKey((k) => k + 1);
       }
       setOwnerKey(ownerKey);
       const hydrated = await withTimeout(hydrateOwnerEntries(ownerKey), HYDRATION_TIMEOUT_MS, new Map());
       if (cancelled) return;
+      // Merge directly into the SAME Map object already backing the live
+      // Cache (bypassing its write-through .set() — this data just came
+      // FROM L2, re-persisting it immediately would be pointless). Any
+      // useSWR hook that mounts from here on sees these entries; one that
+      // already mounted and missed the cache keeps its own fetch in flight
+      // (not fixed retroactively, not broken either).
+      for (const [k, v] of hydrated) rawMap.current.set(k, v as State);
+      logBootEvent("persistent_cache_ready", { entries: hydrated.size });
       markAppOpened();
-      setCache(createPersistentCache(hydrated));
-      setOwnerKeyForRemount(ownerKey);
     })();
 
     return () => {
@@ -81,19 +96,8 @@ export function PersistentCacheProvider({ children }: { children: React.ReactNod
     };
   }, [isReady, telegramUser]);
 
-  // Brief, bounded gate (<= HYDRATION_TIMEOUT_MS, typically far less — an
-  // IndexedDB read of a few dozen small rows) — the same category of "blank
-  // frame before the app shell paints" every SPA already has, not a new
-  // user-visible skeleton (section 8's "no full skeleton" is about SCREEN
-  // content once the app IS rendering, which this precedes).
-  if (!cache) return null;
-
-  // key={ownerKeyForRemount} forces a full remount of everything below on a
-  // genuine owner change — SWRConfig's `provider` factory is otherwise only
-  // resolved once per mount, so swapping `cache` in state alone would not
-  // reach already-mounted useSWR consumers.
   return (
-    <SWRConfig key={ownerKeyForRemount} value={{ provider: () => cache }}>
+    <SWRConfig key={remountKey} value={{ provider: () => cache }}>
       {children}
     </SWRConfig>
   );
