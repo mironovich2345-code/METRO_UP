@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { bootPhase, onboardingPersistTarget } from "../src/lib/boot-state";
+import { bootPhase, onboardingPersistTarget, resolveIdentityPhase } from "../src/lib/boot-state";
 
 /**
  * P0 black-screen hotfix. The employee app must never render a blank full-height
@@ -43,6 +43,58 @@ test("onboarding target: Telegram + NOT authenticated → blocked (never a local
 test("onboarding target: outside Telegram → local (web/demo unchanged)", () => {
   assert.equal(onboardingPersistTarget({ isInsideTelegram: false, isAuthenticated: false }), "local");
   assert.equal(onboardingPersistTarget({ isInsideTelegram: false, isAuthenticated: true }), "local");
+});
+
+/* ===================== mini-app-cold-start: resolveIdentityPhase ===================== */
+/**
+ * The whole "fast shell + safe early render" design in one pure function
+ * (sections 6/7/8/13). app-provider.tsx just feeds it appUser.status/localReady.
+ */
+
+test("identity phase: 'loading' status → nothing hydrated, nothing confirmed (no cache, no response yet)", () => {
+  const p = resolveIdentityPhase({ appUserStatus: "loading", localReady: true });
+  assert.equal(p.hydrated, false);
+  assert.equal(p.identityConfirmed, false);
+  assert.equal(p.hasCachedIdentity, false);
+});
+
+test("identity phase: 'cached' status → hydrated (shell/content may render) but NOT confirmed", () => {
+  const p = resolveIdentityPhase({ appUserStatus: "cached", localReady: true });
+  assert.equal(p.hydrated, true, "a cached identity is enough to stop showing the spinner");
+  assert.equal(p.identityConfirmed, false, "but it must never be treated as the real, authoritative session");
+  assert.equal(p.hasCachedIdentity, true);
+});
+
+test("identity phase: 'authenticated'/'anonymous'/'demo' → hydrated AND confirmed", () => {
+  for (const status of ["authenticated", "anonymous", "demo"] as const) {
+    const p = resolveIdentityPhase({ appUserStatus: status, localReady: true });
+    assert.equal(p.hydrated, true, status);
+    assert.equal(p.identityConfirmed, true, status);
+    assert.equal(p.hasCachedIdentity, false, status);
+  }
+});
+
+test("identity phase: 'error' status → neither hydrated nor confirmed, and NOT treated as cached either", () => {
+  // A failed real bootstrap always wins over a stale cached guess — see
+  // AppUserProvider's `confirmed` ref, which forces status to "error" (never
+  // leaves it at "cached") the moment the real request fails.
+  const p = resolveIdentityPhase({ appUserStatus: "error", localReady: true });
+  assert.equal(p.hydrated, false);
+  assert.equal(p.identityConfirmed, false);
+  assert.equal(p.hasCachedIdentity, false);
+});
+
+test("identity phase: localReady=false blocks hydrated even with a confirmed/cached status (local profile read not done yet)", () => {
+  assert.equal(resolveIdentityPhase({ appUserStatus: "authenticated", localReady: false }).hydrated, false);
+  assert.equal(resolveIdentityPhase({ appUserStatus: "cached", localReady: false }).hydrated, false);
+});
+
+test("identity phase: identityConfirmed and hasCachedIdentity are mutually exclusive for every status", () => {
+  const statuses = ["loading", "cached", "authenticated", "anonymous", "demo", "error"] as const;
+  for (const status of statuses) {
+    const p = resolveIdentityPhase({ appUserStatus: status, localReady: true });
+    assert.ok(!(p.identityConfirmed && p.hasCachedIdentity), status);
+  }
 });
 
 /* --------------------- integration / framework cases --------------------- */

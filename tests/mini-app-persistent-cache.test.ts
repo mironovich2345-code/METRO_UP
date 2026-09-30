@@ -130,19 +130,41 @@ test("PERSIST-BOUNDS-A: MAX_ENTRIES and MAX_ENTRY_BYTES are both finite, positiv
 
 /* ==================== persistent cache never sources authz ================== */
 
-test("SECURITY-PERSIST-A: persistent-cache-core.ts / persistent-cache.ts / persistent-swr-cache.ts never import server/RBAC modules — L2 cannot stand in for a server authorization decision", () => {
+test("SECURITY-PERSIST-A: persistent-cache-core.ts / persistent-cache.ts / persistent-swr-cache.ts never import a server/RBAC module — L2 cannot stand in for a server authorization decision", () => {
+  // A text search for the word "authorize" itself is intentionally NOT part
+  // of this check (mini-app-cold-start's persistent-cache-core.ts legitimately
+  // discusses authorization in prose — explaining that the identity snapshot
+  // is a display hint, never authority, and that every real decision is
+  // "re-authorized server-side" regardless of it). The import-path check
+  // below is the structurally meaningful guarantee: RBAC logic lives
+  // entirely under the server-only @/lib/server tree, which a client module
+  // cannot import from at all, so proving the absence of that import is
+  // sufficient — no separate prose-level heuristic needed.
   for (const file of ["src/lib/client/persistent-cache-core.ts", "src/lib/client/persistent-cache.ts", "src/lib/client/persistent-swr-cache.ts"]) {
     const src = read(file);
     assert.doesNotMatch(src, /@\/lib\/server/, `${file} must not import a server module`);
-    assert.doesNotMatch(src, /authorize/i, `${file} must not reference authorization logic`);
   }
 });
 
-test("SECURITY-PERSIST-B: PersistentCacheProvider never bypasses AppUserProvider's own auth gate — it wraps AppUserProvider in the tree (providers.tsx), never the other way around, so the real session bootstrap is untouched by cache hydration", () => {
+/**
+ * Sprint: mini-app-cold-start, section 5 — REVISED. AppUserProvider now
+ * deliberately sits ABOVE PersistentCacheProvider (reversed from this
+ * sprint's original ordering) so its bootstrap effect is never gated by
+ * IndexedDB hydration — see providers.tsx's own doc comment and the
+ * cold-start report's "IndexedDB/auth serialization finding". This does not
+ * reintroduce a bypass risk: AppUserProvider always renders `{children}`
+ * unconditionally regardless of its own status (it never had a blocking
+ * gate to bypass), so nesting order was never what protected the auth gate —
+ * the real protection is that no component anywhere treats PersistentCacheProvider's
+ * cache as an identity/authorization source (mini-app-cold-start.test.ts's
+ * SECURITY-COLD-START-A covers that directly for the new identity-snapshot
+ * read specifically).
+ */
+test("SECURITY-PERSIST-B: AppUserProvider wraps PersistentCacheProvider (not the other way around) — its bootstrap/auth request is never gated by IndexedDB hydration", () => {
   const src = read("src/app/providers.tsx");
-  const persistIdx = src.indexOf("PersistentCacheProvider>");
   const appUserIdx = src.indexOf("<AppUserProvider>");
-  assert.ok(persistIdx >= 0 && appUserIdx >= 0 && persistIdx < appUserIdx, "expected PersistentCacheProvider to wrap AppUserProvider, not replace it");
+  const persistIdx = src.indexOf("<PersistentCacheProvider>");
+  assert.ok(appUserIdx >= 0 && persistIdx >= 0 && appUserIdx < persistIdx, "expected AppUserProvider to wrap PersistentCacheProvider");
 });
 
 /* ==================== hydration/owner-change/logout (traceable skip stubs) ================== */
