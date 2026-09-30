@@ -32,6 +32,7 @@ import { Avatar } from "@/components/ui/avatar";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
 import { XPProgress } from "@/components/ui/xp-progress";
+import { RevalidatingBar } from "@/components/ui/revalidating-bar";
 import { FirstRunWelcome } from "@/components/home/first-run-welcome";
 import { ContinueLearningCard } from "@/components/home/ContinueLearningCard";
 import { useApp } from "@/providers/app-provider";
@@ -42,6 +43,10 @@ import { cn, formatNumber } from "@/lib/utils";
 import { pluralRu } from "@/lib/cabinet-ui";
 import { fetchHome } from "@/lib/api/home-client";
 import { viewAsApi } from "@/lib/api/roles-client";
+import { useQuery, QUERY_POLICY } from "@/lib/client/query-cache";
+import { cacheKeys } from "@/lib/client/cache-keys";
+import { prefetchPersonalDestinations, prefetchCityManagerDestinations, prefetchClubManagerDestinations } from "@/lib/client/prefetch";
+import { useScreenPerfLog } from "@/lib/client/perf";
 import { loadStoredContext, saveStoredContext, type StoredHomeContext } from "@/lib/home-context-storage";
 import type {
   CityManagerHomeBlockDTO,
@@ -49,7 +54,6 @@ import type {
   DailyTaskDTO,
   HomeContextDTO,
   HomeDashboardDTO,
-  HomeResponseDTO,
   MysterySummaryDTO,
   OnboardingHomeDTO,
   RatingSummaryDTO,
@@ -72,8 +76,6 @@ export default function HomeScreen() {
 
   const [greeting, setGreeting] = useState("С возвращением");
   const [showWelcome, setShowWelcome] = useState(false);
-  const [dash, setDash] = useState<HomeResponseDTO | null>(null);
-  const [dashStatus, setDashStatus] = useState<"loading" | "ready" | "error">("loading");
   const [switcherOpen, setSwitcherOpen] = useState(false);
 
   useEffect(() => setGreeting(computeGreeting()), []);
@@ -87,29 +89,64 @@ export default function HomeScreen() {
   // different account's last-selected cabinet.
   const ownerKey = telegramUser?.id != null ? String(telegramUser.id) : "demo";
 
-  const loadDash = (context?: StoredHomeContext) => {
-    setDashStatus("loading");
-    fetchHome(context)
-      .then((d) => {
-        setDash(d);
-        setDashStatus("ready");
-        // Persist exactly what the server resolved — never a client guess —
-        // so a revoked/invalid persisted context self-corrects (section 9).
-        if (d.kind !== "onboarding") {
-          saveStoredContext(ownerKey, { type: d.activeContext.type, clubId: d.activeContext.clubId });
-        }
-      })
-      .catch(() => setDashStatus("error"));
-  };
-
+  // Sprint: mini-app-performance — `undefined` (not yet resolved from
+  // storage) keeps the query key null (nothing fetched); once resolved it's
+  // either the persisted context or "no preference" (also undefined, but
+  // now a deliberate value passed to fetchHome) — resolvedRequestedContext
+  // (below) tells the two apart so the key is only ever built once.
+  const [requestedContext, setRequestedContext] = useState<StoredHomeContext | undefined>(undefined);
+  const [contextResolved, setContextResolved] = useState(false);
   useEffect(() => {
-    if (isOnboarded) loadDash(loadStoredContext(ownerKey) ?? undefined);
+    if (!isOnboarded) return;
+    setRequestedContext(loadStoredContext(ownerKey) ?? undefined);
+    setContextResolved(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOnboarded]);
 
+  const isPreviewing = Boolean(appUser?.viewContext);
+  const homeKey = contextResolved
+    ? cacheKeys.home({
+        context: requestedContext?.type,
+        clubId: requestedContext?.clubId,
+        isPreviewing,
+        previewRole: appUser?.viewContext?.previewRole,
+      })
+    : null;
+  const {
+    data: dash,
+    error: dashError,
+    isLoading: dashLoading,
+    isValidating: dashValidating,
+    mutate: reloadDash,
+  } = useQuery(homeKey, () => fetchHome(requestedContext), QUERY_POLICY.MUTABLE);
+  const dashStatus: "loading" | "ready" | "error" = dashError ? "error" : dash ? "ready" : "loading";
+  useScreenPerfLog("home", dashStatus === "ready", dashLoading);
+
+  // Persist exactly what the server resolved — never a client guess — so a
+  // revoked/invalid persisted context self-corrects (section 9).
+  useEffect(() => {
+    if (dash && dash.kind !== "onboarding") {
+      saveStoredContext(ownerKey, { type: dash.activeContext.type, clubId: dash.activeContext.clubId });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dash]);
+
+  // Sprint: mini-app-performance, section 8 — warm the cache for the
+  // destinations this context's own bottom-nav/cards point at, right after
+  // Home's own render has what it needs. Never blocks Home (fire-and-forget,
+  // scheduled via useEffect — after paint, not during it); never touches
+  // preview/personal boundaries (each dash.kind gets only ITS OWN likely
+  // destinations, matching section 7's "no mixed dashboards" spirit).
+  useEffect(() => {
+    if (!dash) return;
+    if (dash.kind === "full") prefetchPersonalDestinations();
+    else if (dash.kind === "city_manager") prefetchCityManagerDestinations();
+    else if (dash.kind === "club_manager" && !dash.block.isPreviewing) prefetchClubManagerDestinations();
+  }, [dash]);
+
   const switchContext = (ctx: HomeContextDTO) => {
     setSwitcherOpen(false);
-    loadDash({ type: ctx.type, clubId: ctx.clubId });
+    setRequestedContext({ type: ctx.type, clubId: ctx.clubId });
   };
 
   useEffect(() => {
@@ -149,8 +186,9 @@ export default function HomeScreen() {
   // Sprint: mini-app-context-switcher, section 13 — View As is a SEPARATE
   // mechanism; while a preview is active the switcher never renders (the
   // server also returns availableContexts:[] in that case, so this is
-  // belt-and-suspenders, not the only guard).
-  const isPreviewing = Boolean(appUser?.viewContext);
+  // belt-and-suspenders, not the only guard). (isPreviewing itself is
+  // declared earlier, above the useQuery call it also feeds as a cache-key
+  // input.)
   const availableContexts = dash && dash.kind !== "onboarding" ? dash.availableContexts : [];
   const activeContext = dash && dash.kind !== "onboarding" ? dash.activeContext : null;
   const showSwitcher = !isPreviewing && availableContexts.length > 1;
@@ -207,6 +245,7 @@ export default function HomeScreen() {
             <p className="mt-1.5 truncate pl-[60px] text-xs font-medium text-muted-foreground">{contextLabel}</p>
           ))}
       </header>
+      <RevalidatingBar show={Boolean(dash) && dashValidating} />
 
       <motion.main variants={staggerStack} initial="hidden" animate="show" className="flex flex-col gap-6 px-5 pt-4">
         {showWelcome && (
@@ -233,7 +272,7 @@ export default function HomeScreen() {
         {dashStatus === "error" && (
           <GlassCard variant="solid" pad="lg" animateIn={false} className="text-center">
             <p className="font-semibold">Не удалось загрузить данные</p>
-            <Button className="mt-4" variant="secondary" onClick={() => loadDash()}>Повторить</Button>
+            <Button className="mt-4" variant="secondary" onClick={() => reloadDash()}>Повторить</Button>
           </GlassCard>
         )}
 
@@ -320,7 +359,7 @@ export default function HomeScreen() {
           <>
             {dash.block.isPreviewing && (
               <motion.div variants={cardIn}>
-                <ReturnToCityCabinetCard onReturned={() => loadDash()} />
+                <ReturnToCityCabinetCard onReturned={() => reloadDash()} />
               </motion.div>
             )}
             <motion.div variants={cardIn}>
