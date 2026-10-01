@@ -150,6 +150,51 @@ async function loadTrainingRaw(userIds: string[]): Promise<TrainingRaw> {
   }, EMPTY_TRAINING_RAW);
 }
 
+/**
+ * Sprint: mini-app-postgres-latency, section 5/6 — club-scoped variant of
+ * loadTrainingRaw that filters LessonProgress via the User -> EmployeeProfile
+ * -> clubId relation chain directly, so it depends ONLY on clubIds (already
+ * resolved before loadEmployees ever runs) instead of on loadEmployees's own
+ * userId list. Real Railway timings showed employeesMs(722) then
+ * trainingMs(583) running strictly SERIALLY inside getCityManagerDashboard/
+ * getClubManagerHomeBlock purely because trainingMs's old loadTrainingRaw
+ * call needed `employees.map(e => e.userId)` as input — a genuine data
+ * dependency, not an accidental await ordering. This variant removes that
+ * dependency, letting employees/clubManagerGrants/training all run in ONE
+ * Promise.all.
+ *
+ * Deliberately a NEW, separate function rather than a rewrite of
+ * loadTrainingRaw itself: every other existing caller (academy.ts's own
+ * per-user call sites) already has a cheaper concrete userId list on hand
+ * and has no reason to pay for a relation-filtered JOIN instead of a plain
+ * `IN (...)` — loadTrainingRaw stays exactly as it was for them.
+ *
+ * Uses `findMany` + JS-side counting (the SAME idiom this file already uses
+ * for employeesByClub below), not `groupBy` with a relation filter — kept to
+ * Prisma's most basic, most reliable relation-filtering capability
+ * (`where: { user: { employeeProfile: { clubId: { in } } } }` on a plain
+ * `findMany`) rather than combining a newer/less-common `groupBy` shape with
+ * a relation filter this codebase had no prior, already-proven usage of.
+ */
+async function loadTrainingRawByClub(clubIds: string[]): Promise<TrainingRaw> {
+  return settleWidget("cabinet_training", async () => {
+    const [totalPublishedLessons, completedRows] = await Promise.all([
+      prisma.lesson.count({ where: { status: "PUBLISHED" } }),
+      clubIds.length
+        ? prisma.lessonProgress.findMany({
+            where: { status: "COMPLETED", user: { ...EMPLOYEE_WHERE, employeeProfile: { clubId: { in: clubIds } } } },
+            select: { userId: true },
+          })
+        : Promise.resolve([]),
+    ]);
+    const completedByUser = new Map<string, number>();
+    for (const row of completedRows) {
+      completedByUser.set(row.userId, (completedByUser.get(row.userId) ?? 0) + 1);
+    }
+    return { totalPublishedLessons, completedByUser };
+  }, EMPTY_TRAINING_RAW);
+}
+
 /** Aggregate TrainingSummaryDTO (percent-shaped — OperationsDirector/CityManager). */
 function summarizeTraining(
   userIds: string[],
@@ -324,7 +369,16 @@ export async function getCityManagerDashboard(actor: ActorContext, precomputedCl
   const clubs: ClubSummary[] = precomputedClubs ?? (await timedField(timings, "clubsMs", () => resolveCityManagerClubs(actor))());
   const clubIds = clubs.map((c) => c.id);
 
-  const [employees, clubManagerGrantsRaw] = await Promise.all([
+  // Sprint: mini-app-postgres-latency, section 5/6 — employees,
+  // clubManagerGrants, AND training all depend ONLY on clubIds (already
+  // resolved above) — genuinely independent of each other. Real Railway
+  // timings showed training waiting on employees's full result purely
+  // because the OLD loadTrainingRaw needed employees' own userId list;
+  // loadTrainingRawByClub removes that dependency (filters LessonProgress
+  // via the clubId relation directly), so training now overlaps with the
+  // largest of the three (employeesMs) instead of adding its own time
+  // after both employees AND clubManagerGrants have already finished.
+  const [employees, clubManagerGrantsRaw, trainingRaw] = await Promise.all([
     timedField(timings, "employeesMs", () => loadEmployees(clubIds))(),
     timedField(timings, "clubManagerGrantsMs", () =>
       clubIds.length
@@ -334,20 +388,17 @@ export async function getCityManagerDashboard(actor: ActorContext, precomputedCl
           })
         : Promise.resolve([]),
     )(),
+    timedField(timings, "trainingMs", () => loadTrainingRawByClub(clubIds))(),
   ]);
   const clubManagerGrants = clubManagerGrantsRaw as unknown as (RoleGrant & { id: string; userId: string; startedAt: Date })[];
 
   const cmUserIds = [...new Set(clubManagerGrants.map((g) => g.userId))];
-  // Sprint: mini-app-server-startup, section 7 — cmUsers (depends only on
-  // clubManagerGrants, resolved above) and loadTrainingRaw (depends only on
-  // employees, ALSO already resolved above) are independent of each other —
-  // previously awaited one after another for no reason. Parallelized.
-  const [cmUsers, trainingRaw] = await Promise.all([
-    timedField(timings, "cmUsersMs", () =>
-      cmUserIds.length ? prisma.user.findMany({ where: { id: { in: cmUserIds } }, select: { id: true, displayName: true } }) : Promise.resolve([]),
-    )(),
-    timedField(timings, "trainingMs", () => loadTrainingRaw(employees.map((e) => e.userId)))(),
-  ]);
+  // cmUsers depends only on clubManagerGrants, resolved above — the one
+  // remaining genuinely sequential step (we don't know WHICH users to look
+  // up until the grants query returns).
+  const cmUsers = await timedField(timings, "cmUsersMs", () =>
+    cmUserIds.length ? prisma.user.findMany({ where: { id: { in: cmUserIds } }, select: { id: true, displayName: true } }) : Promise.resolve([]),
+  )();
   const cmDisplayName = new Map(cmUsers.map((u) => [u.id, u.displayName]));
   const clubNameById = new Map(clubs.map((c) => [c.id, c.name]));
 
@@ -760,9 +811,16 @@ export async function getClubManagerHomeBlock(
 ): Promise<ClubManagerHomeBlockDTO> {
   const timings: Record<string, number> = {};
   const totalStart = performance.now();
-  const employees = await timedField(timings, "employeesMs", () => loadEmployees([clubId]))();
+  // Sprint: mini-app-postgres-latency, section 5/6 — same fix as
+  // getCityManagerDashboard: loadTrainingRawByClub depends only on
+  // [clubId], not on employees' own userId list, so it runs alongside
+  // loadEmployees instead of waiting for it.
+  const [employees, trainingRaw] = await Promise.all([
+    timedField(timings, "employeesMs", () => loadEmployees([clubId]))(),
+    timedField(timings, "trainingMs", () => loadTrainingRawByClub([clubId]))(),
+  ]);
   const pending = filterPendingEmployees(employees);
-  const { totalPublishedLessons, completedByUser } = await timedField(timings, "trainingMs", () => loadTrainingRaw(employees.map((e) => e.userId)))();
+  const { totalPublishedLessons, completedByUser } = trainingRaw;
   const training = summarizeClubTraining(employees.map((e) => e.userId), totalPublishedLessons, completedByUser);
   logPerf("perf-club-manager-block", { totalMs: Math.round(performance.now() - totalStart), employeeCount: employees.length, ...timings });
   return {
