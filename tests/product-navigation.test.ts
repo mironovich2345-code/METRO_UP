@@ -17,6 +17,7 @@ function user(partial: Partial<AppUserDTO>): AppUserDTO {
     displayName: "Тест",
     role: "EMPLOYEE",
     telegram: { username: null, firstName: null, lastName: null, photoUrl: null },
+    avatarUrl: null,
     onboardingCompleted: false,
     profile: null,
     ...partial,

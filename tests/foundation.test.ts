@@ -291,6 +291,7 @@ test("J: server profile overrides localStorage", () => {
     displayName: "Даниил",
     role: "EMPLOYEE",
     telegram: { username: null, firstName: null, lastName: null, photoUrl: null },
+    avatarUrl: null,
     onboardingCompleted: true,
     profile: {
       cityId: "yekaterinburg",
@@ -345,6 +346,7 @@ test("C: server user without profile → onboarding, not server source", () => {
       lastName: null,
       photoUrl: null,
     },
+    avatarUrl: null,
     onboardingCompleted: false,
     profile: null,
   };
