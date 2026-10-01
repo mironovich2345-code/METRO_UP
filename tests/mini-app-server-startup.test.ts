@@ -118,10 +118,16 @@ test("HOME-DEDUP-C: /api/home/route.ts passes cityManagerClubs through to getCit
   assert.match(src, /getCityManagerHomeDashboard\(user, actor, availableContexts, active, cityManagerClubs \?\? undefined\)/);
 });
 
-test("HOME-DEDUP-D: getCityManagerDashboard's cmUsers lookup and loadTrainingRaw now run in the SAME Promise.all (parallelized) rather than sequentially", () => {
+test("HOME-DEDUP-D: getCityManagerDashboard resolves employees/clubManagerGrants/training together — cmUsers is the one remaining sequential step, correctly so (it needs clubManagerGrants' own result to know which user ids to look up)", () => {
+  // Superseded by mini-app-postgres-latency.test.ts's DEDUP-TRAINING-A, which
+  // checks the CURRENT shape precisely (training folded into the FIRST
+  // Promise.all alongside employees/clubManagerGrantsRaw, not merely paired
+  // with cmUsers in a second one) — this sprint's own evidence showed
+  // training depending on employees was the bigger, fixable cost. Kept here
+  // only to assert the superseded shape is gone, not reintroduced.
   const src = read("src/lib/server/rbac/cabinet-dashboards.ts");
-  const promiseAllIdx = src.indexOf("const [cmUsers, trainingRaw] = await Promise.all([");
-  assert.ok(promiseAllIdx >= 0, "expected cmUsers + trainingRaw to be resolved together via one Promise.all");
+  assert.doesNotMatch(src, /const \[cmUsers, trainingRaw\] = await Promise\.all\(\[/);
+  assert.match(src, /const \[employees, clubManagerGrantsRaw, trainingRaw\] = await Promise\.all\(\[/);
 });
 
 /* ========================= prefetch idle-deferral (section 6) ========================= */
