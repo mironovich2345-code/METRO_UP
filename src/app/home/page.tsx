@@ -46,6 +46,7 @@ import { viewAsApi } from "@/lib/api/roles-client";
 import { useQuery, QUERY_POLICY } from "@/lib/client/query-cache";
 import { cacheKeys } from "@/lib/client/cache-keys";
 import { prefetchPersonalDestinations, prefetchCityManagerDestinations, prefetchClubManagerDestinations } from "@/lib/client/prefetch";
+import { runWhenIdle } from "@/lib/client/idle";
 import { useScreenPerfLog } from "@/lib/client/perf";
 import { logBootEvent } from "@/lib/client/perf-boot";
 import { loadStoredContext, saveStoredContext, type StoredHomeContext } from "@/lib/home-context-storage";
@@ -151,15 +152,28 @@ export default function HomeScreen() {
   // scheduled via useEffect — after paint, not during it); never touches
   // preview/personal boundaries (each dash.kind gets only ITS OWN likely
   // destinations, matching section 7's "no mixed dashboards" spirit).
+  //
+  // Sprint: mini-app-server-startup, section 6 — runWhenIdle defers the
+  // actual network calls to the next main-thread-idle window instead of
+  // firing them synchronously the instant `dash` resolves. On a cold
+  // reopen, `dash` often arrives WHILE other startup work (identity
+  // confirmation, this same screen's own hydration) is still settling —
+  // every Postgres round trip measured on Railway so far has cost
+  // 70-700ms+, so 2-3 extra concurrent requests right at that moment is
+  // real, avoidable contention for the same connection pool/server
+  // capacity a user's own next tap would need. Deferring costs nothing: the
+  // destinations these warm are "likely next", never "needed now".
   useEffect(() => {
     if (!dash) return;
-    if (dash.kind === "full") prefetchPersonalDestinations();
-    // Sprint: mini-app-cold-start, section 7 — never warm management routes
-    // (team/city clubs/training) off a merely-cached, unconfirmed "kind" —
-    // only once the real session has confirmed this actor genuinely holds
-    // that grant right now.
-    else if (dash.kind === "city_manager" && identityConfirmed) prefetchCityManagerDestinations();
-    else if (dash.kind === "club_manager" && !dash.block.isPreviewing && identityConfirmed) prefetchClubManagerDestinations();
+    runWhenIdle(() => {
+      if (dash.kind === "full") prefetchPersonalDestinations();
+      // Sprint: mini-app-cold-start, section 7 — never warm management routes
+      // (team/city clubs/training) off a merely-cached, unconfirmed "kind" —
+      // only once the real session has confirmed this actor genuinely holds
+      // that grant right now.
+      else if (dash.kind === "city_manager" && identityConfirmed) prefetchCityManagerDestinations();
+      else if (dash.kind === "club_manager" && !dash.block.isPreviewing && identityConfirmed) prefetchClubManagerDestinations();
+    });
   }, [dash, identityConfirmed]);
 
   const switchContext = (ctx: HomeContextDTO) => {
