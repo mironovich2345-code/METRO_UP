@@ -11,6 +11,7 @@ import { telegramAuthSchema } from "@/lib/server/schemas";
 import { jsonOk, jsonError, handleError } from "@/lib/server/http";
 import { meDTO } from "@/lib/server/dto";
 import { getRateLimiter } from "@/lib/server/rate-limit";
+import { hasTelegramMetadataChanged } from "@/lib/server/telegram-identity";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,21 +22,22 @@ function logAuth(phase: string, startedAt: number) {
 }
 
 /**
- * Sprint: mini-app-cold-start, sections 2/3 — one consolidated PERF_LOG=1-only
- * breakdown line per request (easier to read one row of fields off a Railway
- * log than reconstruct deltas from several separate lines for a route this
- * short/linear). No PII/initData/token — route/phase names and milliseconds
- * only, exactly like every other perf.ts consumer.
+ * Sprint: mini-app-cold-start / mini-app-server-startup — one consolidated
+ * PERF_LOG=1-only breakdown line per request (easier to read one row of
+ * fields off a Railway log than reconstruct deltas from several separate
+ * lines for a route this short/linear). No PII/initData/token — route/phase
+ * names and milliseconds only, exactly like every other perf.ts consumer.
  *
- * Section 3's audit finding, stated honestly rather than forced into the
- * brief's assumed field names: this route does ONE Prisma round trip total
- * (`user.upsert` with `include: employeeProfile` — already a single combined
- * query, not two sequential ones) and NO RoleAssignment/grant lookup at all
- * (meDTO(user) with no second argument never sets viewContext, so nothing
- * here ever queries grants). There is no separate "profileLookupMs" or
- * "roleGrantLookupMs" phase to report because that work genuinely does not
- * happen in this route — reported as `n/a`, not fabricated as 0, so the
- * absence reads as "doesn't exist" rather than "measured and free."
+ * mini-app-server-startup's real Railway measurement (`userUpsertMs ≈
+ * 690ms`) replaced the single always-write `user.upsert` with a
+ * findUnique-first fast path (see POST below) — `userLookupMs`/`userWriteMs`/
+ * `writePath` replace the old single `userUpsertMs` field so a Railway log
+ * line shows directly whether a given request took the no-write fast path
+ * ("none"), wrote changed metadata ("metadata-update"), or created a brand
+ * new user ("create"). Still NO RoleAssignment/grant lookup at all
+ * (meDTO(user) with no second argument never sets viewContext) — reported as
+ * `n/a`, not fabricated as 0, so the absence reads as "doesn't exist" rather
+ * than "measured and free."
  */
 const PERF_LOG = process.env.PERF_LOG === "1";
 function logAuthBreakdown(fields: Record<string, number | string>) {
@@ -43,7 +45,8 @@ function logAuthBreakdown(fields: Record<string, number | string>) {
   console.info(`[perf-auth-telegram] ${JSON.stringify(fields)}`);
 }
 
-/** POST /api/auth/telegram — verify raw initData, upsert user, open session. */
+/** POST /api/auth/telegram — verify raw initData, resolve user (fast path for
+ * an existing, unchanged account), open session. */
 export async function POST(req: NextRequest) {
   const startedAt = performance.now();
   try {
@@ -90,32 +93,105 @@ export async function POST(req: NextRequest) {
       "Сотрудник";
 
     logAuth("user_lookup", startedAt);
-    const upsertStart = performance.now();
-    const user = await prisma.user.upsert({
+
+    /**
+     * Sprint: mini-app-server-startup, section 1/2 — real Railway measurement
+     * showed `userUpsertMs ≈ 690ms` for what is, on every reopen after the
+     * first ever one, an EXISTING user whose Telegram metadata essentially
+     * never changes. An `upsert` is a write either way (Postgres still does
+     * an INSERT-attempt-then-UPDATE-on-conflict dance even when every
+     * updated column's new value equals its old one) — a `findUnique` read
+     * is the fast path; the write (and its lock/WAL cost) only happens when
+     * there is something to actually persist.
+     *
+     * Fast path (the common case, every reopen): findUnique by the unique
+     * telegramId index, including employeeProfile (same single round trip
+     * shape as before — still exactly one query for a session that resolves
+     * to "no write needed"). If every synced field is unchanged, skip the
+     * write entirely; `lastLoginAt` is presence/analytics metadata with no
+     * reader anywhere in authorization or business logic (verified by
+     * search — effective-context.ts's only other reference sets it to null
+     * for a synthetic View-As persona, never reads a real one) — it is
+     * updated fire-and-forget, AFTER the response is already being written,
+     * never awaited and never allowed to add latency to this request.
+     *
+     * Slow path (first-ever login, or a changed username/name/photo):
+     * unchanged `upsert` — still the single safe, race-proof way to create a
+     * new User under concurrent first-logins (retained exactly as before,
+     * reached only when `findUnique` found nothing, or found stale metadata
+     * that must be persisted now rather than deferred).
+     */
+    const lookupStart = performance.now();
+    const existing = await prisma.user.findUnique({
       where: { telegramId },
-      update: {
-        telegramUsername: tgUser.username ?? null,
-        telegramFirstName: tgUser.first_name ?? null,
-        telegramLastName: tgUser.last_name ?? null,
-        telegramPhotoUrl: tgUser.photo_url ?? null,
-        lastLoginAt: new Date(),
-      },
-      create: {
-        telegramId,
-        telegramUsername: tgUser.username ?? null,
-        telegramFirstName: tgUser.first_name ?? null,
-        telegramLastName: tgUser.last_name ?? null,
-        telegramPhotoUrl: tgUser.photo_url ?? null,
-        displayName: fullName,
-        role: "EMPLOYEE",
-        lastLoginAt: new Date(),
-      },
       include: { employeeProfile: true },
     });
-    // This ONE query already covers what the brief called "userLookupMs" +
-    // "profileLookupMs" — employeeProfile is a Prisma `include`, not a
-    // second round trip. Reported under its real name, not split in two.
-    const userUpsertMs = Math.round(performance.now() - upsertStart);
+    const userLookupMs = Math.round(performance.now() - lookupStart);
+
+    let user: NonNullable<typeof existing>;
+    let userWriteMs = 0;
+    let writePath: "none" | "metadata-update" | "create";
+
+    if (existing) {
+      const metadataChanged = hasTelegramMetadataChanged(existing, {
+        telegramUsername: tgUser.username ?? null,
+        telegramFirstName: tgUser.first_name ?? null,
+        telegramLastName: tgUser.last_name ?? null,
+        telegramPhotoUrl: tgUser.photo_url ?? null,
+      });
+
+      if (metadataChanged) {
+        const writeStart = performance.now();
+        user = await prisma.user.update({
+          where: { id: existing.id },
+          data: {
+            telegramUsername: tgUser.username ?? null,
+            telegramFirstName: tgUser.first_name ?? null,
+            telegramLastName: tgUser.last_name ?? null,
+            telegramPhotoUrl: tgUser.photo_url ?? null,
+            lastLoginAt: new Date(),
+          },
+          include: { employeeProfile: true },
+        });
+        userWriteMs = Math.round(performance.now() - writeStart);
+        writePath = "metadata-update";
+      } else {
+        user = existing;
+        writePath = "none";
+        // Fire-and-forget — never awaited. runtime="nodejs" on a persistent
+        // Railway container (not a frozen-after-response Edge/Lambda
+        // isolate), so the event loop keeps running after `return res`
+        // below and this still completes; a failure here is silently
+        // swallowed on purpose (a missed lastLoginAt bump is never worth
+        // logging noise, let alone failing auth over).
+        void prisma.user.update({ where: { id: existing.id }, data: { lastLoginAt: new Date() } }).catch(() => {});
+      }
+    } else {
+      const writeStart = performance.now();
+      user = await prisma.user.upsert({
+        where: { telegramId },
+        update: {
+          telegramUsername: tgUser.username ?? null,
+          telegramFirstName: tgUser.first_name ?? null,
+          telegramLastName: tgUser.last_name ?? null,
+          telegramPhotoUrl: tgUser.photo_url ?? null,
+          lastLoginAt: new Date(),
+        },
+        create: {
+          telegramId,
+          telegramUsername: tgUser.username ?? null,
+          telegramFirstName: tgUser.first_name ?? null,
+          telegramLastName: tgUser.last_name ?? null,
+          telegramPhotoUrl: tgUser.photo_url ?? null,
+          displayName: fullName,
+          role: "EMPLOYEE",
+          lastLoginAt: new Date(),
+        },
+        include: { employeeProfile: true },
+      });
+      userWriteMs = Math.round(performance.now() - writeStart);
+      writePath = "create";
+    }
 
     const res = jsonOk({ user: meDTO(user) });
     res.cookies.set(
@@ -128,7 +204,9 @@ export async function POST(req: NextRequest) {
       totalMs: Math.round(performance.now() - startedAt),
       rateLimitMs,
       verifyInitDataMs,
-      userUpsertMs,
+      userLookupMs,
+      userWriteMs,
+      writePath,
       roleGrantLookupMs: "n/a — this route never queries RoleAssignment (meDTO carries no viewContext here)",
     });
     return res;
