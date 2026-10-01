@@ -1,6 +1,7 @@
 import "server-only";
 import type { CurrentUser } from "./session";
 import type { AppUserDTO, ViewContextDTO } from "@/lib/api/types";
+import { avatarUrlForKey } from "./avatar";
 
 /**
  * Client-safe view of the current user. Omits database UUIDs and secrets;
@@ -25,6 +26,10 @@ export function meDTO(user: CurrentUser, viewContext?: ViewContextDTO | null): A
       lastName: user.telegramLastName,
       photoUrl: user.telegramPhotoUrl,
     },
+    // METRO UP ROUND 1, Milestone 1 — the custom uploaded avatar, if any.
+    // Deliberately NOT a fallback to telegram.photoUrl above — "no custom
+    // avatar" means the client shows initials, never the Telegram photo.
+    avatarUrl: avatarUrlForKey(user.avatarStorageKey ?? null),
     onboardingCompleted: Boolean(p?.onboardingCompleted),
     profile: p
       ? {

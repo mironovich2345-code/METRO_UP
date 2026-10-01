@@ -23,6 +23,16 @@ export const MEDIA_RULES = {
     maxBytes: 25 * 1024 * 1024, // 25 MB
     prefix: "documents",
   },
+  // METRO UP ROUND 1, Milestone 1 — the client crops/resizes to ~512x512
+  // webp/jpeg before upload (AvatarCropSheet), so a real avatar is typically
+  // well under 1 MB. 3 MB is a safety ceiling against a buggy/bypassing
+  // client, not the expected size — deliberately tighter than the generic
+  // IMAGE rule's 10 MB (lesson content images can legitimately be larger).
+  AVATAR: {
+    mimes: ["image/jpeg", "image/png", "image/webp"] as const,
+    maxBytes: 3 * 1024 * 1024, // 3 MB
+    prefix: "avatars",
+  },
 } as const;
 
 const EXT_BY_MIME: Record<string, string> = {
@@ -77,7 +87,11 @@ export function randomStorageKey(kind: StorageObjectKind, mimeType: string): str
   return `${MEDIA_RULES[kind].prefix}/${randomUUID()}.${ext}`;
 }
 
-export function mediaKindForMime(mimeType: string): StorageObjectKind | null {
+/** Kinds the GENERIC admin media-upload flow (media.ts -> MediaAsset) may
+ * auto-detect from a declared MIME type. AVATAR is deliberately excluded —
+ * it never goes through MediaAsset (see avatar.ts's own doc comment), so its
+ * mimes are never ambiguous with VIDEO/IMAGE/DOCUMENT here. */
+export function mediaKindForMime(mimeType: string): Exclude<StorageObjectKind, "AVATAR"> | null {
   if ((MEDIA_RULES.VIDEO.mimes as readonly string[]).includes(mimeType)) return "VIDEO";
   if ((MEDIA_RULES.IMAGE.mimes as readonly string[]).includes(mimeType)) return "IMAGE";
   if ((MEDIA_RULES.DOCUMENT.mimes as readonly string[]).includes(mimeType)) return "DOCUMENT";

@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Building2, Check, MapPin, Briefcase, LayoutDashboard, Trophy, UserCog } from "lucide-react";
+import { Building2, Camera, Check, MapPin, Briefcase, LayoutDashboard, Trophy, UserCog } from "lucide-react";
 import { BottomNavigation } from "@/components/bottom-navigation";
 import { AppHeader } from "@/components/app-header";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Avatar } from "@/components/ui/avatar";
+import { AvatarCropSheet } from "@/components/profile/AvatarCropSheet";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ThemeSegmented } from "@/components/ui/theme-switcher";
@@ -41,9 +42,10 @@ const ACCESS_LABELS: Record<AccessStatus, string> = {
 };
 
 export default function ProfileScreen() {
-  const { profile, isOnboarded, hydrated, telegramUser } = useApp();
+  const { profile, isOnboarded, hydrated } = useApp();
   // Role comes ONLY from the server-backed session user — never from localStorage.
-  const { user: serverUser } = useAppUser();
+  const { user: serverUser, refresh: refreshAppUser } = useAppUser();
+  const [cropOpen, setCropOpen] = useState(false);
   const isAdmin = serverUser?.role === "ADMIN";
   const canSpm = serverUser ? canAccessSpm(serverUser.role) : false; // SPM or ADMIN
   const router = useRouter();
@@ -94,12 +96,26 @@ export default function ProfileScreen() {
       >
         {/* Identity */}
         <motion.div variants={cardIn} className="flex flex-col items-center pt-2">
-          <Avatar
-            name={profile.displayName}
-            src={telegramUser.photoUrl}
-            size={92}
-            ring
-          />
+          {/* METRO UP ROUND 1, Milestone 1 — tap avatar to change photo.
+              src is the custom uploaded avatar ONLY (serverUser.avatarUrl) —
+              deliberately never telegramUser.photoUrl; no custom avatar
+              means initials, by product rule, not a Telegram-photo fallback. */}
+          <button
+            type="button"
+            onClick={() => setCropOpen(true)}
+            className="relative rounded-full"
+            aria-label="Изменить фото профиля"
+          >
+            <Avatar
+              name={profile.displayName}
+              src={serverUser?.avatarUrl ?? undefined}
+              size={92}
+              ring
+            />
+            <span className="absolute bottom-0 right-0 flex size-7 items-center justify-center rounded-full border-2 border-background bg-brand">
+              <Camera className="size-3.5 text-brand-foreground" />
+            </span>
+          </button>
           <h1 className="mt-4 text-2xl font-extrabold tracking-tight text-foreground">
             {profile.displayName}
           </h1>
@@ -300,6 +316,17 @@ export default function ProfileScreen() {
       </motion.main>
 
       <BottomNavigation />
+
+      <AvatarCropSheet
+        open={cropOpen}
+        onClose={() => setCropOpen(false)}
+        onSaved={() => {
+          // Pull the fresh AppUserDTO (now carrying the new avatarUrl) —
+          // same refresh() AppShellFrame's ViewAsBanner already calls after
+          // its own session-affecting action, not a new mechanism.
+          void refreshAppUser();
+        }}
+      />
     </div>
   );
 }

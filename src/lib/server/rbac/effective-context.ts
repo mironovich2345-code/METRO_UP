@@ -115,6 +115,7 @@ async function buildSyntheticPersona(ctx: ViewContext & { previewRole: PersonaRo
     telegramFirstName: null,
     telegramLastName: null,
     telegramPhotoUrl: null,
+    avatarStorageKey: null, // a preview persona never has a custom avatar
     displayName: `${PREVIEW_ROLE_LABEL[ctx.previewRole]} (просмотр)`,
     role: legacyRole,
     createdAt: epoch,

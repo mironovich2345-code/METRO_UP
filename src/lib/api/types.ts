@@ -38,6 +38,10 @@ export interface AppUserDTO {
     lastName: string | null;
     photoUrl: string | null;
   };
+  /** Custom uploaded avatar (METRO UP ROUND 1, Milestone 1), or null — never
+   * falls back to telegram.photoUrl above; the client shows initials when
+   * this is null. */
+  avatarUrl: string | null;
   onboardingCompleted: boolean;
   profile: null | {
     cityId: string;

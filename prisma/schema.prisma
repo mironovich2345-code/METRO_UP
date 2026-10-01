@@ -49,6 +49,13 @@ model User {
   telegramFirstName String?
   telegramLastName  String?
   telegramPhotoUrl  String?
+  /// Custom uploaded avatar (METRO UP ROUND 1, Milestone 1) — storage key
+  /// only, never binary (see src/lib/storage). Null = no custom avatar,
+  /// client shows initials (never falls back to telegramPhotoUrl — product
+  /// rule: the Telegram photo is never used as the in-app avatar fallback).
+  /// Self-service only: every write path derives the target row from the
+  /// session's own user id, never a client-supplied userId.
+  avatarStorageKey  String?
   displayName       String
   role              AppRole   @default(EMPLOYEE)
   createdAt         DateTime  @default(now())

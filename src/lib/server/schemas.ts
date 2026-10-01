@@ -25,6 +25,20 @@ export const onboardingSchema = z.object({
 });
 export type OnboardingInput = z.infer<typeof onboardingSchema>;
 
+/** METRO UP ROUND 1, Milestone 1 — avatar upload. MIME/size are re-validated
+ * for real against MEDIA_RULES.AVATAR server-side (storage/validation.ts) —
+ * this schema only guards against a malformed/missing request shape. */
+export const avatarUploadRequestSchema = z.object({
+  contentType: z.enum(["image/jpeg", "image/png", "image/webp"]),
+  sizeBytes: z.number().int().positive(),
+});
+export type AvatarUploadRequestInput = z.infer<typeof avatarUploadRequestSchema>;
+
+export const avatarCompleteSchema = z.object({
+  storageKey: z.string().min(1).max(500),
+});
+export type AvatarCompleteInput = z.infer<typeof avatarCompleteSchema>;
+
 /** Flatten Zod issues into a client-safe { field: message } map (no internals). */
 export function zodFieldErrors(error: z.ZodError): Record<string, string> {
   const out: Record<string, string> = {};

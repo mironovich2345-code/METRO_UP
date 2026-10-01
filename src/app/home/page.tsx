@@ -240,7 +240,10 @@ export default function HomeScreen() {
             aria-label="Открыть профиль"
             className="-m-1 flex min-w-0 flex-1 items-center gap-3 rounded-2xl p-1 transition-colors active:bg-foreground/5"
           >
-            <Avatar name={profile.displayName} src={telegramUser.photoUrl} size={48} ring />
+            {/* METRO UP ROUND 1, Milestone 1 — the custom uploaded avatar
+                only (never telegramUser.photoUrl as a fallback); tapping
+                already routes to /profile where it can be changed. */}
+            <Avatar name={profile.displayName} src={appUser?.avatarUrl ?? undefined} size={48} ring />
             <div className="min-w-0 flex-1">
               <p className="text-xs font-medium text-muted-foreground">{greeting},</p>
               <h1 className="truncate text-xl font-extrabold tracking-tight text-foreground">{firstName}</h1>
