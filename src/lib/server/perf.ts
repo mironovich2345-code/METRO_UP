@@ -24,3 +24,36 @@ export async function perfTimed<T>(event: string, fn: () => Promise<T>): Promise
     console.info(`[perf-api] ${JSON.stringify({ event, durationMs: Math.round(performance.now() - start) })}`);
   }
 }
+
+/**
+ * Sprint: mini-app-server-startup, section 4 — companion to perfTimed for
+ * the "measure several sub-phases of one request, log them together as ONE
+ * row" pattern (generalizes what the auth route hand-rolled for
+ * [perf-auth-telegram], so [perf-home] and friends don't each reinvent it).
+ * A plain `console.info` behind the same PERF_LOG=1 gate — never a new
+ * telemetry sink, never PII (callers pass only phase names/milliseconds).
+ */
+export function logPerf(event: string, fields: Record<string, number | string>): void {
+  if (!ENABLED) return;
+  console.info(`[${event}] ${JSON.stringify(fields)}`);
+}
+
+/**
+ * Wrap one sub-phase of a larger operation so its wall time lands in
+ * `record[key]`, without changing `run`'s resolved value or error/rejection
+ * behavior — composes directly with home-resolve.ts's settleWidget:
+ * `settleWidget("plan", timedField(timings, "planMs", () => getPlanToday(user)), EMPTY_PLAN)`.
+ * Zero-cost when PERF_LOG is off — returns `run` itself, unwrapped, not even
+ * a `performance.now()` call, matching perfTimed's own disabled-state contract.
+ */
+export function timedField<T>(record: Record<string, number>, key: string, run: () => Promise<T>): () => Promise<T> {
+  if (!ENABLED) return run;
+  return async () => {
+    const start = performance.now();
+    try {
+      return await run();
+    } finally {
+      record[key] = Math.round(performance.now() - start);
+    }
+  };
+}

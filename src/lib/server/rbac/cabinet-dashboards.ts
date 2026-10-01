@@ -10,6 +10,7 @@ import { anyGrantCoversClub, grantCoversCityOrItsClubs, hasActiveRole } from "./
 import { getActorContext, cityIdForClub, resolveCityManagerClubs, resolveClubManagerClubs, type ClubSummary } from "./context";
 import { authorize } from "./authorize-core";
 import { resolveEffectiveReadContext } from "./effective-context";
+import { logPerf, timedField } from "../perf";
 import type { ActorContext, RoleGrant } from "./types";
 import type {
   AttentionItemDTO,
@@ -305,25 +306,48 @@ export async function getOperationsDirectorDashboard(): Promise<OperationsDirect
 
 /* ------------------------------ CITY_MANAGER -------------------------------- */
 
-export async function getCityManagerDashboard(actor: ActorContext): Promise<CityManagerDashboardDTO> {
-  const clubs: ClubSummary[] = await resolveCityManagerClubs(actor);
+/**
+ * Sprint: mini-app-server-startup, section 6/7 — `precomputedClubs` lets a
+ * caller that has ALREADY resolved this actor's CITY_MANAGER clubs this same
+ * request (Home's resolveAvailableHomeContexts, which needs the list to
+ * build the context switcher) pass it straight through instead of this
+ * function re-running resolveCityManagerClubs's Club+City query a second
+ * time. Real Railway logs showed `/api/home` paying for exactly this
+ * duplicate on every CITY_MANAGER request. Optional and defaults to the
+ * original behavior — /api/control/cabinet/city-manager (the standalone /city
+ * screen) has no earlier resolution to reuse and is unaffected.
+ */
+export async function getCityManagerDashboard(actor: ActorContext, precomputedClubs?: ClubSummary[]): Promise<CityManagerDashboardDTO> {
+  const timings: Record<string, number> = {};
+  const totalStart = performance.now();
+
+  const clubs: ClubSummary[] = precomputedClubs ?? (await timedField(timings, "clubsMs", () => resolveCityManagerClubs(actor))());
   const clubIds = clubs.map((c) => c.id);
 
   const [employees, clubManagerGrantsRaw] = await Promise.all([
-    loadEmployees(clubIds),
-    clubIds.length
-      ? prisma.roleAssignment.findMany({
-          where: { role: "CLUB_MANAGER", status: "ACTIVE", clubId: { in: clubIds } },
-          select: { id: true, role: true, scopeType: true, cityId: true, clubId: true, status: true, userId: true, startedAt: true },
-        })
-      : Promise.resolve([]),
+    timedField(timings, "employeesMs", () => loadEmployees(clubIds))(),
+    timedField(timings, "clubManagerGrantsMs", () =>
+      clubIds.length
+        ? prisma.roleAssignment.findMany({
+            where: { role: "CLUB_MANAGER", status: "ACTIVE", clubId: { in: clubIds } },
+            select: { id: true, role: true, scopeType: true, cityId: true, clubId: true, status: true, userId: true, startedAt: true },
+          })
+        : Promise.resolve([]),
+    )(),
   ]);
   const clubManagerGrants = clubManagerGrantsRaw as unknown as (RoleGrant & { id: string; userId: string; startedAt: Date })[];
 
   const cmUserIds = [...new Set(clubManagerGrants.map((g) => g.userId))];
-  const cmUsers = cmUserIds.length
-    ? await prisma.user.findMany({ where: { id: { in: cmUserIds } }, select: { id: true, displayName: true } })
-    : [];
+  // Sprint: mini-app-server-startup, section 7 — cmUsers (depends only on
+  // clubManagerGrants, resolved above) and loadTrainingRaw (depends only on
+  // employees, ALSO already resolved above) are independent of each other —
+  // previously awaited one after another for no reason. Parallelized.
+  const [cmUsers, trainingRaw] = await Promise.all([
+    timedField(timings, "cmUsersMs", () =>
+      cmUserIds.length ? prisma.user.findMany({ where: { id: { in: cmUserIds } }, select: { id: true, displayName: true } }) : Promise.resolve([]),
+    )(),
+    timedField(timings, "trainingMs", () => loadTrainingRaw(employees.map((e) => e.userId)))(),
+  ]);
   const cmDisplayName = new Map(cmUsers.map((u) => [u.id, u.displayName]));
   const clubNameById = new Map(clubs.map((c) => [c.id, c.name]));
 
@@ -334,12 +358,13 @@ export async function getCityManagerDashboard(actor: ActorContext): Promise<City
     employeesByClub.set(e.clubId, list);
   }
 
-  const { totalPublishedLessons, completedByUser } = await loadTrainingRaw(employees.map((e) => e.userId));
+  const { totalPublishedLessons, completedByUser } = trainingRaw;
   const training = summarizeTraining(
     employees.map((e) => e.userId),
     totalPublishedLessons,
     completedByUser,
   );
+  logPerf("perf-city-dashboard", { totalMs: Math.round(performance.now() - totalStart), clubCount: clubs.length, employeeCount: employees.length, ...timings });
 
   const attention: AttentionItemDTO[] = [];
   const clubSummaries: CityManagerClubSummaryDTO[] = [];
@@ -630,11 +655,27 @@ function toHomeAttention(items: AttentionItemDTO[]): HomeAttentionItemDTO[] {
  * (section 7 — never an arbitrarily picked "first" club); CITY_MANAGER is at
  * most one entry (a NetworkRole, not a per-city grant list in this system).
  */
+/**
+ * Sprint: mini-app-server-startup, section 6/7 — carries the CITY_MANAGER
+ * clubs list this function already had to resolve to build the context
+ * switcher label, so the caller (/api/home/route.ts) can pass it straight
+ * into getCityManagerHomeDashboard/getCityManagerHomeBlock/
+ * getCityManagerDashboard instead of that chain re-running
+ * resolveCityManagerClubs a second time for the same actor, same request.
+ * `null` when the actor holds no active CITY_MANAGER grant at all (never an
+ * empty array standing in for "not applicable").
+ */
+export interface AvailableHomeContextsResult {
+  contexts: HomeContextDTO[];
+  cityManagerClubs: ClubSummary[] | null;
+}
+
 export async function resolveAvailableHomeContexts(
   realUser: CurrentUser,
   actor: ActorContext,
-): Promise<HomeContextDTO[]> {
+): Promise<AvailableHomeContextsResult> {
   const contexts: HomeContextDTO[] = [];
+  let cityManagerClubs: ClubSummary[] | null = null;
   if (realUser.employeeProfile) {
     contexts.push({ type: "PERSONAL", label: "Личный кабинет" });
   }
@@ -647,18 +688,18 @@ export async function resolveAvailableHomeContexts(
   }
 
   if (hasActiveRole(actor.grants, "CITY_MANAGER")) {
-    const clubs = await resolveCityManagerClubs(actor);
-    const cityNames = distinctCityNames(clubs);
+    cityManagerClubs = await resolveCityManagerClubs(actor);
+    const cityNames = distinctCityNames(cityManagerClubs);
     const scopeLabel =
       cityNames.length === 0
-        ? pluralRu(clubs.length, "клуб", "клуба", "клубов")
+        ? pluralRu(cityManagerClubs.length, "клуб", "клуба", "клубов")
         : cityNames.length === 1
           ? cityNames[0]
           : `Города: ${cityNames.join(", ")}`;
     contexts.push({ type: "CITY_MANAGER", label: `Ст. города · ${scopeLabel}` });
   }
 
-  return contexts;
+  return { contexts, cityManagerClubs };
 }
 
 /**
@@ -668,8 +709,8 @@ export async function resolveAvailableHomeContexts(
  * CITY_MANAGER context is the ACTIVE one — never speculatively for every
  * context (see resolveAvailableHomeContexts's header comment).
  */
-export async function getCityManagerHomeBlock(actor: ActorContext): Promise<CityManagerHomeBlockDTO> {
-  const dashboard = await getCityManagerDashboard(actor);
+export async function getCityManagerHomeBlock(actor: ActorContext, precomputedClubs?: ClubSummary[]): Promise<CityManagerHomeBlockDTO> {
+  const dashboard = await getCityManagerDashboard(actor, precomputedClubs);
   const cityNames = distinctCityNames(dashboard.clubs);
   const scopeLabel =
     cityNames.length === 0
@@ -717,10 +758,13 @@ export async function getClubManagerHomeBlock(
   clubName: string | null,
   isPreviewing: boolean,
 ): Promise<ClubManagerHomeBlockDTO> {
-  const employees = await loadEmployees([clubId]);
+  const timings: Record<string, number> = {};
+  const totalStart = performance.now();
+  const employees = await timedField(timings, "employeesMs", () => loadEmployees([clubId]))();
   const pending = filterPendingEmployees(employees);
-  const { totalPublishedLessons, completedByUser } = await loadTrainingRaw(employees.map((e) => e.userId));
+  const { totalPublishedLessons, completedByUser } = await timedField(timings, "trainingMs", () => loadTrainingRaw(employees.map((e) => e.userId)))();
   const training = summarizeClubTraining(employees.map((e) => e.userId), totalPublishedLessons, completedByUser);
+  logPerf("perf-club-manager-block", { totalMs: Math.round(performance.now() - totalStart), employeeCount: employees.length, ...timings });
   return {
     clubId,
     clubLabel: clubName ?? "Клуб",

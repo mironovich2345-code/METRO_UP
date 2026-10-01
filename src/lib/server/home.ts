@@ -11,6 +11,8 @@ import { getClubById, getCityById } from "@/content/cities";
 import { resolveOnboardingProgramId, getAcademyOverview } from "./academy";
 import { getCityManagerHomeBlock, getClubManagerHomeBlock } from "./rbac/cabinet-dashboards";
 import type { ActorContext } from "./rbac/types";
+import type { ClubSummary } from "./rbac/context";
+import { logPerf, timedField } from "./perf";
 import type {
   CityManagerHomeContextDTO,
   ClubManagerHomeContextDTO,
@@ -51,14 +53,27 @@ export async function getHomeDashboard(
   availableContexts: HomeContextDTO[],
   activeContext: HomeContextDTO,
 ): Promise<HomeDashboardDTO> {
+  // Sprint: mini-app-server-startup, section 4 — PERF_LOG=1-only per-widget
+  // breakdown. Each field is that ONE widget's own wall time; since all six
+  // run concurrently via Promise.all, totalMs close to max(fields) means
+  // real parallelism, totalMs close to sum(fields) means something (most
+  // likely Prisma's connection pool) is serializing them despite the
+  // concurrent await — see the report's "Home bottleneck" section.
+  const timings: Record<string, number> = {};
+  const totalStart = performance.now();
   const [plan, xp, rating, mystery, achievementsCount, lastAchievement] = await Promise.all([
-    settleWidget("plan", () => getPlanToday(user), EMPTY_PLAN),
-    settleWidget("xp", () => getXpBalance(user.id), EMPTY_XP),
-    settleWidget("rating", () => getRatingSummary(user.id), EMPTY_RATING),
-    settleWidget("mystery", () => getMysterySummary(user.id), EMPTY_MYSTERY),
-    settleWidget("achievements_count", () => countUserAchievements(user.id), 0),
-    settleWidget<Awaited<ReturnType<typeof getLastAchievement>>>("last_achievement", () => getLastAchievement(user.id), null),
+    settleWidget("plan", timedField(timings, "planMs", () => getPlanToday(user)), EMPTY_PLAN),
+    settleWidget("xp", timedField(timings, "xpMs", () => getXpBalance(user.id)), EMPTY_XP),
+    settleWidget("rating", timedField(timings, "ratingMs", () => getRatingSummary(user.id)), EMPTY_RATING),
+    settleWidget("mystery", timedField(timings, "mysteryMs", () => getMysterySummary(user.id)), EMPTY_MYSTERY),
+    settleWidget("achievements_count", timedField(timings, "achievementsMs", () => countUserAchievements(user.id)), 0),
+    settleWidget<Awaited<ReturnType<typeof getLastAchievement>>>(
+      "last_achievement",
+      timedField(timings, "lastAchievementMs", () => getLastAchievement(user.id)),
+      null,
+    ),
   ]);
+  logPerf("perf-home-personal", { totalMs: Math.round(performance.now() - totalStart), ...timings });
 
   return {
     kind: "full",
@@ -144,8 +159,11 @@ export async function getCityManagerHomeDashboard(
   actor: ActorContext,
   availableContexts: HomeContextDTO[],
   activeContext: HomeContextDTO,
+  precomputedClubs?: ClubSummary[],
 ): Promise<CityManagerHomeContextDTO> {
-  const block = await getCityManagerHomeBlock(actor);
+  const totalStart = performance.now();
+  const block = await getCityManagerHomeBlock(actor, precomputedClubs);
+  logPerf("perf-home-city-manager", { totalMs: Math.round(performance.now() - totalStart), clubCount: block.clubCount, hadPrecomputedClubs: precomputedClubs ? "yes" : "no" });
   return { kind: "city_manager", profile: profileCard(realUser), block, availableContexts, activeContext };
 }
 
@@ -167,10 +185,13 @@ export async function getClubManagerHomeDashboard(
   availableContexts: HomeContextDTO[],
   activeContext: HomeContextDTO,
 ): Promise<ClubManagerHomeContextDTO> {
+  const timings: Record<string, number> = {};
+  const totalStart = performance.now();
   const [plan, block] = await Promise.all([
-    settleWidget("plan", () => getPlanTodayFor(effectiveUser, isPreviewing), EMPTY_PLAN),
-    getClubManagerHomeBlock(clubId, clubName, isPreviewing),
+    settleWidget("plan", timedField(timings, "planMs", () => getPlanTodayFor(effectiveUser, isPreviewing)), EMPTY_PLAN),
+    timedField(timings, "blockMs", () => getClubManagerHomeBlock(clubId, clubName, isPreviewing))(),
   ]);
+  logPerf("perf-home-club-manager", { totalMs: Math.round(performance.now() - totalStart), ...timings });
   return {
     kind: "club_manager",
     profile: profileCard(effectiveUser),
