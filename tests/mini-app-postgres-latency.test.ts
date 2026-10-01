@@ -6,43 +6,26 @@ import path from "node:path";
 /**
  * METRO UP — POSTGRES / CONNECTION LATENCY AUDIT.
  *
- * This sandbox has NO DATABASE_URL / Railway access at all (no .env, no
- * matching process.env entry, no network path to the real Postgres
- * instance — confirmed and stated plainly in the report). Every benchmark
- * number, EXPLAIN plan, pg_stat_activity count, and region/topology fact
- * this task asked for can only come from a human running the new
- * /api/control/diag/db-latency route on the actual Railway deployment —
- * none of that is fabricatable here, and none is faked below. What CAN be
- * verified without a live DB: the new query's structural shape compiles
- * against the real generated Prisma Client types (already proven by a
- * clean `tsc --noEmit` this round) and the source-level guarantees below
- * (gating, read-only-ness, which functions call which).
+ * This sandbox had NO DATABASE_URL / Railway access at all when this round
+ * ran (no .env, no matching process.env entry, no network path to the real
+ * Postgres instance). The live benchmark numbers that drove the
+ * optimizations below came from a temporary, now-removed diagnostic route
+ * (ROUND 1's pre-round cleanup, section 3A) run by a human on the real
+ * Railway deployment — not fabricated here. What CAN still be verified
+ * without a live DB: the new query's structural shape compiles against the
+ * real generated Prisma Client types (a clean `tsc --noEmit`) and the
+ * source-level guarantees below (which functions call which, index
+ * presence).
  */
 const read = (p: string) => readFileSync(path.join(process.cwd(), p), "utf8");
 const skipNoDb = { skip: "integration: requires Postgres + a live Railway deployment (not available under node:test)" } as const;
 
-/* ========================= diagnostic endpoint safety ========================= */
-
-test("DIAG-LATENCY-A: /api/control/diag/db-latency is gated behind requireSystemAccess — never reachable by a plain employee session", () => {
-  const src = read("src/app/api/control/diag/db-latency/route.ts");
-  assert.match(src, /requireSystemAccess\(\)/);
-});
-
-test("DIAG-LATENCY-B: the diagnostic route performs ONLY reads — no create/update/upsert/delete anywhere in the file", () => {
-  const src = read("src/app/api/control/diag/db-latency/route.ts");
-  assert.doesNotMatch(src, /\.(create|update|upsert|delete|createMany|updateMany|deleteMany)\(/);
-});
-
-test("DIAG-LATENCY-C: the diagnostic route never reads/returns the connection string or credentials — only counts/timings/settings", () => {
-  const src = read("src/app/api/control/diag/db-latency/route.ts");
-  // The route's own doc comment legitimately DISCUSSES "DATABASE_URL" in
-  // prose (explaining why live numbers can't come from this sandbox) — what
-  // must never appear is actual CODE that reads its value.
-  assert.doesNotMatch(src, /process\.env\.DATABASE_URL/);
-  assert.doesNotMatch(src, /password/i);
-});
-
 /* ================= training/employees parallelization (section 5/6) ================= */
+/* The temporary /api/control/diag/db-latency route (and its DIAG-LATENCY-A/
+ * B/C gating tests) was removed in METRO UP ROUND 1's pre-round cleanup,
+ * section 3A — it had served its purpose (captured the numbers that drove
+ * this file's optimizations) and was explicitly temporary scaffolding, not
+ * a permanent endpoint. */
 
 test("DEDUP-TRAINING-A: getCityManagerDashboard resolves employees, clubManagerGrants, AND training in ONE Promise.all — training no longer waits for employees to finish first", () => {
   const src = read("src/lib/server/rbac/cabinet-dashboards.ts");

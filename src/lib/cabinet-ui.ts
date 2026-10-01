@@ -231,6 +231,37 @@ export function resolveTeamAccessMode(params: {
   };
 }
 
+export type CityClubPageStatus = "loading" | "ready" | "error" | "denied";
+
+/**
+ * METRO UP ROUND 1, section 3C — /city/club's page status, now requiring an
+ * EXPLICIT confirmed CITY_MANAGER grant in addition to the underlying reads
+ * succeeding. Pulled out as a pure function (same reasoning as every other
+ * `-core`/pure decision helper in this codebase) specifically so this fix —
+ * a real CLUB_MANAGER must never see this page's management actions, even
+ * though their own-club read access legitimately succeeds — has real,
+ * DB-free test coverage instead of living only inline in the page component.
+ *
+ * `dataError`/`dataReady`/`rolesLoading`/`isCityManager` are all the
+ * client already has from its two independent useQuery calls (the club's
+ * own dashboard/team/manager-rows bundle, and profile/management-roles) —
+ * this function makes no network call itself.
+ */
+export function resolveCityClubPageStatus(params: {
+  isForbiddenError: boolean;
+  isOtherError: boolean;
+  dataReady: boolean;
+  rolesLoading: boolean;
+  isCityManager: boolean;
+}): CityClubPageStatus {
+  const { isForbiddenError, isOtherError, dataReady, rolesLoading, isCityManager } = params;
+  if (isForbiddenError) return "denied";
+  if (isOtherError) return "error";
+  if (!dataReady || rolesLoading) return "loading";
+  if (!isCityManager) return "denied";
+  return "ready";
+}
+
 /* --------------------- role-assignment error messages (manual-test-round-2) --------------------- */
 
 /**

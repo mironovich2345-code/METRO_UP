@@ -11,10 +11,11 @@ import { RevalidatingBar } from "@/components/ui/revalidating-bar";
 import { ApiError } from "@/lib/api/client";
 import { cabinetApi } from "@/lib/api/cabinet-client";
 import { rolesApi, viewAsApi } from "@/lib/api/roles-client";
+import { fetchProfileManagementRoles } from "@/lib/api/home-client";
 import type { CabinetTeamMemberDTO } from "@/lib/api/cabinet-client";
 import { useQuery, QUERY_POLICY, invalidatePrefix } from "@/lib/client/query-cache";
 import { cacheKeys, cacheKeyPrefixes } from "@/lib/client/cache-keys";
-import { canRestoreAssignment, describeRoleAssignmentError } from "@/lib/cabinet-ui";
+import { canRestoreAssignment, describeRoleAssignmentError, resolveCityClubPageStatus } from "@/lib/cabinet-ui";
 import { cardIn, staggerStack, springSoft } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
@@ -78,17 +79,44 @@ function ClubDetail({ clubId }: { clubId: string }) {
       ),
     QUERY_POLICY.MUTABLE,
   );
+
+  /**
+   * METRO UP ROUND 1, section 3C (pre-round cleanup) — audited regression:
+   * this page's three reads (cabinetApi.clubManager/clubManagerTeam,
+   * rolesApi.list) are the SAME tier-based reads a real CLUB_MANAGER
+   * legitimately uses for their OWN club's /team and Home dashboard
+   * (resolveClubManagerCabinetAccess's tier 2) — so they succeed for a
+   * CLUB_MANAGER who ends up here too, not just for a CITY_MANAGER. Every
+   * WRITE this page offers is already correctly server-denied for a plain
+   * CLUB_MANAGER regardless (canStartViewAs/canRevokeRole/canAssignRole all
+   * require an actual CITY_MANAGER grant — verified by reading authorize-
+   * core.ts, not assumed) — but the page would still RENDER "Посмотреть
+   * кабинет Управляющего" / "Снять" / "Назначить" / "Восстановить" for them,
+   * which is confusing at best (every click would then fail) and simply
+   * wrong to show at all. Fixed by an explicit, additional check: this
+   * page's content requires the VIEWER to actually hold an active
+   * CITY_MANAGER grant, re-using the existing, already-correct
+   * /api/profile/management-roles endpoint (Profile's own "Роль в Metro UP"
+   * section) rather than inventing a new check — a plain CLUB_MANAGER's
+   * roles array never contains a CITY_MANAGER entry.
+   */
+  const { data: managementRoles, isLoading: rolesLoading } = useQuery(
+    cacheKeys.profileManagementRoles(),
+    () => fetchProfileManagementRoles().then((r) => r.roles),
+    QUERY_POLICY.MEDIUM,
+  );
+  const isCityManager = managementRoles?.some((r) => r.type === "CITY_MANAGER") ?? false;
+
   const dashboard = data?.dashboard ?? null;
   const team = data?.team ?? null;
   const managerRows = data?.managerRows ?? null;
-  const status: "loading" | "ready" | "error" | "denied" =
-    error instanceof ApiError && (error.status === 403 || error.status === 401)
-      ? "denied"
-      : error
-        ? "error"
-        : data
-          ? "ready"
-          : "loading";
+  const status = resolveCityClubPageStatus({
+    isForbiddenError: error instanceof ApiError && (error.status === 403 || error.status === 401),
+    isOtherError: Boolean(error) && !(error instanceof ApiError && (error.status === 403 || error.status === 401)),
+    dataReady: Boolean(data),
+    rolesLoading,
+    isCityManager,
+  });
 
   const currentManager = managerRows?.find((r) => r.status === "ACTIVE") ?? null;
   const history = managerRows?.filter((r) => r.status !== "ACTIVE") ?? [];

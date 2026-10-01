@@ -7,6 +7,7 @@ import {
   groupPendingApprovalByClub,
   attentionCardCount,
   canRestoreAssignment,
+  resolveCityClubPageStatus,
 } from "../src/lib/cabinet-ui";
 import type { AttentionItemDTO, CityManagerClubSummaryDTO } from "../src/lib/api/cabinet-types";
 
@@ -223,3 +224,57 @@ test(
   { skip: "integration: requires a DOM/component harness" },
   () => {},
 );
+
+/* ============== resolveCityClubPageStatus (METRO UP ROUND 1, section 3C) ============== */
+/* The audited regression: /city/club's underlying reads (cabinetApi.clubManager/
+ * clubManagerTeam, rolesApi.list) succeed for a REAL CLUB_MANAGER viewing
+ * their OWN club too (resolveClubManagerCabinetAccess's tier 2), not just a
+ * CITY_MANAGER — so the page must ALSO require an explicit confirmed
+ * CITY_MANAGER grant before rendering "Посмотреть кабинет Управляющего" /
+ * "Снять" / "Назначить" / "Восстановить", even though every one of those
+ * WRITES was already independently server-denied for a plain CLUB_MANAGER
+ * (canStartViewAs/canRevokeRole/canAssignRole all require an actual
+ * CITY_MANAGER grant — see rbac.test.ts's existing coverage). This is a
+ * visibility fix, not an authorization fix; these tests cover the former. */
+
+test("CITYCLUB-STATUS-A: a confirmed CITY_MANAGER with the data loaded sees ready", () => {
+  assert.equal(
+    resolveCityClubPageStatus({ isForbiddenError: false, isOtherError: false, dataReady: true, rolesLoading: false, isCityManager: true }),
+    "ready",
+  );
+});
+
+test("CITYCLUB-STATUS-B: a real CLUB_MANAGER (data loads fine for their own club, but management-roles confirms NO CITY_MANAGER grant) is denied, never ready — the exact regression this fixes", () => {
+  assert.equal(
+    resolveCityClubPageStatus({ isForbiddenError: false, isOtherError: false, dataReady: true, rolesLoading: false, isCityManager: false }),
+    "denied",
+  );
+});
+
+test("CITYCLUB-STATUS-C: while the management-roles check is still loading, status stays loading EVEN IF the club data already arrived — never a flash of 'ready' before the CITY_MANAGER check resolves", () => {
+  assert.equal(
+    resolveCityClubPageStatus({ isForbiddenError: false, isOtherError: false, dataReady: true, rolesLoading: true, isCityManager: false }),
+    "loading",
+  );
+});
+
+test("CITYCLUB-STATUS-D: a 403/401 on the underlying club read is denied regardless of the management-roles result", () => {
+  assert.equal(
+    resolveCityClubPageStatus({ isForbiddenError: true, isOtherError: false, dataReady: false, rolesLoading: false, isCityManager: true }),
+    "denied",
+  );
+});
+
+test("CITYCLUB-STATUS-E: a non-auth error (network/500) surfaces the error state, not denied", () => {
+  assert.equal(
+    resolveCityClubPageStatus({ isForbiddenError: false, isOtherError: true, dataReady: false, rolesLoading: false, isCityManager: true }),
+    "error",
+  );
+});
+
+test("CITYCLUB-STATUS-F: neither query has resolved yet -> loading", () => {
+  assert.equal(
+    resolveCityClubPageStatus({ isForbiddenError: false, isOtherError: false, dataReady: false, rolesLoading: true, isCityManager: false }),
+    "loading",
+  );
+});
