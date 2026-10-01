@@ -1,0 +1,71 @@
+/**
+ * METRO UP ROUND 1, Milestone 2A — Employee Questions client-facing
+ * contract. Plain string-literal unions mirroring the Prisma enums (never
+ * `@prisma/client` imported here — client code never imports from
+ * `@prisma/client`, matching every other *-types.ts in this codebase, e.g.
+ * AccessStatusDTO/PositionDTO in src/lib/api/types.ts). This is the single
+ * source of truth for these shapes — questions-core.ts (server) imports
+ * EmployeeQuestionDTO/QuestionSenderContextDTO from here rather than
+ * defining a parallel copy.
+ */
+
+export type QuestionCategoryDTO = "WORK_PROCESSES" | "TRAINING" | "MANAGEMENT" | "WORKING_CONDITIONS" | "TECHNICAL" | "IDEA" | "OTHER";
+
+export type QuestionStatusDTO = "NEW" | "IN_PROGRESS" | "CLOSED";
+
+/** "MANAGER" = this app's NetworkRole for a plain front-line employee, not a
+ * management title — same usage as everywhere else NetworkRole=MANAGER
+ * appears in this codebase. */
+export type QuestionSenderContextDTO = "MANAGER" | "CLUB_MANAGER" | "CITY_MANAGER";
+
+export interface QuestionAttachmentDTO {
+  id: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
+/** Section 3 — anonymity-sanitized. authorDisplay is "Анонимный сотрудник"
+ * and authorUserId is null whenever the viewer is not entitled to the real
+ * identity (questions-core.ts's shouldRevealAuthor) — never a raw
+ * telegramId/username/avatar/phone field anywhere on this shape. */
+export interface EmployeeQuestionDTO {
+  id: string;
+  category: QuestionCategoryDTO;
+  text: string;
+  anonymous: boolean;
+  status: QuestionStatusDTO;
+  authorDisplay: string;
+  authorUserId: string | null;
+  senderRole: QuestionSenderContextDTO;
+  cityName: string;
+  clubName: string | null;
+  createdAt: string;
+  updatedAt: string;
+  attachments: QuestionAttachmentDTO[];
+}
+
+export interface CreateQuestionAttachmentInput {
+  storageKey: string;
+  originalName: string;
+}
+
+export interface CreateQuestionRequestDTO {
+  senderContext: QuestionSenderContextDTO;
+  category: QuestionCategoryDTO;
+  text: string;
+  anonymous: boolean;
+  attachments: CreateQuestionAttachmentInput[];
+}
+
+export interface QuestionAttachmentUploadRequestDTO {
+  contentType: string;
+  sizeBytes: number;
+}
+
+export interface QuestionAttachmentUploadTicketDTO {
+  uploadUrl: string;
+  storageKey: string;
+  requiredHeaders: Record<string, string>;
+  expiresInSeconds: number;
+}

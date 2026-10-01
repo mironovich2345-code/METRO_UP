@@ -1,0 +1,199 @@
+import type { QuestionCategory, QuestionStatus } from "@prisma/client";
+import type { ActorContext, RoleGrant } from "../rbac/types";
+import { hasSystemAccess, hasNetworkAccess } from "../rbac/authorize-core";
+import { grantCoversClub, grantCoversCity, hasActiveRole, isGrantActive } from "../rbac/scope-core";
+import type { EmployeeQuestionDTO, QuestionSenderContextDTO } from "@/lib/api/questions-types";
+
+/**
+ * METRO UP ROUND 1, Milestone 2A — Employee Questions. Pure (no Prisma/
+ * server-only import — directly unit testable) RBAC predicates and DTO
+ * sanitization, matching this codebase's established split between pure
+ * decision logic (`-core.ts`) and the DB-touching service that calls it
+ * (questions-service.ts). This is the ONE place every later list/detail/
+ * status-mutation endpoint must route its authorization through — never
+ * reimplemented inline at a route handler (section 9).
+ */
+
+export const MAX_QUESTION_ATTACHMENTS = 5;
+
+/** The three roles allowed to send a question (section 1). "MANAGER" here
+ * is this app's NetworkRole for a plain front-line employee — not a
+ * management title — exactly like every other NetworkRole=MANAGER usage in
+ * this codebase. Canonically defined in the client-facing questions-types.ts
+ * (the single source of truth for this shape); re-exported here under this
+ * name since every server-side call site in this domain already uses it. */
+export type QuestionSenderContext = QuestionSenderContextDTO;
+
+export function isQuestionSenderContext(value: string): value is QuestionSenderContext {
+  return value === "MANAGER" || value === "CLUB_MANAGER" || value === "CITY_MANAGER";
+}
+
+/**
+ * May this actor send a question AS the claimed context? Mirrors
+ * resolveActiveContext's validation philosophy (cabinet-ui.ts) applied to a
+ * WRITE instead of a read: the claimed context must match authority the
+ * actor ACTUALLY currently holds, never trusted at face value. "MANAGER" is
+ * always available to anyone who reaches this point (the caller already
+ * required an EmployeeProfile via requireActiveAccess) — exactly like Home's
+ * context switcher always offers PERSONAL regardless of what ELSE an actor
+ * holds.
+ */
+export function canSendQuestionAs(actor: ActorContext, context: QuestionSenderContext): boolean {
+  switch (context) {
+    case "MANAGER":
+      return true;
+    case "CLUB_MANAGER":
+      return hasActiveRole(actor.grants, "CLUB_MANAGER") || actor.appRole === "CLUB_MANAGER";
+    case "CITY_MANAGER":
+      return hasActiveRole(actor.grants, "CITY_MANAGER");
+    default:
+      return false;
+  }
+}
+
+/** The subset of an EmployeeQuestion row every scope-based predicate below
+ * needs — kept narrow and Prisma-shape-compatible rather than importing a
+ * full Prisma payload type into a file that must stay DB-import-free. */
+export interface QuestionScope {
+  authorUserId: string;
+  cityIdSnapshot: string;
+  clubIdSnapshot: string | null;
+}
+
+/** Section 2/6 — "routing" IS visibility: there is exactly one
+ * EmployeeQuestion row; who may read it is derived from role+scope, never a
+ * fan-out of duplicate records. A CITY_MANAGER grant covers a question when
+ * it covers the question's club snapshot (CLUB-scope grant) or its city
+ * snapshot as a whole (CITY-scope grant) — reuses grantCoversClub/
+ * grantCoversCity UNCHANGED, the exact same predicates every other
+ * CITY_MANAGER scope check in this codebase already uses. */
+function cityManagerCanReach(grants: RoleGrant[], q: QuestionScope): boolean {
+  return grants.some((g) => {
+    if (g.role !== "CITY_MANAGER" || !isGrantActive(g)) return false;
+    if (q.clubIdSnapshot) return grantCoversClub(g, q.clubIdSnapshot, q.cityIdSnapshot);
+    return grantCoversCity(g, q.cityIdSnapshot);
+  });
+}
+
+/**
+ * Section 6 — read authorization. The author can always read their own
+ * submission (not a scope bypass — it's literally their own data);
+ * PROJECT_ADMIN/OPERATIONS_DIRECTOR read network-wide; a CITY_MANAGER reads
+ * whatever their grants cover. A plain MANAGER/CLUB_MANAGER has no inbox in
+ * this round beyond their own questions (listEmployeeQuestionsForActor's
+ * fallback — see questions-service.ts).
+ */
+export function canReadQuestion(actor: ActorContext, q: QuestionScope): boolean {
+  if (actor.userId === q.authorUserId) return true;
+  if (hasSystemAccess(actor)) return true;
+  if (hasNetworkAccess(actor)) return true;
+  return cityManagerCanReach(actor.grants, q);
+}
+
+/**
+ * Section 7 — status mutation authority. Deliberately WITHOUT the
+ * self-authorship clause canReadQuestion has: "MANAGER / CLUB_MANAGER may
+ * NOT change question status" must hold even for their OWN question. A
+ * CITY_MANAGER/OPERATIONS_DIRECTOR/PROJECT_ADMIN who ALSO happens to be the
+ * author (e.g. a CITY_MANAGER filing their own question) is still
+ * authorized here — correctly, since that authority comes from their
+ * management grant, not from self-authorship.
+ */
+export function canChangeQuestionStatus(actor: ActorContext, q: QuestionScope): boolean {
+  if (hasSystemAccess(actor)) return true;
+  if (hasNetworkAccess(actor)) return true;
+  return cityManagerCanReach(actor.grants, q);
+}
+
+/**
+ * Section 3 — SECURITY CRITICAL. True when this specific viewer may see the
+ * REAL author identity of this question. Non-anonymous questions are always
+ * revealed to anyone already authorized to read them at all (canReadQuestion
+ * is the gate for "can see this question exists", this decides "with whose
+ * name on it"). Anonymous questions reveal only to the author themselves or
+ * PROJECT_ADMIN (hasSystemAccess) — CITY_MANAGER and OPERATIONS_DIRECTOR are
+ * deliberately excluded even though hasNetworkAccess would include
+ * OPERATIONS_DIRECTOR, which is exactly why this checks hasSystemAccess
+ * specifically and NOT hasNetworkAccess.
+ */
+export function shouldRevealAuthor(actor: ActorContext, q: { authorUserId: string; anonymous: boolean }): boolean {
+  if (!q.anonymous) return true;
+  if (actor.userId === q.authorUserId) return true;
+  return hasSystemAccess(actor);
+}
+
+/** Client-safe shape — NEVER includes telegramId/username/avatar/phone or
+ * any raw storage key (attachments expose only display metadata; retrieval
+ * is a separate, re-authorized concern for a later milestone). */
+export type { EmployeeQuestionDTO };
+
+const ANONYMOUS_AUTHOR_DISPLAY = "Анонимный сотрудник";
+
+/** The full shape sanitizeQuestionForActor needs — exactly what
+ * questions-service.ts's Prisma queries select/include, kept as a plain
+ * interface here (not a Prisma payload type) so this function has zero
+ * Prisma/DB import and real, direct test coverage. */
+export interface QuestionRecordForSanitize {
+  id: string;
+  category: QuestionCategory;
+  text: string;
+  anonymous: boolean;
+  status: QuestionStatus;
+  authorUserId: string;
+  authorDisplayName: string;
+  senderRole: string;
+  cityNameSnapshot: string;
+  clubNameSnapshot: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  attachments: { id: string; originalName: string; mimeType: string; sizeBytes: number }[];
+}
+
+/**
+ * Section 3/9 — the ONE sanitization function every question-returning
+ * endpoint must call. Never performs its own authorization check (the
+ * caller must already have confirmed canReadQuestion) — this only decides
+ * WHAT is shown once reading is already allowed, via shouldRevealAuthor.
+ */
+export function sanitizeQuestionForActor(actor: ActorContext, record: QuestionRecordForSanitize): EmployeeQuestionDTO {
+  const reveal = shouldRevealAuthor(actor, { authorUserId: record.authorUserId, anonymous: record.anonymous });
+  return {
+    id: record.id,
+    category: record.category,
+    text: record.text,
+    anonymous: record.anonymous,
+    status: record.status,
+    authorDisplay: reveal ? record.authorDisplayName : ANONYMOUS_AUTHOR_DISPLAY,
+    authorUserId: reveal ? record.authorUserId : null,
+    senderRole: record.senderRole as QuestionSenderContext,
+    cityName: record.cityNameSnapshot,
+    clubName: record.clubNameSnapshot,
+    createdAt: record.createdAt.toISOString(),
+    updatedAt: record.updatedAt.toISOString(),
+    attachments: record.attachments.map((a) => ({ id: a.id, originalName: a.originalName, mimeType: a.mimeType, sizeBytes: a.sizeBytes })),
+  };
+}
+
+/* ------------------------- attachment storage ownership ------------------------- */
+
+export function questionAttachmentKeyPrefix(userId: string): string {
+  return `questions/${userId}/`;
+}
+
+/** Same ownership-by-namespace-prefix pattern as avatar-core.ts's
+ * isOwnAvatarKey — a client can never submit a storage key it wasn't issued,
+ * even if it somehow learned another user's key. */
+export function isOwnQuestionAttachmentKey(userId: string, storageKey: string): boolean {
+  return storageKey.startsWith(questionAttachmentKeyPrefix(userId));
+}
+
+const QUESTION_ATTACHMENT_EXT_BY_MIME: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "application/pdf": "pdf",
+};
+
+export function extForQuestionAttachmentMime(mimeType: string): string {
+  return QUESTION_ATTACHMENT_EXT_BY_MIME[mimeType] ?? "bin";
+}

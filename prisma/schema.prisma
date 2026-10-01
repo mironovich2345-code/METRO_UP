@@ -73,6 +73,7 @@ model User {
   metricConversations MetricConversation[]
   roleAssignments     RoleAssignment[]
   employmentHistory   EmploymentAssignment[]
+  employeeQuestions   EmployeeQuestion[]
 
   @@index([telegramId])
   @@map("users")
@@ -337,6 +338,9 @@ enum AuditAction {
   UNPUBLISH
   ARCHIVE
   MEDIA_UPLOAD
+  /// METRO UP ROUND 1, Milestone 2A — employee questions.
+  QUESTION_CREATED
+  QUESTION_STATUS_CHANGED
 }
 
 model TrainingProgram {
@@ -1140,4 +1144,101 @@ model MetricKnowledgeDocument {
   @@index([status])
   @@index([category])
   @@map("metric_knowledge_documents")
+}
+
+/**
+ * =========================================================================
+ * METRO UP ROUND 1, Milestone 2A — Employee Questions (backend foundation).
+ * =========================================================================
+ * Allowed senders: MANAGER / CLUB_MANAGER / CITY_MANAGER (enforced at the
+ * application layer — src/lib/server/questions/questions-core.ts's
+ * canSendQuestionAs — not at the DB layer; `senderRole` reuses the existing
+ * NetworkRole enum rather than introducing a narrower one, same reasoning as
+ * every other place this codebase reuses NetworkRole for a role field).
+ *
+ * ANONYMITY (section 3 — security critical): the real author is ALWAYS
+ * `authorUserId` below; `anonymous` affects ONLY API/DTO presentation
+ * (questions-core.ts's shouldRevealAuthor/sanitizeQuestionForActor), never
+ * what is stored. There is no "reveal identity" workflow and no separate
+ * "anonymous author" row — sanitization happens entirely at read time,
+ * server-side, per viewer.
+ *
+ * SNAPSHOTS (section 5): cityIdSnapshot/cityNameSnapshot/clubIdSnapshot/
+ * clubNameSnapshot are captured from the author's EmployeeProfile AT
+ * SUBMISSION TIME and never updated afterward — a later club/city transfer
+ * must never silently change which scope a historical question "belongs"
+ * to for CITY_MANAGER visibility purposes. club fields are nullable for
+ * schema forward-compatibility even though every current sender role
+ * requires an EmployeeProfile (non-null clubId) in practice.
+ */
+enum QuestionCategory {
+  WORK_PROCESSES
+  TRAINING
+  MANAGEMENT
+  WORKING_CONDITIONS
+  TECHNICAL
+  IDEA
+  OTHER
+}
+
+enum QuestionStatus {
+  NEW
+  IN_PROGRESS
+  CLOSED
+}
+
+model EmployeeQuestion {
+  id           String           @id @default(uuid()) @db.Uuid
+  authorUserId String           @db.Uuid
+  /// Which "hat" the author was wearing when sending — validated server-side
+  /// against their actual grants at submission time (never client-trusted).
+  senderRole   NetworkRole
+  category     QuestionCategory
+  text         String
+  anonymous    Boolean          @default(false)
+  status       QuestionStatus   @default(NEW)
+
+  cityIdSnapshot   String
+  cityNameSnapshot String
+  clubIdSnapshot   String?
+  clubNameSnapshot String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  author      User                         @relation(fields: [authorUserId], references: [id], onDelete: Cascade)
+  attachments EmployeeQuestionAttachment[]
+
+  // status/createdAt: OPERATIONS_DIRECTOR's network-wide inbox, sorted/filtered.
+  // authorUserId: a self-authored lookup (getEmployeeQuestionForActor's
+  // always-readable-by-author rule) and the future "My Questions" case
+  // listEmployeeQuestionsForActor already falls back to.
+  // cityIdSnapshot+status / clubIdSnapshot: CITY_MANAGER's scoped inbox,
+  // the anticipated primary later-UI query shape (section 11's own
+  // explicit suggestion), without over-indexing a table this small yet.
+  @@index([status])
+  @@index([authorUserId])
+  @@index([createdAt])
+  @@index([cityIdSnapshot, status])
+  @@index([clubIdSnapshot])
+  @@map("employee_questions")
+}
+
+/// Metadata only — binary lives in object storage (src/lib/storage),
+/// never in Postgres. storageKey is namespaced `questions/<authorUserId>/
+/// <uuid>.<ext>` (questions-core.ts's questionAttachmentKeyPrefix) so
+/// ownership is a prefix check, never a trusted client claim.
+model EmployeeQuestionAttachment {
+  id           String   @id @default(uuid()) @db.Uuid
+  questionId   String   @db.Uuid
+  storageKey   String   @unique
+  originalName String
+  mimeType     String
+  sizeBytes    Int
+  createdAt    DateTime @default(now())
+
+  question EmployeeQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([questionId])
+  @@map("employee_question_attachments")
 }

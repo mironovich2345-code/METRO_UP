@@ -6,7 +6,7 @@ import "server-only";
  * All credentials are read server-side only and are never sent to the client.
  */
 
-export type StorageObjectKind = "VIDEO" | "IMAGE" | "DOCUMENT" | "AVATAR";
+export type StorageObjectKind = "VIDEO" | "IMAGE" | "DOCUMENT" | "AVATAR" | "QUESTION_ATTACHMENT";
 
 /** A short-lived signed URL the browser uses to upload directly to storage. */
 export interface SignedUpload {

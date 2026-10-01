@@ -39,6 +39,34 @@ export const avatarCompleteSchema = z.object({
 });
 export type AvatarCompleteInput = z.infer<typeof avatarCompleteSchema>;
 
+/** METRO UP ROUND 1, Milestone 2A — employee questions. category/senderContext
+ * are closed enums (z.enum), never free text — matches section 1's "typed,
+ * not free text" requirement at the request-validation boundary too, on top
+ * of the Prisma enum itself. city/club/author fields are deliberately absent
+ * from this schema — the server always derives them (section 5), a client
+ * can't even SHAPE a request that claims them. */
+export const createQuestionSchema = z.object({
+  senderContext: z.enum(["MANAGER", "CLUB_MANAGER", "CITY_MANAGER"]),
+  category: z.enum(["WORK_PROCESSES", "TRAINING", "MANAGEMENT", "WORKING_CONDITIONS", "TECHNICAL", "IDEA", "OTHER"]),
+  text: z.string().trim().min(1, "Введите текст вопроса").max(4000, "Текст вопроса слишком длинный"),
+  anonymous: z.boolean(),
+  attachments: z
+    .array(
+      z.object({
+        storageKey: z.string().min(1).max(500),
+        originalName: z.string().min(1).max(300),
+      }),
+    )
+    .max(5, "Максимум 5 вложений"),
+});
+export type CreateQuestionSchemaInput = z.infer<typeof createQuestionSchema>;
+
+export const questionAttachmentUploadRequestSchema = z.object({
+  contentType: z.enum(["image/jpeg", "image/png", "image/webp", "application/pdf"]),
+  sizeBytes: z.number().int().positive(),
+});
+export type QuestionAttachmentUploadRequestInput = z.infer<typeof questionAttachmentUploadRequestSchema>;
+
 /** Flatten Zod issues into a client-safe { field: message } map (no internals). */
 export function zodFieldErrors(error: z.ZodError): Record<string, string> {
   const out: Record<string, string> = {};

@@ -33,6 +33,18 @@ export const MEDIA_RULES = {
     maxBytes: 3 * 1024 * 1024, // 3 MB
     prefix: "avatars",
   },
+  // METRO UP ROUND 1, Milestone 2A — question attachments. Images AND PDFs
+  // (unlike AVATAR/IMAGE, which are photo-only) — spans what the generic
+  // IMAGE and DOCUMENT rules each cover individually, combined into one
+  // rule since a question's attachment list may mix both. Private storage
+  // only (section 4) — never exposed via a stable public URL; retrieval is
+  // always re-authorized per question (a later milestone's job — this round
+  // only issues upload tickets and verifies completed uploads).
+  QUESTION_ATTACHMENT: {
+    mimes: ["image/jpeg", "image/png", "image/webp", "application/pdf"] as const,
+    maxBytes: 10 * 1024 * 1024, // 10 MB
+    prefix: "questions",
+  },
 } as const;
 
 const EXT_BY_MIME: Record<string, string> = {
@@ -88,10 +100,11 @@ export function randomStorageKey(kind: StorageObjectKind, mimeType: string): str
 }
 
 /** Kinds the GENERIC admin media-upload flow (media.ts -> MediaAsset) may
- * auto-detect from a declared MIME type. AVATAR is deliberately excluded —
- * it never goes through MediaAsset (see avatar.ts's own doc comment), so its
- * mimes are never ambiguous with VIDEO/IMAGE/DOCUMENT here. */
-export function mediaKindForMime(mimeType: string): Exclude<StorageObjectKind, "AVATAR"> | null {
+ * auto-detect from a declared MIME type. AVATAR/QUESTION_ATTACHMENT are
+ * deliberately excluded — neither goes through MediaAsset (see avatar.ts's
+ * and questions-service.ts's own doc comments), so their mimes are never
+ * ambiguous with VIDEO/IMAGE/DOCUMENT here. */
+export function mediaKindForMime(mimeType: string): Exclude<StorageObjectKind, "AVATAR" | "QUESTION_ATTACHMENT"> | null {
   if ((MEDIA_RULES.VIDEO.mimes as readonly string[]).includes(mimeType)) return "VIDEO";
   if ((MEDIA_RULES.IMAGE.mimes as readonly string[]).includes(mimeType)) return "IMAGE";
   if ((MEDIA_RULES.DOCUMENT.mimes as readonly string[]).includes(mimeType)) return "DOCUMENT";
