@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Building2, Camera, Check, MapPin, Briefcase, LayoutDashboard, Trophy, UserCog } from "lucide-react";
+import { Building2, Camera, Check, ChevronRight, HelpCircle, MapPin, Briefcase, LayoutDashboard, Trophy, UserCog } from "lucide-react";
 import { BottomNavigation } from "@/components/bottom-navigation";
 import { AppHeader } from "@/components/app-header";
 import { GlassCard } from "@/components/ui/glass-card";
@@ -154,6 +154,29 @@ export default function ProfileScreen() {
                 </div>
               );
             })}
+          </GlassCard>
+        </motion.div>
+
+        {/* METRO UP ROUND 1, Milestone 2B — "Задать вопрос" entry point.
+            Available to every onboarded employee (MANAGER/CLUB_MANAGER/
+            CITY_MANAGER alike) — no role gate here; the Ask Question screen
+            itself resolves the active sender context, and the server
+            independently re-validates it regardless. Deliberately a single
+            compact row (not a full descriptive card like Admin/SPM below)
+            so it stays non-intrusive per the task's own instruction. */}
+        <motion.div variants={cardIn}>
+          <GlassCard variant="solid" pad="none" animateIn={false}>
+            <button
+              type="button"
+              onClick={() => router.push("/questions/ask")}
+              className="flex w-full items-center gap-3 p-4 text-left"
+            >
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-brand/12">
+                <HelpCircle className="size-4.5 text-brand" />
+              </span>
+              <span className="flex-1 text-[15px] font-semibold text-foreground">Задать вопрос</span>
+              <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+            </button>
           </GlassCard>
         </motion.div>
 
