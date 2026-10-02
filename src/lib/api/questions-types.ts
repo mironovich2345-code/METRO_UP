@@ -25,10 +25,18 @@ export interface QuestionAttachmentDTO {
   sizeBytes: number;
 }
 
-/** Section 3 — anonymity-sanitized. authorDisplay is "Анонимный сотрудник"
- * and authorUserId is null whenever the viewer is not entitled to the real
- * identity (questions-core.ts's shouldRevealAuthor) — never a raw
- * telegramId/username/avatar/phone field anywhere on this shape. */
+/**
+ * Section 3 — anonymity-sanitized. authorDisplay is "Анонимный сотрудник"
+ * when the viewer is not entitled to the real identity
+ * (questions-core.ts's shouldRevealAuthor) — never a raw telegramId/
+ * username/avatar/phone field anywhere on this shape.
+ *
+ * METRO UP ROUND 1, Milestone 2A.1 — authorUserId is OPTIONAL and, when
+ * hidden, genuinely ABSENT from the serialized object (not present with
+ * value null or undefined). Check with `'authorUserId' in dto` or
+ * `Object.hasOwn(dto, 'authorUserId')` — never `dto.authorUserId == null`,
+ * which can't distinguish "hidden" from "field not yet loaded".
+ */
 export interface EmployeeQuestionDTO {
   id: string;
   category: QuestionCategoryDTO;
@@ -36,7 +44,7 @@ export interface EmployeeQuestionDTO {
   anonymous: boolean;
   status: QuestionStatusDTO;
   authorDisplay: string;
-  authorUserId: string | null;
+  authorUserId?: string;
   senderRole: QuestionSenderContextDTO;
   cityName: string;
   clubName: string | null;

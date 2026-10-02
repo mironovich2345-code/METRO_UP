@@ -154,6 +154,15 @@ export interface QuestionRecordForSanitize {
  * endpoint must call. Never performs its own authorization check (the
  * caller must already have confirmed canReadQuestion) — this only decides
  * WHAT is shown once reading is already allowed, via shouldRevealAuthor.
+ *
+ * METRO UP ROUND 1, Milestone 2A.1 — when hidden, `authorUserId` is spread
+ * in CONDITIONALLY so the key is genuinely ABSENT from the returned object
+ * (`'authorUserId' in dto` is false), not present with value `null`. A
+ * `null`/`undefined`-valued but still-present key survives as an own
+ * property (`hasOwnProperty` true) even though JSON.stringify happens to
+ * drop `undefined` — omitting the key outright is the only form that is
+ * correct under every inspection method (property existence, JSON.stringify
+ * substring search, Object.keys), not just the common ones.
  */
 export function sanitizeQuestionForActor(actor: ActorContext, record: QuestionRecordForSanitize): EmployeeQuestionDTO {
   const reveal = shouldRevealAuthor(actor, { authorUserId: record.authorUserId, anonymous: record.anonymous });
@@ -164,7 +173,7 @@ export function sanitizeQuestionForActor(actor: ActorContext, record: QuestionRe
     anonymous: record.anonymous,
     status: record.status,
     authorDisplay: reveal ? record.authorDisplayName : ANONYMOUS_AUTHOR_DISPLAY,
-    authorUserId: reveal ? record.authorUserId : null,
+    ...(reveal ? { authorUserId: record.authorUserId } : {}),
     senderRole: record.senderRole as QuestionSenderContext,
     cityName: record.cityNameSnapshot,
     clubName: record.clubNameSnapshot,

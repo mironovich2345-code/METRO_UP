@@ -237,43 +237,74 @@ const sanitizeRecord = (overrides: Partial<QuestionRecordForSanitize> = {}): Que
   ...overrides,
 });
 
-test("ANON-DTO-A: CITY_MANAGER's sanitized DTO for an anonymous question shows 'Анонимный сотрудник' and a null authorUserId", () => {
+/**
+ * METRO UP ROUND 1, Milestone 2A.1 — anonymous DTO hardening. authorUserId
+ * must be genuinely ABSENT (no own property at all) from the serialized
+ * object for CITY_MANAGER/OPERATIONS_DIRECTOR on an anonymous question —
+ * not present with value null, not present with value undefined. Checked
+ * three independent ways per the spec: hasOwnProperty, `in`, and a
+ * JSON.stringify substring search (catches a hypothetical future regression
+ * that reintroduces the key via spread/default even if a hasOwnProperty
+ * check elsewhere were accidentally skipped).
+ */
+
+test("ANON-DTO-A: CITY_MANAGER's sanitized DTO for an anonymous question has NO 'authorUserId' own property at all (not null, not undefined-but-present)", () => {
   const cm = actor({ grants: [grant({ role: "CITY_MANAGER", scopeType: "CITY", cityId: "city-1" })] });
   const dto = sanitizeQuestionForActor(cm, sanitizeRecord());
   assert.equal(dto.authorDisplay, "Анонимный сотрудник");
-  assert.equal(dto.authorUserId, null);
+  assert.equal(Object.prototype.hasOwnProperty.call(dto, "authorUserId"), false);
+  assert.equal("authorUserId" in dto, false);
+  assert.doesNotMatch(JSON.stringify(dto), /authorUserId/);
+  assert.doesNotMatch(JSON.stringify(dto), /author-1/); // the real id itself must not appear anywhere in the payload
 });
 
-test("ANON-DTO-B: OPERATIONS_DIRECTOR's sanitized DTO for an anonymous question also hides identity", () => {
+test("ANON-DTO-B: OPERATIONS_DIRECTOR's sanitized DTO for an anonymous question also has NO 'authorUserId' own property", () => {
   const od = actor({ grants: [grant({ role: "OPERATIONS_DIRECTOR", scopeType: "NETWORK" })] });
   const dto = sanitizeQuestionForActor(od, sanitizeRecord());
   assert.equal(dto.authorDisplay, "Анонимный сотрудник");
-  assert.equal(dto.authorUserId, null);
+  assert.equal(Object.prototype.hasOwnProperty.call(dto, "authorUserId"), false);
+  assert.equal("authorUserId" in dto, false);
+  assert.doesNotMatch(JSON.stringify(dto), /authorUserId/);
+  assert.doesNotMatch(JSON.stringify(dto), /author-1/);
 });
 
-test("ANON-DTO-C: PROJECT_ADMIN's sanitized DTO includes the real author name and id even when anonymous=true", () => {
+test("ANON-DTO-C: PROJECT_ADMIN's sanitized DTO DOES have an own 'authorUserId' property with the real id, even when anonymous=true", () => {
   const admin = actor({ appRole: "ADMIN" });
   const dto = sanitizeQuestionForActor(admin, sanitizeRecord());
   assert.equal(dto.authorDisplay, "Ева Губанкова");
+  assert.equal(Object.prototype.hasOwnProperty.call(dto, "authorUserId"), true);
   assert.equal(dto.authorUserId, "author-1");
+  assert.match(JSON.stringify(dto), /"authorUserId":"author-1"/);
 });
 
-test("ANON-DTO-D: a NON-anonymous question shows the real author to an authorized CITY_MANAGER", () => {
+test("ANON-DTO-D: a NON-anonymous question shows the real author (own property present) to an authorized CITY_MANAGER", () => {
   const cm = actor({ grants: [grant({ role: "CITY_MANAGER", scopeType: "CITY", cityId: "city-1" })] });
   const dto = sanitizeQuestionForActor(cm, sanitizeRecord({ anonymous: false }));
   assert.equal(dto.authorDisplay, "Ева Губанкова");
+  assert.equal(Object.prototype.hasOwnProperty.call(dto, "authorUserId"), true);
   assert.equal(dto.authorUserId, "author-1");
 });
 
-test("ANON-DTO-E: no accidental telegramId/avatar/username/phone leak — the sanitized DTO's keys are EXACTLY the documented safe set, nothing extra", () => {
+test("ANON-DTO-D2: the author themselves sees their own 'authorUserId' as an own property on their own anonymous question", () => {
+  const selfAuthor = actor({ userId: "author-1" });
+  const dto = sanitizeQuestionForActor(selfAuthor, sanitizeRecord());
+  assert.equal(Object.prototype.hasOwnProperty.call(dto, "authorUserId"), true);
+  assert.equal(dto.authorUserId, "author-1");
+});
+
+test("ANON-DTO-E: no accidental telegramId/avatar/username/phone leak — the sanitized DTO's OWN keys are EXACTLY the documented safe set when hidden (authorUserId absent) and the safe set plus authorUserId when revealed, nothing extra ever", () => {
   const cm = actor({ grants: [grant({ role: "CITY_MANAGER", scopeType: "CITY", cityId: "city-1" })] });
-  const dto = sanitizeQuestionForActor(cm, sanitizeRecord());
-  const allowedKeys = new Set([
-    "id", "category", "text", "anonymous", "status", "authorDisplay", "authorUserId",
-    "senderRole", "cityName", "clubName", "createdAt", "updatedAt", "attachments",
-  ]);
-  for (const key of Object.keys(dto)) {
-    assert.ok(allowedKeys.has(key), `unexpected field on sanitized DTO: ${key}`);
+  const baseKeys = ["id", "category", "text", "anonymous", "status", "authorDisplay", "senderRole", "cityName", "clubName", "createdAt", "updatedAt", "attachments"];
+
+  const hiddenDto = sanitizeQuestionForActor(cm, sanitizeRecord());
+  assert.deepEqual(Object.keys(hiddenDto).sort(), [...baseKeys].sort());
+
+  const revealedDto = sanitizeQuestionForActor(cm, sanitizeRecord({ anonymous: false }));
+  assert.deepEqual(Object.keys(revealedDto).sort(), [...baseKeys, "authorUserId"].sort());
+
+  for (const forbidden of ["telegramId", "telegramUsername", "username", "avatarUrl", "avatarStorageKey", "phone", "photoUrl"]) {
+    assert.doesNotMatch(JSON.stringify(hiddenDto), new RegExp(forbidden));
+    assert.doesNotMatch(JSON.stringify(revealedDto), new RegExp(forbidden));
   }
 });
 
