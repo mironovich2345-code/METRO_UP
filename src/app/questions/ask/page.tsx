@@ -17,6 +17,7 @@ import {
   isSubmitDisabled,
   buildCreateQuestionPayload,
   remainingAttachmentSlots,
+  resolveScopeHint,
   resolveSenderContext,
   validateAttachmentFile,
   validateQuestionText,
@@ -55,6 +56,12 @@ function describeQuestionError(code: string | null): string {
       return "Профиль сотрудника не найден.";
     case "upload_failed":
       return "Не удалось загрузить файл. Проверьте соединение.";
+    case "ambiguous_scope":
+      return "Не удалось определить контекст для вопроса. Выберите город/клуб в приложении и попробуйте снова.";
+    case "invalid_scope_hint":
+      return "Недействительный контекст. Обновите приложение и попробуйте снова.";
+    case "no_scope":
+      return "Недостаточно прав для отправки вопроса.";
     default:
       return "Не удалось отправить вопрос. Попробуйте ещё раз.";
   }
@@ -148,8 +155,10 @@ export default function AskQuestionPage() {
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const senderContext = resolveSenderContext(loadStoredContext(getOwnerKey()));
-      const payload = buildCreateQuestionPayload({ senderContext, category, text, anonymous, attachments });
+      const stored = loadStoredContext(getOwnerKey());
+      const senderContext = resolveSenderContext(stored);
+      const scopeHint = resolveScopeHint(stored);
+      const payload = buildCreateQuestionPayload({ senderContext, category, text, anonymous, attachments, scopeHint });
       await questionsApi.create(payload);
       setSucceeded(true);
     } catch (e) {

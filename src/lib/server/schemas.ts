@@ -58,6 +58,11 @@ export const createQuestionSchema = z.object({
       }),
     )
     .max(5, "Максимум 5 вложений"),
+  // METRO UP ROUND 1, Milestone 2B.1, section B — an OPTIONAL selector among
+  // the actor's OWN real grants (questions-core.ts's resolveScopeFromCandidates)
+  // — never trusted as a raw cityId/clubId by itself; a forged value matches
+  // no candidate and is rejected, never silently accepted.
+  scopeHint: z.object({ cityId: z.string().min(1).max(200).optional(), clubId: z.string().min(1).max(200).optional() }).optional(),
 });
 export type CreateQuestionSchemaInput = z.infer<typeof createQuestionSchema>;
 

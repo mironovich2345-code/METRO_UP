@@ -11,17 +11,22 @@ import type { CurrentUser } from "../session";
 import type { ActorContext } from "../rbac/types";
 import { hasSystemAccess, hasNetworkAccess } from "../rbac/authorize-core";
 import { isGrantActive } from "../rbac/scope-core";
+import { cityIdForClub, resolveClubManagerClubs } from "../rbac/context";
 import {
   MAX_QUESTION_ATTACHMENTS,
   canChangeQuestionStatus,
   canReadQuestion,
   canSendQuestionAs,
+  describeScopeResolutionError,
   extForQuestionAttachmentMime,
   isOwnQuestionAttachmentKey,
   questionAttachmentKeyPrefix,
+  resolveScopeFromCandidates,
   sanitizeQuestionForActor,
   type EmployeeQuestionDTO,
+  type QuestionScopeCandidate,
   type QuestionSenderContext,
+  type ScopeHint,
 } from "./questions-core";
 
 /**
@@ -120,6 +125,45 @@ export interface CreateQuestionInput {
   text: string;
   anonymous: boolean;
   attachments: { storageKey: string; originalName: string }[];
+  /** METRO UP ROUND 1, Milestone 2B.1, section B — an OPTIONAL hint for
+   * which scope to submit under when the actor holds more than one. Never
+   * trusted by itself — resolveScopeFromCandidates only lets it SELECT
+   * among candidates independently derived from the actor's real, active
+   * grants (buildClubManagerScopeCandidates/buildCityManagerScopeCandidates
+   * below). A forged value matches nothing and is rejected. */
+  scopeHint?: ScopeHint;
+}
+
+/** Section B — every club this CLUB_MANAGER could legitimately be
+ * submitting under, reusing resolveClubManagerClubs UNCHANGED (the exact
+ * same dynamic resolution /team and Home's own CLUB_MANAGER context already
+ * rely on — both the legacy EmployeeProfile.clubId axis and any explicit
+ * CLUB-scoped RoleAssignment). */
+async function buildClubManagerScopeCandidates(user: CurrentUser, actor: ActorContext): Promise<QuestionScopeCandidate[]> {
+  const clubs = await resolveClubManagerClubs(user, actor);
+  return clubs.map((c) => ({ cityId: c.cityId, cityName: c.cityName ?? c.cityId, clubId: c.id, clubName: c.name }));
+}
+
+/** Section B — every scope a CITY_MANAGER's own ACTIVE grants cover: a
+ * CITY-scoped grant contributes that whole city (clubId null — mirrors
+ * EmployeeQuestion.clubIdSnapshot's own nullability for exactly this case);
+ * a CLUB-scoped grant contributes that one club, with its city resolved via
+ * cityIdForClub (the same DB helper rbac/context.ts already exposes for
+ * this exact "what city is this club in" question elsewhere). */
+async function buildCityManagerScopeCandidates(actor: ActorContext): Promise<QuestionScopeCandidate[]> {
+  const grants = actor.grants.filter((g) => g.role === "CITY_MANAGER" && isGrantActive(g));
+  const candidates: QuestionScopeCandidate[] = [];
+  for (const g of grants) {
+    if (g.scopeType === "CITY" && g.cityId) {
+      candidates.push({ cityId: g.cityId, cityName: getCityById(g.cityId)?.name ?? g.cityId, clubId: null, clubName: null });
+    } else if (g.scopeType === "CLUB" && g.clubId) {
+      const cityId = await cityIdForClub(g.clubId);
+      if (cityId) {
+        candidates.push({ cityId, cityName: getCityById(cityId)?.name ?? cityId, clubId: g.clubId, clubName: getClubById(g.clubId)?.name ?? g.clubId });
+      }
+    }
+  }
+  return candidates;
 }
 
 /**
@@ -148,11 +192,41 @@ export async function createEmployeeQuestion(user: CurrentUser, actor: ActorCont
     throw new AuthError(400, "too_many_attachments", `Максимум ${MAX_QUESTION_ATTACHMENTS} вложений`);
   }
 
-  // Section 5 — server-derived, never client-supplied.
-  const cityId = user.employeeProfile.cityId;
-  const clubId = user.employeeProfile.clubId;
-  const cityName = getCityById(cityId)?.name ?? cityId;
-  const clubName = getClubById(clubId)?.name ?? clubId;
+  /**
+   * METRO UP ROUND 1, Milestone 2B.1, section B — scope resolution now
+   * branches by sender context. MANAGER's scope IS their EmployeeProfile
+   * (unchanged — a plain employee has no separate "management scope"
+   * concept at all). CLUB_MANAGER/CITY_MANAGER may hold more than one
+   * active grant, so EmployeeProfile is never used for them: every
+   * candidate scope is derived from their REAL, current grants, and an
+   * optional client hint only SELECTS among those candidates (never
+   * supplies a raw cityId/clubId directly) — resolveScopeFromCandidates
+   * auto-resolves when there is exactly one candidate, requires a matching
+   * hint when there are several, and rejects outright rather than ever
+   * guessing "the first one".
+   */
+  let cityId: string;
+  let cityName: string;
+  let clubId: string | null;
+  let clubName: string | null;
+
+  if (input.senderContext === "MANAGER") {
+    cityId = user.employeeProfile.cityId;
+    clubId = user.employeeProfile.clubId;
+    cityName = getCityById(cityId)?.name ?? cityId;
+    clubName = getClubById(clubId)?.name ?? clubId;
+  } else {
+    const candidates =
+      input.senderContext === "CLUB_MANAGER" ? await buildClubManagerScopeCandidates(user, actor) : await buildCityManagerScopeCandidates(actor);
+    const resolved = resolveScopeFromCandidates(candidates, input.scopeHint);
+    if (!resolved.ok) {
+      throw new AuthError(409, resolved.code, describeScopeResolutionError(resolved.code));
+    }
+    cityId = resolved.scope.cityId;
+    cityName = resolved.scope.cityName;
+    clubId = resolved.scope.clubId;
+    clubName = resolved.scope.clubName;
+  }
 
   // Verify every attachment BEFORE the transaction — headObject is a network
   // call to storage, never done while holding a DB transaction open

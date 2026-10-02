@@ -1,5 +1,6 @@
 import type { CreateQuestionRequestDTO, QuestionCategoryDTO, QuestionSenderContextDTO } from "@/lib/api/questions-types";
 import type { StoredHomeContext } from "@/lib/home-context-storage";
+import type { AccessStatus } from "@/lib/profile";
 
 /**
  * METRO UP ROUND 1, Milestone 2B — Ask Question screen. Pure (no DOM/fetch)
@@ -24,6 +25,37 @@ export const QUESTION_CATEGORY_OPTIONS: { value: QuestionCategoryDTO; label: str
   { value: "IDEA", label: "Идея / предложение" },
   { value: "OTHER", label: "Другое" },
 ];
+
+/**
+ * METRO UP ROUND 1, Milestone 2B.1 — entry visibility (section A). An
+ * ALLOWLIST, never a denylist: only the three contexts the backend actually
+ * accepts (canSendQuestionAs) ever show the entry, so "any future
+ * unsupported role/context" is hidden automatically, with no code change
+ * needed when a new context is introduced. `context` is the WIDER set
+ * every Mini App context could eventually be, including two not yet
+ * reachable (OPERATIONS_DIRECTOR/PROJECT_ADMIN have no Home cabinet yet) —
+ * kept explicit here so this allowlist stays meaningful once they exist,
+ * rather than only "correct by accident" because the unsupported values
+ * are currently unreachable.
+ *
+ * Deliberately NOT a legacy UI-only role flag (e.g. serverUser.role) — this
+ * reads the SAME context concept home-context-storage.ts's own switcher
+ * already uses (a display hint; the server independently re-validates via
+ * canSendQuestionAs regardless of what this resolves to).
+ */
+export type EffectiveMiniAppContext = "PERSONAL" | "CLUB_MANAGER" | "CITY_MANAGER" | "OPERATIONS_DIRECTOR" | "PROJECT_ADMIN";
+
+const ASK_QUESTION_ALLOWED_CONTEXTS: ReadonlySet<EffectiveMiniAppContext> = new Set(["PERSONAL", "CLUB_MANAGER", "CITY_MANAGER"]);
+
+export function canShowAskQuestionEntry(context: EffectiveMiniAppContext | null, accessStatus: AccessStatus | null): boolean {
+  if (accessStatus === "PENDING_APPROVAL" || accessStatus === "SUSPENDED") return false;
+  // No stored context yet (fresh session, never visited Home) — default to
+  // the always-valid MANAGER capability, the same fallback resolveSenderContext
+  // below uses, so the entry's visibility never contradicts what submitting
+  // would actually do.
+  if (context === null) return true;
+  return ASK_QUESTION_ALLOWED_CONTEXTS.has(context);
+}
 
 export const QUESTION_TEXT_MAX_LENGTH = 4000; // mirrors createQuestionSchema's z.string().max(4000)
 export const MAX_QUESTION_ATTACHMENTS = 5; // mirrors questions-core.ts's MAX_QUESTION_ATTACHMENTS
@@ -88,10 +120,28 @@ export function resolveSenderContext(stored: StoredHomeContext | null): Question
 }
 
 /**
+ * METRO UP ROUND 1, Milestone 2B.1, section B — the scope hint (a SELECTOR
+ * among the actor's own real grants, never authority by itself — see
+ * questions-core.ts's resolveScopeFromCandidates) derived from the SAME
+ * stored Home context resolveSenderContext reads, so the two can never
+ * disagree about which context the user is actually in. Only CLUB_MANAGER's
+ * stored context carries a clubId today (Home's CITY_MANAGER context has
+ * no per-scope disambiguation yet — see the Milestone 2B.1 report's "known
+ * limitation": a CITY_MANAGER with more than one active grant currently has
+ * no UI affordance to pick one, so their submission is correctly rejected
+ * as ambiguous by the server until a future round adds one).
+ */
+export function resolveScopeHint(stored: StoredHomeContext | null): { clubId?: string } | undefined {
+  if (stored?.type === "CLUB_MANAGER" && stored.clubId) return { clubId: stored.clubId };
+  return undefined;
+}
+
+/**
  * Section 7 — the exact, minimal request shape. No userId/cityId/clubId
  * field exists on this return type at all (CreateQuestionRequestDTO has no
  * such fields) — the server derives scope entirely from the session
- * (questions-service.ts). Only successfully uploaded attachments
+ * (questions-service.ts), using scopeHint only as a selector among the
+ * actor's own real grants. Only successfully uploaded attachments
  * (status "done", storageKey present) are ever included.
  */
 export function buildCreateQuestionPayload(input: {
@@ -100,6 +150,7 @@ export function buildCreateQuestionPayload(input: {
   text: string;
   anonymous: boolean;
   attachments: AttachmentDraft[];
+  scopeHint?: { cityId?: string; clubId?: string };
 }): CreateQuestionRequestDTO {
   return {
     senderContext: input.senderContext,
@@ -109,6 +160,7 @@ export function buildCreateQuestionPayload(input: {
     attachments: input.attachments
       .filter((a) => a.status === "done" && a.storageKey)
       .map((a) => ({ storageKey: a.storageKey!, originalName: a.file.name })),
+    ...(input.scopeHint ? { scopeHint: input.scopeHint } : {}),
   };
 }
 

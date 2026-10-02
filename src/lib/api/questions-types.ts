@@ -64,6 +64,12 @@ export interface CreateQuestionRequestDTO {
   text: string;
   anonymous: boolean;
   attachments: CreateQuestionAttachmentInput[];
+  /** METRO UP ROUND 1, Milestone 2B.1, section B — which of the sender's OWN
+   * active grants this submission is under, when they hold more than one
+   * (e.g. a CLUB_MANAGER/CITY_MANAGER managing several clubs/cities). Never
+   * authority by itself — the server only lets it SELECT among candidates
+   * it independently derives from the actor's real current grants. */
+  scopeHint?: { cityId?: string; clubId?: string };
 }
 
 export interface QuestionAttachmentUploadRequestDTO {

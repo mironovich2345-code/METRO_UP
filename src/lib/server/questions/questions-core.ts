@@ -51,6 +51,74 @@ export function canSendQuestionAs(actor: ActorContext, context: QuestionSenderCo
   }
 }
 
+/**
+ * METRO UP ROUND 1, Milestone 2B.1, section B — one possible answer to
+ * "which city/club is this question actually about", for a CLUB_MANAGER or
+ * CITY_MANAGER sender who may hold more than one active grant.
+ * EmployeeProfile.cityId/clubId is NOT this — it's the author's own
+ * employment location, orthogonal to which management scope they're
+ * submitting under (a CITY_MANAGER's EmployeeProfile club, if any, might
+ * not even be inside any city they manage).
+ */
+export interface QuestionScopeCandidate {
+  cityId: string;
+  cityName: string;
+  clubId: string | null;
+  clubName: string | null;
+}
+
+export type ScopeHint = { cityId?: string; clubId?: string } | undefined;
+
+export type ScopeResolutionResult =
+  | { ok: true; scope: QuestionScopeCandidate }
+  | { ok: false; code: "no_scope" | "ambiguous_scope" | "invalid_scope_hint" };
+
+/**
+ * Section B — the ONE decision: given every scope this actor's CURRENT,
+ * ACTIVE grants could legitimately mean, and an OPTIONAL client-supplied
+ * hint (never trusted as authority by itself — it only SELECTS among
+ * candidates this function independently computed from real grants), which
+ * one wins?
+ *
+ *  - zero candidates: "no_scope" (canSendQuestionAs should have already
+ *    rejected this before reaching here — defensive, not the expected path).
+ *  - a hint that matches exactly one candidate (by clubId first, else
+ *    cityId): that candidate — explicit, validated selection, never a raw
+ *    client cityId/clubId used directly.
+ *  - a hint that matches NO candidate (forged, revoked since the hint was
+ *    issued, or a city/club this actor never held): "invalid_scope_hint" —
+ *    rejected, never silently falls through to guessing.
+ *  - no hint AND exactly one candidate: that candidate auto-resolves — not
+ *    "arbitrary-first", the ONLY possible answer given real grants.
+ *  - no hint AND 2+ candidates: "ambiguous_scope" — rejected rather than
+ *    silently picking candidates[0] (the exact "arbitrary-first" behavior
+ *    this section exists to forbid).
+ */
+export function resolveScopeFromCandidates(candidates: QuestionScopeCandidate[], hint: ScopeHint): ScopeResolutionResult {
+  if (candidates.length === 0) return { ok: false, code: "no_scope" };
+
+  if (hint && (hint.clubId || hint.cityId)) {
+    const matched = hint.clubId ? candidates.find((c) => c.clubId === hint.clubId) : candidates.find((c) => c.cityId === hint.cityId);
+    return matched ? { ok: true, scope: matched } : { ok: false, code: "invalid_scope_hint" };
+  }
+
+  if (candidates.length === 1) return { ok: true, scope: candidates[0] };
+
+  return { ok: false, code: "ambiguous_scope" };
+}
+
+export function describeScopeResolutionError(code: "no_scope" | "ambiguous_scope" | "invalid_scope_hint"): string {
+  switch (code) {
+    case "ambiguous_scope":
+      return "Не удалось определить контекст для вопроса. Выберите город/клуб в приложении и попробуйте снова.";
+    case "invalid_scope_hint":
+      return "Недействительный контекст. Обновите приложение и попробуйте снова.";
+    case "no_scope":
+    default:
+      return "Недостаточно прав для отправки вопроса.";
+  }
+}
+
 /** The subset of an EmployeeQuestion row every scope-based predicate below
  * needs — kept narrow and Prisma-shape-compatible rather than importing a
  * full Prisma payload type into a file that must stay DB-import-free. */

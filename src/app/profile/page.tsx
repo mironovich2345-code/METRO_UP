@@ -25,6 +25,9 @@ import { fetchProfileManagementRoles } from "@/lib/api/home-client";
 import { useQuery, QUERY_POLICY } from "@/lib/client/query-cache";
 import { cacheKeys } from "@/lib/client/cache-keys";
 import type { ProfileManagementRoleDTO } from "@/lib/api/home-types";
+import { canShowAskQuestionEntry } from "@/lib/client/ask-question-core";
+import { loadStoredContext } from "@/lib/home-context-storage";
+import { getOwnerKey } from "@/lib/client/owner";
 
 const CAREER_RANK_INDEX: Record<CareerLevel, number> = {
   NEWCOMER: 0,
@@ -157,28 +160,34 @@ export default function ProfileScreen() {
           </GlassCard>
         </motion.div>
 
-        {/* METRO UP ROUND 1, Milestone 2B — "Задать вопрос" entry point.
-            Available to every onboarded employee (MANAGER/CLUB_MANAGER/
-            CITY_MANAGER alike) — no role gate here; the Ask Question screen
-            itself resolves the active sender context, and the server
-            independently re-validates it regardless. Deliberately a single
-            compact row (not a full descriptive card like Admin/SPM below)
-            so it stays non-intrusive per the task's own instruction. */}
-        <motion.div variants={cardIn}>
-          <GlassCard variant="solid" pad="none" animateIn={false}>
-            <button
-              type="button"
-              onClick={() => router.push("/questions/ask")}
-              className="flex w-full items-center gap-3 p-4 text-left"
-            >
-              <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-brand/12">
-                <HelpCircle className="size-4.5 text-brand" />
-              </span>
-              <span className="flex-1 text-[15px] font-semibold text-foreground">Задать вопрос</span>
-              <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-            </button>
-          </GlassCard>
-        </motion.div>
+        {/* METRO UP ROUND 1, Milestone 2B/2B.1 — "Задать вопрос" entry point.
+            Visible ONLY when the CURRENT EFFECTIVE Mini App context (Home's
+            own context-switcher concept, home-context-storage.ts — never a
+            legacy UI-only role flag) is one of PERSONAL/CLUB_MANAGER/
+            CITY_MANAGER, and accessStatus isn't PENDING_APPROVAL/SUSPENDED
+            (canShowAskQuestionEntry, an ALLOWLIST so a future unsupported
+            context is hidden automatically). The entry being visible is
+            never itself authority — canSendQuestionAs re-validates the
+            actual sender context server-side regardless. Deliberately a
+            single compact row (not a full descriptive card like Admin/SPM
+            below) so it stays non-intrusive per the task's own instruction. */}
+        {canShowAskQuestionEntry(loadStoredContext(getOwnerKey())?.type ?? null, profile.accessStatus) && (
+          <motion.div variants={cardIn}>
+            <GlassCard variant="solid" pad="none" animateIn={false}>
+              <button
+                type="button"
+                onClick={() => router.push("/questions/ask")}
+                className="flex w-full items-center gap-3 p-4 text-left"
+              >
+                <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-brand/12">
+                  <HelpCircle className="size-4.5 text-brand" />
+                </span>
+                <span className="flex-1 text-[15px] font-semibold text-foreground">Задать вопрос</span>
+                <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+              </button>
+            </GlassCard>
+          </motion.div>
+        )}
 
         {/* Sprint: manual-test-round-3, section 4 — "Роль в Metro UP" /
             "Доступные клубы". One card per management role the real actor
