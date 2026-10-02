@@ -11,8 +11,10 @@ import {
   validateAttachmentFile,
   remainingAttachmentSlots,
   resolveSenderContext,
+  resolveScopeHint,
   buildCreateQuestionPayload,
   isSubmitDisabled,
+  canShowAskQuestionEntry,
   type AttachmentDraft,
 } from "../src/lib/client/ask-question-core";
 
@@ -129,6 +131,67 @@ test("CTX-C: Home's 'CLUB_MANAGER' context maps directly to 'CLUB_MANAGER'", () 
 
 test("CTX-D: Home's 'CITY_MANAGER' context maps directly to 'CITY_MANAGER' — no scope-guessing happens here at all (the snapshot itself comes from EmployeeProfile server-side, never from 'which of several scopes')", () => {
   assert.equal(resolveSenderContext({ type: "CITY_MANAGER" }), "CITY_MANAGER");
+});
+
+/* ============================== scope hint (Milestone 2B.1, section B) ============================== */
+
+test("HINT-A: a CLUB_MANAGER's stored clubId becomes the scope hint", () => {
+  assert.deepEqual(resolveScopeHint({ type: "CLUB_MANAGER", clubId: "club-1" }), { clubId: "club-1" });
+});
+
+test("HINT-B: a CITY_MANAGER's stored context carries no hint today (Home has no per-scope disambiguation yet) — undefined, never a guessed value", () => {
+  assert.equal(resolveScopeHint({ type: "CITY_MANAGER" }), undefined);
+});
+
+test("HINT-C: PERSONAL and null both produce no hint", () => {
+  assert.equal(resolveScopeHint({ type: "PERSONAL" }), undefined);
+  assert.equal(resolveScopeHint(null), undefined);
+});
+
+test("HINT-D: buildCreateQuestionPayload includes scopeHint only when provided, never an empty object as a false-positive hint", () => {
+  const withHint = buildCreateQuestionPayload({ senderContext: "CLUB_MANAGER", category: "OTHER", text: "x", anonymous: false, attachments: [], scopeHint: { clubId: "club-1" } });
+  const withoutHint = buildCreateQuestionPayload({ senderContext: "MANAGER", category: "OTHER", text: "x", anonymous: false, attachments: [] });
+  assert.deepEqual(withHint.scopeHint, { clubId: "club-1" });
+  assert.equal("scopeHint" in withoutHint, false);
+});
+
+/* ============================== entry visibility (Milestone 2B.1, section A) ============================== */
+
+test("ENTRY-VIS-A: MANAGER (PERSONAL context, FULL access) sees the entry", () => {
+  assert.equal(canShowAskQuestionEntry("PERSONAL", "FULL"), true);
+});
+
+test("ENTRY-VIS-B: CLUB_MANAGER context sees the entry", () => {
+  assert.equal(canShowAskQuestionEntry("CLUB_MANAGER", "FULL"), true);
+});
+
+test("ENTRY-VIS-C: CITY_MANAGER context sees the entry", () => {
+  assert.equal(canShowAskQuestionEntry("CITY_MANAGER", "FULL"), true);
+});
+
+test("ENTRY-VIS-D: PENDING_APPROVAL does NOT see the entry, regardless of context", () => {
+  assert.equal(canShowAskQuestionEntry("PERSONAL", "PENDING_APPROVAL"), false);
+  assert.equal(canShowAskQuestionEntry("CITY_MANAGER", "PENDING_APPROVAL"), false);
+});
+
+test("ENTRY-VIS-E: an OPERATIONS_DIRECTOR-only context does NOT see the entry, even with FULL access", () => {
+  assert.equal(canShowAskQuestionEntry("OPERATIONS_DIRECTOR", "FULL"), false);
+});
+
+test("ENTRY-VIS-F: a PROJECT_ADMIN-only context does NOT see the entry, even with FULL access", () => {
+  assert.equal(canShowAskQuestionEntry("PROJECT_ADMIN", "FULL"), false);
+});
+
+test("ENTRY-VIS-G: SUSPENDED does NOT see the entry (defensive — unreachable today, AccessStatusGate blocks Profile entirely for SUSPENDED, but the allowlist still holds if that ever changes)", () => {
+  assert.equal(canShowAskQuestionEntry("PERSONAL", "SUSPENDED"), false);
+});
+
+test("ENTRY-VIS-H: LIMITED access with a supported context still sees the entry (only PENDING_APPROVAL/SUSPENDED are excluded by access status)", () => {
+  assert.equal(canShowAskQuestionEntry("PERSONAL", "LIMITED"), true);
+});
+
+test("ENTRY-VIS-I: no stored context yet (fresh session) defaults to visible — consistent with resolveSenderContext's own MANAGER default, so the entry's visibility never contradicts what submitting would actually do", () => {
+  assert.equal(canShowAskQuestionEntry(null, "FULL"), true);
 });
 
 /* ============================== submit payload shape ============================== */

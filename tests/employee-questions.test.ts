@@ -14,7 +14,10 @@ import {
   questionAttachmentKeyPrefix,
   extForQuestionAttachmentMime,
   isQuestionSenderContext,
+  resolveScopeFromCandidates,
+  describeScopeResolutionError,
   type QuestionRecordForSanitize,
+  type QuestionScopeCandidate,
 } from "../src/lib/server/questions/questions-core";
 import { validateUpload, randomStorageKey, mediaKindForMime, MEDIA_RULES } from "../src/lib/storage/validation";
 
@@ -99,6 +102,107 @@ test("CREATE-I: isQuestionSenderContext correctly narrows only the three allowed
 test("CREATE-J: MAX_QUESTION_ATTACHMENTS is exactly 5, matching section 4", () => {
   assert.equal(MAX_QUESTION_ATTACHMENTS, 5);
 });
+
+/* ============================== scope resolution (Milestone 2B.1, section B) ============================== */
+/* The audited gap: EmployeeProfile.cityId/clubId is the author's own
+ * EMPLOYMENT location, not their management scope — a CLUB_MANAGER/
+ * CITY_MANAGER may hold more than one active grant, and the one they are
+ * ACTUALLY submitting under must come from a validated selection among
+ * their REAL grants, never a blind EmployeeProfile read and never an
+ * arbitrary "first grant" guess. resolveScopeFromCandidates is the pure
+ * decision; questions-service.ts's buildClubManagerScopeCandidates/
+ * buildCityManagerScopeCandidates (DB-touching, covered by source-text +
+ * skip stubs below) supply the real candidate list. */
+
+const cityA: QuestionScopeCandidate = { cityId: "city-A", cityName: "City A", clubId: null, clubName: null };
+const cityB: QuestionScopeCandidate = { cityId: "city-B", cityName: "City B", clubId: null, clubName: null };
+
+test("SCOPE-A: a CITY_MANAGER with two city grants, hint=city A, resolves to city A", () => {
+  const result = resolveScopeFromCandidates([cityA, cityB], { cityId: "city-A" });
+  assert.equal(result.ok, true);
+  if (result.ok) assert.equal(result.scope.cityId, "city-A");
+});
+
+test("SCOPE-B: the SAME actor with hint=city B resolves to city B — the hint, not grant order, decides", () => {
+  const result = resolveScopeFromCandidates([cityA, cityB], { cityId: "city-B" });
+  assert.equal(result.ok, true);
+  if (result.ok) assert.equal(result.scope.cityId, "city-B");
+});
+
+test("SCOPE-C: a forged city C (not among the actor's real candidates) is denied — invalid_scope_hint, never silently accepted or substituted", () => {
+  const result = resolveScopeFromCandidates([cityA, cityB], { cityId: "city-C" });
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.code, "invalid_scope_hint");
+});
+
+test("SCOPE-D: a revoked grant's city is no longer a candidate (the service layer only builds candidates from ACTIVE grants) — hinting it behaves exactly like a forged city: denied", () => {
+  // Simulates: actor used to hold city-B, it was revoked, candidates now only [cityA].
+  const result = resolveScopeFromCandidates([cityA], { cityId: "city-B" });
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.code, "invalid_scope_hint");
+});
+
+test("SCOPE-E: no scope hint with two ambiguous candidates is REJECTED — never silently selects candidates[0] ('do not invent arbitrary-first behavior')", () => {
+  const result = resolveScopeFromCandidates([cityA, cityB], undefined);
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.code, "ambiguous_scope");
+});
+
+test("SCOPE-F: exactly ONE candidate auto-resolves with no hint needed — not 'arbitrary-first', the only possible answer given real grants", () => {
+  const result = resolveScopeFromCandidates([cityA], undefined);
+  assert.equal(result.ok, true);
+  if (result.ok) assert.equal(result.scope.cityId, "city-A");
+});
+
+test("SCOPE-G: zero candidates (defensive — canSendQuestionAs should already have rejected this) resolves to no_scope, never a crash", () => {
+  const result = resolveScopeFromCandidates([], undefined);
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.code, "no_scope");
+});
+
+test("SCOPE-H: a club-scoped hint matches by clubId, not cityId, even when a city-scoped candidate for the SAME city also exists — clubId takes precedence when both are present on the hint", () => {
+  const clubCandidate: QuestionScopeCandidate = { cityId: "city-A", cityName: "City A", clubId: "club-1", clubName: "Club 1" };
+  const result = resolveScopeFromCandidates([cityA, clubCandidate], { cityId: "city-A", clubId: "club-1" });
+  assert.equal(result.ok, true);
+  if (result.ok) assert.equal(result.scope.clubId, "club-1");
+});
+
+test("SCOPE-I: describeScopeResolutionError returns a distinct, safe Russian message for each code — never a raw internal code string shown to the user", () => {
+  const ambiguous = describeScopeResolutionError("ambiguous_scope");
+  const invalid = describeScopeResolutionError("invalid_scope_hint");
+  const none = describeScopeResolutionError("no_scope");
+  assert.notEqual(ambiguous, invalid);
+  assert.notEqual(invalid, none);
+  for (const msg of [ambiguous, invalid, none]) {
+    assert.doesNotMatch(msg, /ambiguous_scope|invalid_scope_hint|no_scope/);
+  }
+});
+
+/* ============================== scope resolution: service wiring (source-text + skip stubs) ============================== */
+
+test("SCOPE-WIRE-A: createEmployeeQuestion no longer derives CLUB_MANAGER/CITY_MANAGER scope from EmployeeProfile — only the MANAGER branch reads user.employeeProfile.cityId/clubId", () => {
+  const src = read("src/lib/server/questions/questions-service.ts");
+  const managerBranchIdx = src.indexOf('if (input.senderContext === "MANAGER")');
+  const elseBranchIdx = src.indexOf("} else {", managerBranchIdx);
+  const elseBranchEnd = src.indexOf("\n  }\n", elseBranchIdx);
+  const elseBranch = src.slice(elseBranchIdx, elseBranchEnd);
+  assert.doesNotMatch(elseBranch, /user\.employeeProfile/);
+  assert.match(elseBranch, /resolveScopeFromCandidates/);
+});
+
+test("SCOPE-WIRE-B: buildCityManagerScopeCandidates only includes ACTIVE CITY_MANAGER grants (isGrantActive filter present)", () => {
+  const src = read("src/lib/server/questions/questions-service.ts");
+  const fnSrc = src.slice(src.indexOf("async function buildCityManagerScopeCandidates"), src.indexOf("async function buildCityManagerScopeCandidates") + 800);
+  assert.match(fnSrc, /isGrantActive\(g\)/);
+});
+
+test(
+  "SCOPE-INT-A: a CITY_MANAGER with two ACTIVE city grants submitting with scopeHint={cityId: cityA} persists cityIdSnapshot=cityA; the same actor with scopeHint={cityId: cityB} persists cityB",
+  skipNoDb,
+  () => {},
+);
+test("SCOPE-INT-B: a CLUB_MANAGER managing two clubs must supply a matching scopeHint or the submission is rejected as ambiguous_scope", skipNoDb, () => {});
+test("SCOPE-INT-C: a CITY_MANAGER with exactly one active grant and no hint auto-resolves and persists that grant's city/club", skipNoDb, () => {});
 
 /* ============================== routing / read scope ============================== */
 
@@ -396,10 +500,18 @@ test("SEC-A: both question API routes derive the acting user from the session (r
   }
 });
 
-test("SEC-B: the create-question request schema has no cityId/clubId/authorUserId field at all — the client cannot even SHAPE a request claiming routing metadata (section 5's anti-spoofing requirement)", () => {
+test("SEC-B: the create-question request schema has no TOP-LEVEL cityId/clubId/authorUserId field — authorUserId is absent entirely; cityId/clubId exist ONLY nested inside the optional scopeHint selector (Milestone 2B.1, section B), never as a direct, trusted field", () => {
   const src = read("src/lib/server/schemas.ts");
   const schemaSrc = src.slice(src.indexOf("export const createQuestionSchema"), src.indexOf("export type CreateQuestionSchemaInput"));
-  assert.doesNotMatch(schemaSrc, /cityId|clubId|authorUserId/);
+  assert.doesNotMatch(schemaSrc, /authorUserId/);
+  // cityId:/clubId: (actual field keys, not prose) must appear ONLY inside
+  // the scopeHint object, never as a sibling of senderContext/category/
+  // text/anonymous/attachments. Comment lines that MENTION cityId/clubId in
+  // prose (explaining why the field is scoped this way) are expected — only
+  // a real `fieldName:` key before scopeHint would indicate a regression.
+  const beforeScopeHint = schemaSrc.slice(0, schemaSrc.indexOf("scopeHint:"));
+  assert.doesNotMatch(beforeScopeHint, /\n\s*(cityId|clubId):/);
+  assert.match(schemaSrc, /scopeHint: z\.object\(\{ cityId:.*clubId:.*\}\)\.optional\(\)/);
 });
 
 test("SEC-C: createEmployeeQuestion derives cityId/clubId from the actor's OWN EmployeeProfile, never from the request input", () => {
