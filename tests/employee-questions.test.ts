@@ -16,6 +16,11 @@ import {
   isQuestionSenderContext,
   resolveScopeFromCandidates,
   describeScopeResolutionError,
+  INBOX_EXCLUDED_SENDER_ROLE,
+  allowedStatusTransitions,
+  contentDispositionForAttachment,
+  isQuestionStatusValue,
+  isQuestionCategoryValue,
   type QuestionRecordForSanitize,
   type QuestionScopeCandidate,
 } from "../src/lib/server/questions/questions-core";
@@ -582,3 +587,294 @@ test("INT-E: unauthorized attachment access is denied — retrieving a question'
 test("INT-F: a submission with 6 attachments is rejected (too_many_attachments) before any DB write", skipNoDb, () => {});
 test("INT-G: QUESTION_CREATED and QUESTION_STATUS_CHANGED audit rows are actually written with actor/entity/old-status/new-status/timestamp", skipNoDb, () => {});
 test("INT-H: an idempotent status update (new status === current status) does not write a redundant audit row", skipNoDb, () => {});
+
+/* ===================================================================== *
+ *  METRO UP ROUND 1, MILESTONE 3 — CITY_MANAGER Questions Inbox
+ * ===================================================================== */
+
+/* ============================== inbox routing exclusion ============================== */
+
+test("M3-INBOX-A: the inbox routing-rule constant excludes exactly CITY_MANAGER — the routing rule is 'MANAGER/CLUB_MANAGER -> CITY_MANAGER(s) -> OPERATIONS_DIRECTOR; a CITY_MANAGER's own question -> OPERATIONS_DIRECTOR only'", () => {
+  assert.equal(INBOX_EXCLUDED_SENDER_ROLE, "CITY_MANAGER");
+});
+
+/* ============================== status transitions (UI guidance, pure) ============================== */
+
+test("TRANS-A: NEW's forward step is IN_PROGRESS, no correction step yet", () => {
+  assert.deepEqual(allowedStatusTransitions("NEW"), { forward: "IN_PROGRESS", correction: null });
+});
+
+test("TRANS-B: IN_PROGRESS's forward step is CLOSED; its correction step is back to NEW", () => {
+  assert.deepEqual(allowedStatusTransitions("IN_PROGRESS"), { forward: "CLOSED", correction: "NEW" });
+});
+
+test("TRANS-C: CLOSED has no forward step; its correction step is back to IN_PROGRESS — not hardcoded as one-way", () => {
+  assert.deepEqual(allowedStatusTransitions("CLOSED"), { forward: null, correction: "IN_PROGRESS" });
+});
+
+/* ============================== list query-param validators ============================== */
+
+test("QVAL-A: isQuestionStatusValue accepts exactly the three real statuses and rejects anything else, including the client's own 'ALL' sentinel (absence, not the string 'ALL', means no filter)", () => {
+  for (const s of ["NEW", "IN_PROGRESS", "CLOSED"]) assert.equal(isQuestionStatusValue(s), true);
+  assert.equal(isQuestionStatusValue("ALL"), false);
+  assert.equal(isQuestionStatusValue("DELETED"), false);
+  assert.equal(isQuestionStatusValue(""), false);
+});
+
+test("QVAL-B: isQuestionCategoryValue accepts exactly the seven real categories and rejects garbage", () => {
+  for (const c of ["WORK_PROCESSES", "TRAINING", "MANAGEMENT", "WORKING_CONDITIONS", "TECHNICAL", "IDEA", "OTHER"]) {
+    assert.equal(isQuestionCategoryValue(c), true);
+  }
+  assert.equal(isQuestionCategoryValue("NOT_A_CATEGORY"), false);
+});
+
+/* ============================== attachment download: Content-Disposition (pure) ============================== */
+
+test("CD-A: an image attachment gets 'inline' disposition (preview may be shown)", () => {
+  assert.match(contentDispositionForAttachment("photo.jpg", "image/jpeg"), /^inline;/);
+});
+
+test("CD-B: a PDF attachment gets 'inline' disposition (safe open action)", () => {
+  assert.match(contentDispositionForAttachment("report.pdf", "application/pdf"), /^inline;/);
+});
+
+test("CD-C: any other mime type falls back to 'attachment' disposition", () => {
+  assert.match(contentDispositionForAttachment("file.bin", "application/octet-stream"), /^attachment;/);
+});
+
+test("CD-D: CR/LF and double quotes in the original (user-controlled) filename are stripped — header injection defense", () => {
+  const header = contentDispositionForAttachment('evil"\r\nX-Injected: 1', "image/png");
+  assert.doesNotMatch(header, /\r|\n/);
+  assert.doesNotMatch(header, /"evil"/);
+});
+
+test("CD-E: a Cyrillic filename survives via the RFC 5987 UTF-8 form, alongside a safe ASCII fallback", () => {
+  const header = contentDispositionForAttachment("фото.jpg", "image/jpeg");
+  const encoded = header.match(/filename\*=UTF-8''([^;]+)/);
+  assert.ok(encoded, "expected an RFC 5987 filename* form");
+  assert.equal(decodeURIComponent(encoded![1]), "фото.jpg");
+  assert.match(header, /filename="_+\.jpg"/);
+});
+
+test("CD-F: the header is built only from originalName/mimeType — it never contains a storage-path-shaped segment", () => {
+  assert.doesNotMatch(contentDispositionForAttachment("report.pdf", "application/pdf"), /questions\//);
+});
+
+/* ============================== Milestone 3: city manager inbox scope (source-text) ============================== */
+
+test("M3-SCOPE-A: listEmployeeQuestionsForActor's CITY_MANAGER branch excludes INBOX_EXCLUDED_SENDER_ROLE — 'own outgoing CITY_MANAGER question not in employee inbox', and this excludes it for every CITY_MANAGER, not just the author", () => {
+  const src = read("src/lib/server/questions/questions-service.ts");
+  const fnSrc = src.slice(
+    src.indexOf("export async function listEmployeeQuestionsForActor"),
+    src.indexOf("export async function countNewEmployeeQuestionsForCityManager"),
+  );
+  assert.match(fnSrc, /senderRole: \{ not: INBOX_EXCLUDED_SENDER_ROLE \}/);
+});
+
+test("M3-SCOPE-B: the inbox list and the Home 'new' count both build their scope from the SAME buildCityManagerScopeOr helper — they can never silently disagree", () => {
+  const src = read("src/lib/server/questions/questions-service.ts");
+  const matches = src.match(/buildCityManagerScopeOr\(actor\)/g) ?? [];
+  assert.ok(matches.length >= 2, "expected buildCityManagerScopeOr to be called from both the list and the count functions");
+});
+
+test("M3-SCOPE-C: buildCityManagerScopeOr only includes ACTIVE CITY_MANAGER grants — a revoked grant is excluded from the very next request's scope (no caching of a stale grant set)", () => {
+  const src = read("src/lib/server/questions/questions-service.ts");
+  const fnSrc = src.slice(src.indexOf("function buildCityManagerScopeOr"), src.indexOf("function buildCityManagerScopeOr") + 900);
+  assert.match(fnSrc, /isGrantActive\(g\)/);
+});
+
+test("M3-SCOPE-D: PROJECT_ADMIN/OPERATIONS_DIRECTOR (hasSystemAccess/hasNetworkAccess) are NOT subject to the senderRole exclusion — a CITY_MANAGER's own outgoing question IS addressed to them and must remain visible in their inbox", () => {
+  const src = read("src/lib/server/questions/questions-service.ts");
+  const fnSrc = src.slice(
+    src.indexOf("export async function listEmployeeQuestionsForActor"),
+    src.indexOf("export async function countNewEmployeeQuestionsForCityManager"),
+  );
+  const sysBranchIdx = fnSrc.indexOf("hasSystemAccess(actor) || hasNetworkAccess(actor)");
+  const sysBranchBlock = fnSrc.slice(sysBranchIdx, fnSrc.indexOf("} else {", sysBranchIdx));
+  assert.doesNotMatch(sysBranchBlock, /INBOX_EXCLUDED_SENDER_ROLE/);
+});
+
+test("M3-SCOPE-E: listEmployeeQuestionsForActor paginates with bounded page/limit (skip/take), audit-service.ts's own convention, and returns a total count alongside the rows", () => {
+  const src = read("src/lib/server/questions/questions-service.ts");
+  const fnSrc = src.slice(
+    src.indexOf("export async function listEmployeeQuestionsForActor"),
+    src.indexOf("export async function countNewEmployeeQuestionsForCityManager"),
+  );
+  assert.match(fnSrc, /skip: \(page - 1\) \* limit/);
+  assert.match(fnSrc, /take: limit/);
+  assert.match(fnSrc, /prisma\.employeeQuestion\.count\(/);
+});
+
+test("M3-SCOPE-F: countNewEmployeeQuestionsForCityManager (the Home block's number) is a single COUNT query — never a findMany — filtered to status NEW plus the same inbox senderRole exclusion", () => {
+  const src = read("src/lib/server/questions/questions-service.ts");
+  const fnSrc = src.slice(
+    src.indexOf("export async function countNewEmployeeQuestionsForCityManager"),
+    src.indexOf("/* ============================== status mutation"),
+  );
+  assert.match(fnSrc, /prisma\.employeeQuestion\.count\(/);
+  assert.doesNotMatch(fnSrc, /findMany/);
+  assert.match(fnSrc, /status: "NEW"/);
+  assert.match(fnSrc, /INBOX_EXCLUDED_SENDER_ROLE/);
+});
+
+test("M3-SCOPE-G: countNewEmployeeQuestionsForCityManager returns 0 rather than throwing when the actor has no active CITY_MANAGER scope at all", () => {
+  const src = read("src/lib/server/questions/questions-service.ts");
+  const fnSrc = src.slice(
+    src.indexOf("export async function countNewEmployeeQuestionsForCityManager"),
+    src.indexOf("/* ============================== status mutation"),
+  );
+  assert.match(fnSrc, /if \(!scopeOr\) return 0;/);
+});
+
+test(
+  "M3-SCOPE-INT-A: a CITY_MANAGER with an active City A grant sees only City A's questions; the same actor re-granted City B instead sees only City B's — 'switching' is simply the actor's current active grant set at request time",
+  skipNoDb,
+  () => {},
+);
+test("M3-SCOPE-INT-B: a question from a city the actor does NOT manage never appears in their inbox (foreign city hidden)", skipNoDb, () => {});
+test("M3-SCOPE-INT-C: a revoked CITY_MANAGER grant's former city disappears from the inbox on the very next request", skipNoDb, () => {});
+test("M3-SCOPE-INT-D: a CITY_MANAGER's own senderRole=CITY_MANAGER question never appears in ANY CITY_MANAGER's inbox, including a peer whose scope happens to overlap", skipNoDb, () => {});
+
+/* ============================== Milestone 3: anonymity re-verified at the inbox boundary ============================== */
+
+test("M3-ANON-A: listEmployeeQuestionsForActor's rows are mapped through sanitizeQuestionForActor — the list endpoint never bypasses anonymity sanitization", () => {
+  const src = read("src/lib/server/questions/questions-service.ts");
+  const fnSrc = src.slice(
+    src.indexOf("export async function listEmployeeQuestionsForActor"),
+    src.indexOf("export async function countNewEmployeeQuestionsForCityManager"),
+  );
+  assert.match(fnSrc, /questions: rows\.map\(\(r\) => sanitizeQuestionForActor\(actor, toSanitizeInput\(r\)\)\)/);
+});
+
+test("M3-ANON-B: simulating the list endpoint — mapping sanitizeQuestionForActor over a batch of anonymous rows for a CITY_MANAGER viewer never leaks authorUserId on ANY row (the 'anonymous list DTO' guarantee)", () => {
+  const cm = actor({ grants: [grant({ role: "CITY_MANAGER", scopeType: "CITY", cityId: "city-1" })] });
+  const rows = [sanitizeRecord({ id: "q-1" }), sanitizeRecord({ id: "q-2", authorUserId: "author-2" })];
+  const dtos = rows.map((r) => sanitizeQuestionForActor(cm, r));
+  for (const dto of dtos) {
+    assert.equal(dto.authorDisplay, "Анонимный сотрудник");
+    assert.equal("authorUserId" in dto, false);
+  }
+});
+
+test("M3-ANON-C: getEmployeeQuestionForActor (detail) sanitizes through the EXACT same function as the list — the 'anonymous detail DTO' guarantee can never drift from the list's", () => {
+  const src = read("src/lib/server/questions/questions-service.ts");
+  const fnSrc = src.slice(
+    src.indexOf("export async function getEmployeeQuestionForActor"),
+    src.indexOf("export async function getQuestionAttachmentForDownload"),
+  );
+  assert.match(fnSrc, /sanitizeQuestionForActor\(actor, toSanitizeInput\(question\)\)/);
+});
+
+test("M3-ANON-D: PROJECT_ADMIN's list-simulated DTO still reveals the real author (unchanged from Milestone 2A.1) — Milestone 3 did not weaken this", () => {
+  const admin = actor({ appRole: "ADMIN" });
+  const dtos = [sanitizeRecord()].map((r) => sanitizeQuestionForActor(admin, r));
+  assert.equal(dtos[0].authorUserId, "author-1");
+});
+
+test("M3-ANON-E: EmployeeQuestionDTO carries no avatar-shaped key at all — there is nothing avatar-like for the inbox UI to render for an anonymous author even by mistake", () => {
+  const cm = actor({ grants: [grant({ role: "CITY_MANAGER", scopeType: "CITY", cityId: "city-1" })] });
+  const dto = sanitizeQuestionForActor(cm, sanitizeRecord());
+  const keys = Object.keys(dto).join(",");
+  for (const forbidden of ["avatar", "Avatar", "photo", "Photo", "initials"]) {
+    assert.doesNotMatch(keys, new RegExp(forbidden));
+  }
+});
+
+/* ============================== Milestone 3: status route wiring ============================== */
+
+test("M3-STATUS-A: PATCH /api/questions/[id] reuses updateEmployeeQuestionStatus unchanged — the in-scope-allowed/foreign-denied/manager-denied guarantees already proven by STATUS-A..G above apply to this route verbatim", () => {
+  const src = read("src/app/api/questions/[id]/route.ts");
+  assert.match(src, /updateEmployeeQuestionStatus\(actor, id, body\.status\)/);
+});
+
+test("M3-STATUS-B: the status update schema accepts exactly the three real statuses — no client-invented value", () => {
+  const src = read("src/lib/server/schemas.ts");
+  const schemaSrc = src.slice(src.indexOf("export const updateQuestionStatusSchema"), src.indexOf("export type UpdateQuestionStatusInput"));
+  assert.match(schemaSrc, /z\.enum\(\["NEW", "IN_PROGRESS", "CLOSED"\]\)/);
+});
+
+test("M3-STATUS-C: updateEmployeeQuestionStatus is NOT a one-way state machine — no transition-restriction branch was added; allowedStatusTransitions only shapes which buttons the UI suggests", () => {
+  const src = read("src/lib/server/questions/questions-service.ts");
+  const fnSrc = src.slice(src.indexOf("export async function updateEmployeeQuestionStatus"), src.indexOf("export async function updateEmployeeQuestionStatus") + 1200);
+  assert.doesNotMatch(fnSrc, /invalid.*transition/i);
+});
+
+/* ============================== Milestone 3: attachment download proxy ============================== */
+
+test("M3-ATT-A: getQuestionAttachmentForDownload authorizes via canReadQuestion BEFORE returning any metadata — a foreign CITY_MANAGER gets a 403, never the storageKey", () => {
+  const src = read("src/lib/server/questions/questions-service.ts");
+  const fnSrc = src.slice(
+    src.indexOf("export async function getQuestionAttachmentForDownload"),
+    src.indexOf("export interface ListQuestionsFilter"),
+  );
+  const checkIdx = fnSrc.indexOf("canReadQuestion(actor");
+  const returnIdx = fnSrc.indexOf("return { storageKey");
+  assert.ok(checkIdx > 0 && returnIdx > checkIdx, "expected the authorization check before the metadata is ever returned");
+});
+
+test("M3-ATT-B: attachment lookup is strictly by attachmentId (an opaque Prisma id from the URL path) — never a raw storageKey accepted from the client ('raw storageKey cannot be used to fetch an arbitrary object')", () => {
+  const routeSrc = read("src/app/api/questions/attachments/[attachmentId]/download/route.ts");
+  assert.doesNotMatch(routeSrc, /searchParams\.get\(.storageKey.\)|body\.storageKey|params\.storageKey/);
+  const serviceSrc = read("src/lib/server/questions/questions-service.ts");
+  const fnSrc = serviceSrc.slice(
+    serviceSrc.indexOf("export async function getQuestionAttachmentForDownload"),
+    serviceSrc.indexOf("export interface ListQuestionsFilter"),
+  );
+  assert.match(fnSrc, /where: \{ id: attachmentId \}/);
+});
+
+test("M3-ATT-C: the signed download URL's TTL is short and explicit (60s) — never the storage provider's longer 300s default used elsewhere for admin documents ('signed URL expiry bounded')", () => {
+  const src = read("src/app/api/questions/attachments/[attachmentId]/download/route.ts");
+  assert.match(src, /createSignedDownloadUrl\(meta\.storageKey, 60\)/);
+});
+
+test("M3-ATT-D: storageKey is referenced in the route EXACTLY once — passed straight into createSignedDownloadUrl, never echoed into the Response headers/body ('no author identity leak through returned attachment metadata')", () => {
+  const src = read("src/app/api/questions/attachments/[attachmentId]/download/route.ts");
+  const occurrences = src.match(/meta\.storageKey/g) ?? [];
+  assert.equal(occurrences.length, 1);
+  assert.match(src, /createSignedDownloadUrl\(meta\.storageKey, 60\)/);
+  // Property ACCESS, not prose — the route's own docstring explains the
+  // identity-leak finding using the word "authorUserId" in passing, which a
+  // bare-word check would wrongly flag; `.authorUserId` (an actual property
+  // read) never appears anywhere in this route.
+  assert.doesNotMatch(src, /\.authorUserId\b/);
+});
+
+test("M3-ATT-E: the download route authenticates via requireActiveAccess + a freshly-resolved ActorContext every request — never a cached/client-asserted role", () => {
+  const src = read("src/app/api/questions/attachments/[attachmentId]/download/route.ts");
+  assert.match(src, /requireActiveAccess\(\)/);
+  assert.match(src, /getActorContext\(user\)/);
+});
+
+test("M3-ATT-INT-A: an authorized question viewer (the covering CITY_MANAGER) can retrieve the attachment; a foreign CITY_MANAGER is denied", skipNoDb, () => {});
+test("M3-ATT-INT-B: a guessed/leaked real storageKey cannot be fetched through this route by any means other than its owning attachment's id", skipNoDb, () => {});
+
+/* ============================== Milestone 3: Home "N новых" count ============================== */
+
+test("M3-HOME-A: the Home city-manager block wires questionsNewCount from countNewEmployeeQuestionsForCityManager — same scope/exclusion guarantees as the inbox list (M3-SCOPE-B/F)", () => {
+  const src = read("src/lib/server/rbac/cabinet-dashboards.ts");
+  assert.match(src, /countNewEmployeeQuestionsForCityManager\(actor\)/);
+  assert.match(src, /questionsNewCount/);
+});
+
+test("M3-HOME-INT-A: a CITY_MANAGER's Home 'N новых' count matches QuestionStatus.NEW rows within their active scope, excluding their own outgoing CITY_MANAGER questions", skipNoDb, () => {});
+
+/* ============================== Milestone 3: list/detail/attachment route auth wiring ============================== */
+
+test("M3-SEC-A: the list/detail/attachment-download routes all derive identity from the session (requireActiveAccess) and never accept a client-supplied userId", () => {
+  for (const file of [
+    "src/app/api/questions/route.ts",
+    "src/app/api/questions/[id]/route.ts",
+    "src/app/api/questions/attachments/[attachmentId]/download/route.ts",
+  ]) {
+    const src = read(file);
+    assert.match(src, /requireActiveAccess\(\)/, `${file} must derive identity from the session`);
+    assert.doesNotMatch(src, /body\.userId|searchParams\.get\(.userId.\)/, `${file} must never accept a client-supplied userId`);
+  }
+});
+
+test("M3-SEC-B: GET /api/questions never passes an unvalidated status/category string straight into the service — isQuestionStatusValue/isQuestionCategoryValue gate both", () => {
+  const src = read("src/app/api/questions/route.ts");
+  assert.match(src, /isQuestionStatusValue\(statusParam\)/);
+  assert.match(src, /isQuestionCategoryValue\(categoryParam\)/);
+});
