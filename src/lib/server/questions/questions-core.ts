@@ -28,6 +28,52 @@ export function isQuestionSenderContext(value: string): value is QuestionSenderC
   return value === "MANAGER" || value === "CLUB_MANAGER" || value === "CITY_MANAGER";
 }
 
+/** METRO UP ROUND 1, Milestone 3 — forgiving query-param validation for the
+ * list endpoint's optional status/category filters. An unrecognized value is
+ * never a 400 (section 3's list API is a GET with freeform query params,
+ * matching audit-service.ts's own forgiving-filter convention) — the route
+ * treats it as "no filter" (ALL), never passes an unvalidated string into a
+ * Prisma `where` clause. */
+const QUESTION_STATUS_VALUES: readonly string[] = ["NEW", "IN_PROGRESS", "CLOSED"];
+export function isQuestionStatusValue(value: string): value is QuestionStatus {
+  return QUESTION_STATUS_VALUES.includes(value);
+}
+
+const QUESTION_CATEGORY_VALUES: readonly string[] = [
+  "WORK_PROCESSES",
+  "TRAINING",
+  "MANAGEMENT",
+  "WORKING_CONDITIONS",
+  "TECHNICAL",
+  "IDEA",
+  "OTHER",
+];
+export function isQuestionCategoryValue(value: string): value is QuestionCategory {
+  return QUESTION_CATEGORY_VALUES.includes(value);
+}
+
+/**
+ * METRO UP ROUND 1, Milestone 3, section 8 — which status buttons the
+ * detail page should offer: one FORWARD step (the primary action) and,
+ * where the domain allows it, one CORRECTION step back. Deliberately NOT a
+ * backend enforcement mechanism — updateEmployeeQuestionStatus accepts any
+ * of the three statuses from an authorized actor (no FSM there; existing
+ * domain rules impose none) — this only decides what the UI presents as a
+ * sensible action, never what the server will accept.
+ */
+export function allowedStatusTransitions(current: QuestionStatus): { forward: QuestionStatus | null; correction: QuestionStatus | null } {
+  switch (current) {
+    case "NEW":
+      return { forward: "IN_PROGRESS", correction: null };
+    case "IN_PROGRESS":
+      return { forward: "CLOSED", correction: "NEW" };
+    case "CLOSED":
+      return { forward: null, correction: "IN_PROGRESS" };
+    default:
+      return { forward: null, correction: null };
+  }
+}
+
 /**
  * May this actor send a question AS the claimed context? Mirrors
  * resolveActiveContext's validation philosophy (cabinet-ui.ts) applied to a
@@ -274,3 +320,40 @@ const QUESTION_ATTACHMENT_EXT_BY_MIME: Record<string, string> = {
 export function extForQuestionAttachmentMime(mimeType: string): string {
   return QUESTION_ATTACHMENT_EXT_BY_MIME[mimeType] ?? "bin";
 }
+
+/**
+ * METRO UP ROUND 1, Milestone 3, section 7 — the attachment DOWNLOAD PROXY's
+ * response header. Deliberately never includes anything storage-related
+ * (the caller — the download route — already resolved storageKey server-side
+ * only, to fetch bytes; this function never sees it). `originalName` is
+ * user-controlled (the uploader's own file name) — stripped of CR/LF (header
+ * injection) and given a plain-ASCII fallback alongside an RFC 5987 UTF-8
+ * form so Cyrillic file names survive. "inline" for images/PDF so a
+ * preview/open action works without forcing a save dialog (section 7's "for
+ * image attachments: preview may be shown if practical; for PDF: show a safe
+ * download/open action" — inline satisfies both, the browser decides how to
+ * render it).
+ */
+export function contentDispositionForAttachment(originalName: string, mimeType: string): string {
+  const disposition = mimeType.startsWith("image/") || mimeType === "application/pdf" ? "inline" : "attachment";
+  const stripped = originalName.replace(/[\r\n"]/g, "").trim().slice(0, 150) || "file";
+  const asciiFallback = stripped.replace(/[^\x20-\x7E]/g, "_");
+  return `${disposition}; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(stripped)}`;
+}
+
+/**
+ * METRO UP ROUND 1, Milestone 3 — the routing rule's own tier boundary:
+ * "MANAGER / CLUB_MANAGER → CITY_MANAGER(s) covering their scope →
+ * OPERATIONS_DIRECTOR(s). A CITY_MANAGER's OWN submitted question routes to
+ * OPERATIONS_DIRECTOR only." A CITY_MANAGER-tier "employee questions inbox"
+ * (listEmployeeQuestionsForActor's CITY_MANAGER branch) must therefore never
+ * surface a senderRole=CITY_MANAGER row to ANY CITY_MANAGER — not just the
+ * author themselves. Self-authorship alone is the wrong boundary: a second
+ * CITY_MANAGER whose scope happens to overlap (e.g. a CITY-wide grant and a
+ * peer's CLUB-scoped grant inside the same city) must not see it either — it
+ * was never addressed to the CITY_MANAGER tier at all, regardless of who's
+ * asking. This is INBOX-recipient semantics, deliberately separate from
+ * canReadQuestion's generic "may this actor see this question exists" (which
+ * correctly keeps the self-authorship clause for direct detail access).
+ */
+export const INBOX_EXCLUDED_SENDER_ROLE: QuestionSenderContext = "CITY_MANAGER";

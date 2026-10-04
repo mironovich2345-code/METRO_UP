@@ -10,6 +10,7 @@ import { anyGrantCoversClub, grantCoversCityOrItsClubs, hasActiveRole } from "./
 import { getActorContext, cityIdForClub, resolveCityManagerClubs, resolveClubManagerClubs, type ClubSummary } from "./context";
 import { authorize } from "./authorize-core";
 import { resolveEffectiveReadContext } from "./effective-context";
+import { countNewEmployeeQuestionsForCityManager } from "../questions/questions-service";
 import { logPerf, timedField } from "../perf";
 import type { ActorContext, RoleGrant } from "./types";
 import type {
@@ -761,7 +762,13 @@ export async function resolveAvailableHomeContexts(
  * context (see resolveAvailableHomeContexts's header comment).
  */
 export async function getCityManagerHomeBlock(actor: ActorContext, precomputedClubs?: ClubSummary[]): Promise<CityManagerHomeBlockDTO> {
-  const dashboard = await getCityManagerDashboard(actor, precomputedClubs);
+  // METRO UP ROUND 1, Milestone 3, section 13 — the question count is a
+  // single cheap COUNT, run alongside the existing dashboard aggregate
+  // rather than after it (no added latency for a widget this small).
+  const [dashboard, questionsNewCount] = await Promise.all([
+    getCityManagerDashboard(actor, precomputedClubs),
+    countNewEmployeeQuestionsForCityManager(actor),
+  ]);
   const cityNames = distinctCityNames(dashboard.clubs);
   const scopeLabel =
     cityNames.length === 0
@@ -791,6 +798,7 @@ export async function getCityManagerHomeBlock(actor: ActorContext, precomputedCl
           employeesCompletedAll: dashboard.training.employeesCompletedAll,
         }
       : null,
+    questionsNewCount,
   };
 }
 

@@ -104,6 +104,13 @@ export const cacheKeys = {
    * through useQuery), so this key is never inside a `previewTag`/context —
    * it identifies one thing only: this owner's last confirmed identity. */
   identitySnapshot: () => key("identity-snapshot"),
+
+  /** METRO UP ROUND 1, Milestone 3 — role-neutral questions inbox. Every
+   * filter dimension the list sends is embedded so switching a tab/filter
+   * never serves a stale, differently-filtered response from cache. */
+  questionsList: (filter: { status: string; category?: string; clubId?: string; page: number }) =>
+    key("questions-list", filter.status, filter.category ?? "-", filter.clubId ?? "-", String(filter.page)),
+  questionDetail: (id: string) => key("questions-detail", id),
 } as const;
 
 /** Prefix helpers for coarse, category-wide invalidation (query-cache.ts's
@@ -117,4 +124,5 @@ export const cacheKeyPrefixes = {
   academy: "academy",
   team: "team",
   city: "city",
+  questions: "questions",
 } as const;

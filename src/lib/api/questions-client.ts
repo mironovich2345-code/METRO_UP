@@ -1,5 +1,12 @@
 import { ApiError } from "./client";
-import type { CreateQuestionRequestDTO, EmployeeQuestionDTO, QuestionAttachmentUploadTicketDTO } from "./questions-types";
+import type {
+  CreateQuestionRequestDTO,
+  EmployeeQuestionDTO,
+  ListQuestionsRequestDTO,
+  ListQuestionsResponseDTO,
+  QuestionAttachmentUploadTicketDTO,
+  QuestionStatusDTO,
+} from "./questions-types";
 
 /**
  * METRO UP ROUND 1, Milestone 2B — Employee Questions client. Same request/
@@ -36,4 +43,35 @@ export const questionsApi = {
       method: "POST",
       body: JSON.stringify(input),
     }),
+
+  /** METRO UP ROUND 1, Milestone 3 — role-neutral list; behavior is
+   * entirely server-derived from the actor's current context (GET
+   * /api/questions's own docstring). `status: undefined` (the "Все" tab)
+   * omits the query param entirely, matching the server's "no filter" read. */
+  list: (filter: ListQuestionsRequestDTO = {}) => {
+    const sp = new URLSearchParams();
+    if (filter.status) sp.set("status", filter.status);
+    if (filter.category) sp.set("category", filter.category);
+    if (filter.clubId) sp.set("clubId", filter.clubId);
+    if (filter.page) sp.set("page", String(filter.page));
+    if (filter.limit) sp.set("limit", String(filter.limit));
+    const qs = sp.toString();
+    return request<ListQuestionsResponseDTO>(`/api/questions${qs ? `?${qs}` : ""}`);
+  },
+
+  get: (id: string) => request<{ question: EmployeeQuestionDTO }>(`/api/questions/${id}`),
+
+  updateStatus: (id: string, status: QuestionStatusDTO) =>
+    request<{ question: EmployeeQuestionDTO }>(`/api/questions/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    }),
 };
+
+/** METRO UP ROUND 1, Milestone 3, section 7 — the download PROXY's own
+ * path, never a storage URL (see the route's docstring). Safe to use
+ * directly as an <img src> or <a href>/window.open target — same-origin,
+ * session-cookie auth, no token/signature of any kind in this URL. */
+export function questionAttachmentDownloadUrl(attachmentId: string): string {
+  return `/api/questions/attachments/${attachmentId}/download`;
+}

@@ -1,6 +1,6 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
-import type { QuestionCategory, QuestionStatus } from "@prisma/client";
+import { Prisma, type QuestionCategory, type QuestionStatus } from "@prisma/client";
 import { prisma } from "../db";
 import { AuthError } from "../authz";
 import { writeAudit } from "../audit";
@@ -13,6 +13,7 @@ import { hasSystemAccess, hasNetworkAccess } from "../rbac/authorize-core";
 import { isGrantActive } from "../rbac/scope-core";
 import { cityIdForClub, resolveClubManagerClubs } from "../rbac/context";
 import {
+  INBOX_EXCLUDED_SENDER_ROLE,
   MAX_QUESTION_ATTACHMENTS,
   canChangeQuestionStatus,
   canReadQuestion,
@@ -301,11 +302,86 @@ export async function getEmployeeQuestionForActor(actor: ActorContext, questionI
   return sanitizeQuestionForActor(actor, toSanitizeInput(question));
 }
 
+/**
+ * METRO UP ROUND 1, Milestone 3, section 7 — attachment retrieval
+ * authorization. Milestone 2A intentionally did not implement download; this
+ * is that step, implemented as the ONLY place that ever reads
+ * EmployeeQuestionAttachment.storageKey back out for an actor other than the
+ * uploader-at-upload-time. Reuses canReadQuestion UNCHANGED — this is
+ * generic "may this actor see this question" authorization (not inbox
+ * semantics; a CITY_MANAGER's own outgoing question is excluded from their
+ * inbox LIST, section 3/9, but they may absolutely still open and download
+ * their own attachment by direct id — same self-authorship clause
+ * canReadQuestion already grants for the question itself).
+ *
+ * Returns storageKey to the CALLER (the download route) ONLY — that route
+ * must never place it in a client-visible response; it exists purely to let
+ * the route mint one short-lived signed URL server-side and stream the
+ * bytes back itself (section 9's identity-leak finding: storageKey embeds
+ * the real authorUserId, so handing a signed URL straight to the client
+ * would leak it even for an anonymous question).
+ */
+export async function getQuestionAttachmentForDownload(
+  actor: ActorContext,
+  attachmentId: string,
+): Promise<{ storageKey: string; mimeType: string; originalName: string }> {
+  const attachment = await prisma.employeeQuestionAttachment.findUnique({
+    where: { id: attachmentId },
+    select: {
+      storageKey: true,
+      mimeType: true,
+      originalName: true,
+      question: { select: { authorUserId: true, cityIdSnapshot: true, clubIdSnapshot: true } },
+    },
+  });
+  if (!attachment) throw new AuthError(404, "attachment_not_found", "Файл не найден");
+  if (!canReadQuestion(actor, attachment.question)) {
+    throw new AuthError(403, "forbidden", "Недостаточно прав для этого вложения");
+  }
+  return { storageKey: attachment.storageKey, mimeType: attachment.mimeType, originalName: attachment.originalName };
+}
+
 export interface ListQuestionsFilter {
   status?: QuestionStatus;
   category?: QuestionCategory;
   cityId?: string;
   clubId?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface ListQuestionsResult {
+  page: number;
+  limit: number;
+  total: number;
+  questions: EmployeeQuestionDTO[];
+}
+
+const LIST_DEFAULT_LIMIT = 20;
+const LIST_MAX_LIMIT = 100;
+
+/**
+ * METRO UP ROUND 1, Milestone 3 — every active CITY_MANAGER grant's own
+ * scope as a Prisma OR-array (CITY-scope grants contribute their whole city,
+ * CLUB-scope grants contribute that one club), or `null` when the actor
+ * holds no active CITY_MANAGER grant at all. Pulled out of
+ * listEmployeeQuestionsForActor so the Home "N новых" count (below) can
+ * build the EXACT same scope condition without duplicating the grant-walk —
+ * both read the actor's grants fresh every call (never cached), so a
+ * revoked grant is excluded on the very next request, and an actor with
+ * only a City B grant today never matches a City A snapshot, no matter what
+ * they held yesterday.
+ */
+function buildCityManagerScopeOr(actor: ActorContext): Prisma.EmployeeQuestionWhereInput[] | null {
+  const cityManagerGrants = actor.grants.filter((g) => g.role === "CITY_MANAGER" && isGrantActive(g));
+  const cityScopedCities = cityManagerGrants.filter((g) => g.scopeType === "CITY" && g.cityId).map((g) => g.cityId!);
+  const clubScopedClubs = cityManagerGrants.filter((g) => g.scopeType === "CLUB" && g.clubId).map((g) => g.clubId!);
+
+  const scopeOr: Prisma.EmployeeQuestionWhereInput[] = [
+    ...(cityScopedCities.length ? [{ cityIdSnapshot: { in: cityScopedCities } }] : []),
+    ...(clubScopedClubs.length ? [{ clubIdSnapshot: { in: clubScopedClubs } }] : []),
+  ];
+  return scopeOr.length ? scopeOr : null;
 }
 
 /**
@@ -315,48 +391,76 @@ export interface ListQuestionsFilter {
  * grants the actor holds (no per-grant round trip) — builds a single OR
  * across every covering city/club, matching section 13's "no N+1" rule.
  * Sanitization happens over the already-loaded rows in memory, never a
- * per-row re-query.
+ * per-row re-query. Bounded page/limit pagination (audit-service.ts's own
+ * page/limit convention, not cursor-based — this repo's established shape).
+ *
+ * METRO UP ROUND 1, Milestone 3 — the CITY_MANAGER branch additionally
+ * excludes `senderRole: CITY_MANAGER` (INBOX_EXCLUDED_SENDER_ROLE): the
+ * routing rule routes a CITY_MANAGER's OWN question to OPERATIONS_DIRECTOR
+ * only, never to any CITY_MANAGER tier (see that constant's own comment for
+ * why this is senderRole-based, not authorUserId-based). hasSystemAccess/
+ * hasNetworkAccess actors (PROJECT_ADMIN/OPERATIONS_DIRECTOR) are NOT given
+ * this exclusion — a CITY_MANAGER's own outgoing question is exactly what
+ * OPERATIONS_DIRECTOR's inbox must include.
  */
-export async function listEmployeeQuestionsForActor(actor: ActorContext, filter: ListQuestionsFilter = {}): Promise<EmployeeQuestionDTO[]> {
-  const baseWhere = {
-    status: filter.status,
-    category: filter.category,
-    cityIdSnapshot: filter.cityId,
-    clubIdSnapshot: filter.clubId,
-  };
+export async function listEmployeeQuestionsForActor(actor: ActorContext, filter: ListQuestionsFilter = {}): Promise<ListQuestionsResult> {
+  const page = Math.max(1, Math.trunc(filter.page ?? 1) || 1);
+  const limit = Math.min(LIST_MAX_LIMIT, Math.max(1, Math.trunc(filter.limit ?? LIST_DEFAULT_LIMIT) || LIST_DEFAULT_LIMIT));
 
+  const filterConditions: Prisma.EmployeeQuestionWhereInput[] = [];
+  if (filter.status) filterConditions.push({ status: filter.status });
+  if (filter.category) filterConditions.push({ category: filter.category });
+  if (filter.cityId) filterConditions.push({ cityIdSnapshot: filter.cityId });
+  if (filter.clubId) filterConditions.push({ clubIdSnapshot: filter.clubId });
+
+  let scopeCondition: Prisma.EmployeeQuestionWhereInput;
   if (hasSystemAccess(actor) || hasNetworkAccess(actor)) {
-    const rows = await prisma.employeeQuestion.findMany({ where: baseWhere, include: QUESTION_INCLUDE, orderBy: { createdAt: "desc" } });
-    return rows.map((r) => sanitizeQuestionForActor(actor, toSanitizeInput(r)));
+    scopeCondition = {};
+  } else {
+    const scopeOr = buildCityManagerScopeOr(actor);
+    scopeCondition = scopeOr
+      ? { AND: [{ OR: scopeOr }, { senderRole: { not: INBOX_EXCLUDED_SENDER_ROLE } }] }
+      // No CITY_MANAGER authority at all — fall back to "my own questions"
+      // (section 9's own framing: this function is also what a future
+      // self-service "My Questions" view would call, not an inbox-only path).
+      : { authorUserId: actor.userId };
   }
 
-  const cityManagerGrants = actor.grants.filter((g) => g.role === "CITY_MANAGER" && isGrantActive(g));
-  const cityScopedCities = cityManagerGrants.filter((g) => g.scopeType === "CITY" && g.cityId).map((g) => g.cityId!);
-  const clubScopedClubs = cityManagerGrants.filter((g) => g.scopeType === "CLUB" && g.clubId).map((g) => g.clubId!);
+  const where: Prisma.EmployeeQuestionWhereInput = filterConditions.length ? { AND: [scopeCondition, ...filterConditions] } : scopeCondition;
 
-  const scopeOr = [
-    ...(cityScopedCities.length ? [{ cityIdSnapshot: { in: cityScopedCities } }] : []),
-    ...(clubScopedClubs.length ? [{ clubIdSnapshot: { in: clubScopedClubs } }] : []),
-  ];
-
-  if (scopeOr.length === 0) {
-    // No CITY_MANAGER authority at all — fall back to "my own questions"
-    // (section 9's own framing: this function is also what a future
-    // self-service "My Questions" view would call, not an inbox-only path).
-    const rows = await prisma.employeeQuestion.findMany({
-      where: { ...baseWhere, authorUserId: actor.userId },
+  const [rows, total] = await Promise.all([
+    prisma.employeeQuestion.findMany({
+      where,
       include: QUESTION_INCLUDE,
       orderBy: { createdAt: "desc" },
-    });
-    return rows.map((r) => sanitizeQuestionForActor(actor, toSanitizeInput(r)));
-  }
+      skip: (page - 1) * limit,
+      take: limit,
+    }),
+    prisma.employeeQuestion.count({ where }),
+  ]);
 
-  const rows = await prisma.employeeQuestion.findMany({
-    where: { AND: [baseWhere, { OR: scopeOr }] },
-    include: QUESTION_INCLUDE,
-    orderBy: { createdAt: "desc" },
+  return { page, limit, total, questions: rows.map((r) => sanitizeQuestionForActor(actor, toSanitizeInput(r))) };
+}
+
+/**
+ * METRO UP ROUND 1, Milestone 3, section 4/13 — the Home block's cheap
+ * "N новых" number. A single COUNT query, never the list query's full
+ * findMany (section 13's explicit "Home count should be a cheap COUNT
+ * query, not load the whole question list"). Scoped identically to
+ * listEmployeeQuestionsForActor's CITY_MANAGER branch (same scope-OR
+ * builder, same senderRole exclusion) so the Home number and the inbox's
+ * own "Новые" tab count can never silently disagree. Returns 0 — never
+ * throws — when the actor holds no active CITY_MANAGER grant; callers only
+ * reach this from the CITY_MANAGER Home context, where that would mean a
+ * grant was revoked between resolving the context and rendering this block,
+ * not a code path worth failing the whole Home response over.
+ */
+export async function countNewEmployeeQuestionsForCityManager(actor: ActorContext): Promise<number> {
+  const scopeOr = buildCityManagerScopeOr(actor);
+  if (!scopeOr) return 0;
+  return prisma.employeeQuestion.count({
+    where: { AND: [{ OR: scopeOr }, { senderRole: { not: INBOX_EXCLUDED_SENDER_ROLE } }, { status: "NEW" }] },
   });
-  return rows.map((r) => sanitizeQuestionForActor(actor, toSanitizeInput(r)));
 }
 
 /* ============================== status mutation ============================== */

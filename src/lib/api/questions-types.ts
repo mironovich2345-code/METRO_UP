@@ -72,6 +72,25 @@ export interface CreateQuestionRequestDTO {
   scopeHint?: { cityId?: string; clubId?: string };
 }
 
+/** METRO UP ROUND 1, Milestone 3 — GET /api/questions's query filter.
+ * `status` omitted means "Все" (ALL) — there is no separate "ALL" literal;
+ * absence IS the all-statuses read, matching the server's forgiving-filter
+ * convention (see questions-core.ts's isQuestionStatusValue). */
+export interface ListQuestionsRequestDTO {
+  status?: QuestionStatusDTO;
+  category?: QuestionCategoryDTO;
+  clubId?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface ListQuestionsResponseDTO {
+  page: number;
+  limit: number;
+  total: number;
+  questions: EmployeeQuestionDTO[];
+}
+
 export interface QuestionAttachmentUploadRequestDTO {
   contentType: string;
   sizeBytes: number;

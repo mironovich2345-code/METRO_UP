@@ -21,6 +21,7 @@ import {
   ListChecks,
   Lock,
   type LucideIcon,
+  MessageSquare,
   Sparkles,
   Trophy,
   UserCog,
@@ -857,6 +858,19 @@ function CityManagerHomeSection({ block, router }: { block: CityManagerHomeBlock
             onClick={() => router.push("/city/training")}
           />
         </div>
+      </motion.div>
+
+      <motion.div variants={cardIn} className="flex flex-col gap-3">
+        <SectionLabel>Вопросы сотрудников</SectionLabel>
+        <AttentionRow
+          icon={MessageSquare}
+          text={
+            block.questionsNewCount > 0
+              ? `${block.questionsNewCount} ${pluralRu(block.questionsNewCount, "новый вопрос", "новых вопроса", "новых вопросов")}`
+              : "Нет новых вопросов"
+          }
+          onClick={() => router.push("/questions")}
+        />
       </motion.div>
     </>
   );

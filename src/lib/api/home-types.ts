@@ -149,6 +149,12 @@ export interface CityManagerHomeBlockDTO {
    * "compliance", just (completed)/(published lessons) today. Null when
    * there's no one in scope yet. */
   training: { totalPublishedLessons: number; averageProgressPercent: number | null; employeesCompletedAll: number } | null;
+  /** METRO UP ROUND 1, Milestone 3 — "Вопросы сотрудников" Home block. A
+   * cheap COUNT of QuestionStatus.NEW only — NOT a read/notification state
+   * (NotificationRecipient comes in Milestone 4). Scoped to this actor's
+   * active CITY_MANAGER grant(s), excluding their own outgoing questions
+   * (see questions-service.ts's countNewEmployeeQuestionsForCityManager). */
+  questionsNewCount: number;
 }
 
 /** The CLUB_MANAGER context's own working-cabinet content for ONE specific

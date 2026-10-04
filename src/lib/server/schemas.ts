@@ -72,6 +72,14 @@ export const questionAttachmentUploadRequestSchema = z.object({
 });
 export type QuestionAttachmentUploadRequestInput = z.infer<typeof questionAttachmentUploadRequestSchema>;
 
+/** METRO UP ROUND 1, Milestone 3, section 8 — status mutation body. No
+ * client-side authority: canChangeQuestionStatus (questions-core.ts) still
+ * gates who may call this at all; this schema only shapes the input. */
+export const updateQuestionStatusSchema = z.object({
+  status: z.enum(["NEW", "IN_PROGRESS", "CLOSED"]),
+});
+export type UpdateQuestionStatusInput = z.infer<typeof updateQuestionStatusSchema>;
+
 /** Flatten Zod issues into a client-safe { field: message } map (no internals). */
 export function zodFieldErrors(error: z.ZodError): Record<string, string> {
   const out: Record<string, string> = {};
