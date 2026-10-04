@@ -5,6 +5,7 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { CheckCircle2, ChevronDown, ChevronRight, Circle, Clock, Lock } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
+import { BottomNavigation } from "@/components/bottom-navigation";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -44,7 +45,7 @@ export default function PlanScreen() {
   const pct = plan && plan.total ? Math.round((plan.completed / plan.total) * 100) : 0;
 
   return (
-    <div className="relative min-h-[100dvh] pb-24">
+    <div className="relative min-h-[100dvh] pb-32">
       <AppHeader title="План на сегодня" subtitle={dateLabel} showBack backHref="/home" showThemeSwitcher={false} />
       <RevalidatingBar show={Boolean(plan) && isValidating} />
 
@@ -92,6 +93,15 @@ export default function PlanScreen() {
           </>
         )}
       </motion.main>
+
+      {/* Management UX Round A, section 6 — /plan is a CLUB_MANAGER root
+          workspace screen. /plan is ALSO reached by a plain PERSONAL
+          employee (Home's own "Открыть план" card) — BottomNavigation
+          resolves ITS OWN effective context per viewer, so a PERSONAL
+          visitor correctly still gets the unchanged 5-item PERSONAL bar
+          (section 3 — personal mode stays byte-identical), not a
+          CLUB_MANAGER set. */}
+      <BottomNavigation />
     </div>
   );
 }

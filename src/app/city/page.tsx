@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { AlertCircle, Building2, CheckCircle2, ChevronRight, Clock, GraduationCap } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
+import { BottomNavigation } from "@/components/bottom-navigation";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
 import { RevalidatingBar } from "@/components/ui/revalidating-bar";
@@ -45,7 +46,7 @@ export default function CityClubsPage() {
     cityNames.length === 0 ? "Отдельные клубы" : cityNames.length === 1 ? cityNames[0] : `Города: ${cityNames.join(", ")}`;
 
   return (
-    <div className="relative min-h-[100dvh] pb-24">
+    <div className="relative min-h-[100dvh] pb-32">
       <AppHeader title="Мои клубы" subtitle={dashboard ? scopeLabel : undefined} showBack backHref="/home" showThemeSwitcher={false} />
       <RevalidatingBar show={Boolean(dashboard) && isValidating} />
 
@@ -153,6 +154,10 @@ export default function CityClubsPage() {
           </>
         )}
       </motion.main>
+
+      {/* Management UX Round A, section 6 — /city is CITY_MANAGER's
+          "Клубы" root workspace screen. */}
+      <BottomNavigation />
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { CheckCircle2, ChevronRight, Clock, GraduationCap, UserCheck, Users } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
+import { BottomNavigation } from "@/components/bottom-navigation";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
 import { RevalidatingBar } from "@/components/ui/revalidating-bar";
@@ -148,7 +149,7 @@ export default function TeamPage() {
   // Multi-club, not yet chosen — a compact selector, never an arbitrary pick.
   if (!isPreviewing && clubs && clubs.length > 1 && !selectedClubId) {
     return (
-      <div className="relative min-h-[100dvh] pb-24">
+      <div className="relative min-h-[100dvh] pb-32">
         <AppHeader title="Моя команда" showBack backHref="/home" showThemeSwitcher={false} />
         <main className="flex flex-col gap-3 px-5 pt-2">
           <p className="px-1 text-sm text-muted-foreground">Выберите клуб</p>
@@ -164,12 +165,13 @@ export default function TeamPage() {
             </GlassCard>
           ))}
         </main>
+        <BottomNavigation />
       </div>
     );
   }
 
   return (
-    <div className="relative min-h-[100dvh] pb-24">
+    <div className="relative min-h-[100dvh] pb-32">
       <AppHeader
         title={isReadOnlyDrillDown ? "Команда" : "Моя команда"}
         subtitle={dashboard?.clubName ?? undefined}
@@ -304,6 +306,14 @@ export default function TeamPage() {
           </>
         )}
       </motion.main>
+
+      {/* Management UX Round A, section 6 — /team is a CLUB_MANAGER root
+          workspace screen. Rendered unconditionally here (including for a
+          CITY_MANAGER's read-only ?clubId= drill-down) — the nav reflects
+          the VIEWING actor's own effective context, not which specific
+          content this page happens to show; a CITY_MANAGER drilling in
+          correctly keeps seeing their own CITY_MANAGER nav. */}
+      <BottomNavigation />
     </div>
   );
 }

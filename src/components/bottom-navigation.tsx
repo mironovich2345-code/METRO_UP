@@ -1,41 +1,63 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
-import { GraduationCap, Home, Library, Trophy, type LucideIcon } from "lucide-react";
+import { Building2, GraduationCap, Home, Library, ListChecks, MessageSquare, Trophy, Users, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { hapticSelection } from "@/lib/telegram";
-import { visibleBottomNavRoutes, type BottomNavRoute } from "@/lib/nav-items";
+import { visibleBottomNavRoutes, isActiveNavRoute, resolveEffectiveNavContext, type BottomNavRoute, type ManagementNavContext } from "@/lib/nav-items";
 import { MetricCharacter } from "@/components/ui/metric-character";
 import { useApp } from "@/providers/app-provider";
+import { useAppUser } from "@/providers/AppUserProvider";
+import { loadStoredContext } from "@/lib/home-context-storage";
+import { getOwnerKey } from "@/lib/client/owner";
 
 const ICONS: Record<string, LucideIcon> = {
   "/home": Home,
   "/academy": GraduationCap,
   "/knowledge": Library,
   "/ranking": Trophy,
+  "/team": Users,
+  "/plan": ListChecks,
+  "/city": Building2,
+  "/questions": MessageSquare,
 };
 
-function isActive(pathname: string, item: BottomNavRoute): boolean {
-  return (
-    pathname === item.href ||
-    pathname.startsWith(`${item.href}/`) ||
-    (item.match?.some((p) => pathname === p || pathname.startsWith(`${p}/`)) ?? false)
-  );
+/**
+ * Management UX Round A, section 4 — `loadStoredContext` is a synchronous
+ * localStorage read (home-context-storage.ts), but it must still run only
+ * client-side, after mount (never during the server-rendered first pass,
+ * which has no localStorage) — the exact same `undefined` → resolved
+ * pattern Home's own `requestedContext` and Academy's `sectionKey` already
+ * use for this identical API. While unresolved, `null` deliberately
+ * resolves to "PERSONAL" (resolveEffectiveNavContext's own default) — the
+ * SAME 5-item bar that already renders unconditionally today, so there is
+ * no flash-of-wrong-content window for the one context (PERSONAL) most
+ * users have.
+ */
+function useEffectiveNavContext(): ManagementNavContext {
+  const { user } = useAppUser();
+  const [storedType, setStoredType] = useState<"PERSONAL" | "CLUB_MANAGER" | "CITY_MANAGER" | null>(null);
+  useEffect(() => {
+    setStoredType(loadStoredContext(getOwnerKey())?.type ?? null);
+  }, []);
+  return resolveEffectiveNavContext({ storedContextType: storedType, previewRole: user?.viewContext?.previewRole ?? null });
 }
 
 export function BottomNavigation() {
   const pathname = usePathname() ?? "";
   const { profile } = useApp();
-  const routes = visibleBottomNavRoutes(profile?.accessStatus);
+  const effectiveContext = useEffectiveNavContext();
+  const routes = visibleBottomNavRoutes(profile?.accessStatus, effectiveContext);
 
   return (
     <nav className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center pb-[calc(env(safe-area-inset-bottom)+12px)]">
       {/* overflow-visible so the raised Метрик button (and the mascot's marker) is never clipped */}
       <div className="pointer-events-auto mx-3 flex w-full max-w-[460px] items-center justify-around overflow-visible rounded-[26px] border border-[var(--glass-border)] bg-[var(--glass-bg)] px-1.5 py-2 shadow-[var(--shadow-float)] backdrop-blur-2xl">
         {routes.map((item) => {
-          const active = isActive(pathname, item);
+          const active = isActiveNavRoute(pathname, item);
           return item.central ? (
             <MetricNavItem key={item.href} item={item} active={active} />
           ) : (

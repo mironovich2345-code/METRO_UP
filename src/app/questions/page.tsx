@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { ChevronRight, MessageSquareOff } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
+import { BottomNavigation } from "@/components/bottom-navigation";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -74,7 +75,7 @@ export default function QuestionsInboxPage() {
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.limit)) : 1;
 
   return (
-    <div className="relative min-h-[100dvh] pb-24">
+    <div className="relative min-h-[100dvh] pb-32">
       <AppHeader title="Вопросы сотрудников" showBack backHref="/home" showThemeSwitcher={false} />
       <RevalidatingBar show={Boolean(data) && isValidating} />
 
@@ -180,6 +181,12 @@ export default function QuestionsInboxPage() {
           </motion.div>
         )}
       </motion.main>
+
+      {/* Management UX Round A, section 6 — /questions is CITY_MANAGER's
+          "Вопросы" root workspace screen. Role-neutral per this page's own
+          header comment — the nav just reflects whichever effective
+          context the viewing actor is in. */}
+      <BottomNavigation />
     </div>
   );
 }
