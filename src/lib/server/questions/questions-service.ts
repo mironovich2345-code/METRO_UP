@@ -13,6 +13,11 @@ import { hasSystemAccess, hasNetworkAccess } from "../rbac/authorize-core";
 import { isGrantActive } from "../rbac/scope-core";
 import { cityIdForClub, resolveClubManagerClubs } from "../rbac/context";
 import {
+  createQuestionNotification,
+  deliverQuestionNotificationsTelegram,
+  markQuestionNotificationRead,
+} from "../notifications/notification-service";
+import {
   INBOX_EXCLUDED_SENDER_ROLE,
   MAX_QUESTION_ATTACHMENTS,
   canChangeQuestionStatus,
@@ -254,7 +259,7 @@ export async function createEmployeeQuestion(user: CurrentUser, actor: ActorCont
     });
   }
 
-  const created = await prisma.$transaction(async (tx) => {
+  const { question: created, notificationResult } = await prisma.$transaction(async (tx) => {
     const question = await tx.employeeQuestion.create({
       data: {
         authorUserId: user.id,
@@ -280,8 +285,21 @@ export async function createEmployeeQuestion(user: CurrentUser, actor: ActorCont
       // write in this codebase.
       metadata: { category: input.category, anonymous: input.anonymous, senderRole: input.senderContext, attachmentCount: verifiedAttachments.length },
     });
-    return question;
+    // METRO UP ROUND 1, Milestone 4, section 1/3 — the durable notification
+    // rows are created IN THE SAME transaction as the question itself, so
+    // they exist regardless of anything that happens next. Telegram
+    // delivery is a deliberately SEPARATE step, after this transaction
+    // commits (below) — never inside it (a slow bot API call must never
+    // hold a DB transaction open).
+    const notificationResult = await createQuestionNotification(tx, question);
+    return { question, notificationResult };
   });
+
+  // AWAITED, not fire-and-forget (section 3) — but deliverQuestionNotificationsTelegram
+  // itself never throws, so this can never fail question creation; it only
+  // adds bounded latency (one Telegram timeout period, recipients attempted
+  // in parallel) to this response.
+  await deliverQuestionNotificationsTelegram(created, notificationResult);
 
   return sanitizeQuestionForActor(actor, toSanitizeInput(created));
 }
@@ -299,6 +317,12 @@ export async function getEmployeeQuestionForActor(actor: ActorContext, questionI
   if (!canReadQuestion(actor, { authorUserId: question.authorUserId, cityIdSnapshot: question.cityIdSnapshot, clubIdSnapshot: question.clubIdSnapshot })) {
     throw new AuthError(403, "forbidden", "Недостаточно прав для просмотра этого вопроса");
   }
+  // METRO UP ROUND 1, Milestone 4, section 9 — "opening a question detail
+  // marks that recipient's notification as read." Self-scoped to actor.userId
+  // (never a target id) and a harmless no-op for a non-recipient (the
+  // author, a plain MANAGER, PROJECT_ADMIN) — never throws, never touches
+  // question.status.
+  await markQuestionNotificationRead(actor.userId, questionId);
   return sanitizeQuestionForActor(actor, toSanitizeInput(question));
 }
 
