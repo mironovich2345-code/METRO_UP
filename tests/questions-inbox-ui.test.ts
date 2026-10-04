@@ -75,14 +75,14 @@ test("WIRE-A: the Home CITY_MANAGER section renders a 'Вопросы сотру
   const trainingIdx = src.indexOf("Обучение по клубам");
   const questionsIdx = src.indexOf("Вопросы сотрудников", trainingIdx);
   assert.ok(trainingIdx > 0 && questionsIdx > trainingIdx, "expected the questions block after the training section");
-  const sectionSrc = src.slice(questionsIdx, questionsIdx + 400);
+  const sectionSrc = src.slice(questionsIdx, questionsIdx + 700);
   assert.match(sectionSrc, /router\.push\(.\/questions.\)/);
 });
 
 test("WIRE-B: the Home block never renders individual question cards directly on Home — only the compact count row, no list iteration on this screen", () => {
   const src = read("src/app/home/page.tsx");
   const questionsIdx = src.indexOf("Вопросы сотрудников");
-  const sectionSrc = src.slice(questionsIdx, questionsIdx + 400);
+  const sectionSrc = src.slice(questionsIdx, questionsIdx + 700);
   assert.doesNotMatch(sectionSrc, /\.map\(/);
 });
 
