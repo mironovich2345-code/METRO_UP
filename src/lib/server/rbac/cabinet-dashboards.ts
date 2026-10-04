@@ -11,6 +11,7 @@ import { getActorContext, cityIdForClub, resolveCityManagerClubs, resolveClubMan
 import { authorize } from "./authorize-core";
 import { resolveEffectiveReadContext } from "./effective-context";
 import { countNewEmployeeQuestionsForCityManager } from "../questions/questions-service";
+import { getUnreadQuestionNotificationCount } from "../notifications/notification-service";
 import { logPerf, timedField } from "../perf";
 import type { ActorContext, RoleGrant } from "./types";
 import type {
@@ -765,9 +766,12 @@ export async function getCityManagerHomeBlock(actor: ActorContext, precomputedCl
   // METRO UP ROUND 1, Milestone 3, section 13 — the question count is a
   // single cheap COUNT, run alongside the existing dashboard aggregate
   // rather than after it (no added latency for a widget this small).
-  const [dashboard, questionsNewCount] = await Promise.all([
+  // Milestone 4 adds a second cheap COUNT (unread notifications) to the
+  // SAME Promise.all for the same reason.
+  const [dashboard, questionsNewCount, questionsUnreadCount] = await Promise.all([
     getCityManagerDashboard(actor, precomputedClubs),
     countNewEmployeeQuestionsForCityManager(actor),
+    getUnreadQuestionNotificationCount(actor.userId),
   ]);
   const cityNames = distinctCityNames(dashboard.clubs);
   const scopeLabel =
@@ -799,6 +803,7 @@ export async function getCityManagerHomeBlock(actor: ActorContext, precomputedCl
         }
       : null,
     questionsNewCount,
+    questionsUnreadCount,
   };
 }
 

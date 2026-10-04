@@ -861,7 +861,18 @@ function CityManagerHomeSection({ block, router }: { block: CityManagerHomeBlock
       </motion.div>
 
       <motion.div variants={cardIn} className="flex flex-col gap-3">
-        <SectionLabel>Вопросы сотрудников</SectionLabel>
+        {/* METRO UP ROUND 1, Milestone 4, section 9 — the unread-notification
+            dot is ADDITIVE to the existing business count (questionsNewCount,
+            unchanged), not a replacement: "preserve that business count ...
+            add unread notification indication subtly, without clutter." */}
+        <div className="flex items-center gap-2 px-1">
+          <SectionLabel>Вопросы сотрудников</SectionLabel>
+          {block.questionsUnreadCount > 0 && (
+            <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-brand px-1.5 text-[11px] font-bold text-brand-foreground">
+              {block.questionsUnreadCount}
+            </span>
+          )}
+        </div>
         <AttentionRow
           icon={MessageSquare}
           text={

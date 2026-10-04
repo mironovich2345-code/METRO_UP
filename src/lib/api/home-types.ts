@@ -155,6 +155,12 @@ export interface CityManagerHomeBlockDTO {
    * active CITY_MANAGER grant(s), excluding their own outgoing questions
    * (see questions-service.ts's countNewEmployeeQuestionsForCityManager). */
   questionsNewCount: number;
+  /** METRO UP ROUND 1, Milestone 4 — unread EMPLOYEE_QUESTION_CREATED
+   * notifications for this actor (NotificationRecipient.readAt == null).
+   * A DIFFERENT concept from questionsNewCount (section 8): this is
+   * delivery/read state, not QuestionStatus — it does NOT re-validate
+   * against the actor's current live scope the way questionsNewCount does. */
+  questionsUnreadCount: number;
 }
 
 /** The CLUB_MANAGER context's own working-cabinet content for ONE specific

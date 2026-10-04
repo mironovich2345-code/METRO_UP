@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { FileText } from "lucide-react";
@@ -50,6 +50,22 @@ export default function QuestionDetailPage() {
     () => questionsApi.get(id).then((r) => r.question),
     QUERY_POLICY.MUTABLE,
   );
+
+  // METRO UP ROUND 1, Milestone 4, section 9/11 — GET /api/questions/[id]
+  // itself marks this recipient's notification read, server-side (see
+  // getEmployeeQuestionForActor). This client never calls a separate
+  // "mark read" endpoint — it only needs to stop treating Home's cached
+  // unread badge as fresh once that side effect has happened, so the badge
+  // reflects it on the next Home visit. Guarded to run once per question id
+  // (invalidating repeatedly on every background revalidation is harmless
+  // but wasteful).
+  const markedHomeStaleForId = useRef<string | null>(null);
+  useEffect(() => {
+    if (question && markedHomeStaleForId.current !== id) {
+      markedHomeStaleForId.current = id;
+      invalidatePrefix(cacheKeyPrefixes.home);
+    }
+  }, [question, id]);
 
   async function changeStatus(next: QuestionStatusDTO) {
     setUpdating(next);
