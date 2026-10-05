@@ -3,10 +3,10 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
-import { CheckCircle2, ChevronRight, Clock, GraduationCap, UserCheck, Users } from "lucide-react";
+import { ChevronRight, Clock, GraduationCap, UserCheck, Users } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
 import { BottomNavigation } from "@/components/bottom-navigation";
-import { ManagementAvatarLink } from "@/components/management/management-primitives";
+import { ManagementAvatarLink, ManagementEmptyState, ManagementSummary } from "@/components/management/management-primitives";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
 import { RevalidatingBar } from "@/components/ui/revalidating-bar";
@@ -156,8 +156,10 @@ export default function TeamPage() {
           <p className="px-1 text-sm text-muted-foreground">Выберите клуб</p>
           {clubs.map((c) => (
             <GlassCard key={c.id} variant="solid" pad="md" animateIn={false} interactive onClick={() => setSelectedClubId(c.id)} className="flex items-center gap-3">
-              <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-brand/12">
-                <Users className="size-4.5 text-brand" />
+              {/* Round D, section 10 — a plain pick-one-to-enter option, not
+                  yet a selected/attention state: neutral icon. */}
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-muted">
+                <Users className="size-4.5 text-muted-foreground" />
               </span>
               <div className="min-w-0 flex-1">
                 <p className="truncate font-semibold">{c.name}</p>
@@ -226,22 +228,29 @@ export default function TeamPage() {
           <>
             {msg && <p className="text-sm text-red-500">{msg}</p>}
 
-            <motion.div variants={cardIn} className="grid grid-cols-2 gap-3">
-              <GlassCard variant="solid" pad="md" animateIn={false}>
-                <p className="text-xs text-muted-foreground">Сотрудников</p>
-                <p className="mt-1 text-2xl font-extrabold tabular-nums">{dashboard.summary.employeeCount}</p>
-              </GlassCard>
-              <GlassCard variant="solid" pad="md" animateIn={false} className={cn(dashboard.summary.pendingApprovalCount > 0 && "border border-brand/30")}>
-                <p className="text-xs text-muted-foreground">Ожидают подтверждения</p>
-                <p className="mt-1 text-2xl font-extrabold tabular-nums">{dashboard.summary.pendingApprovalCount}</p>
-              </GlassCard>
+            {/* Management UX Round D, section 7 — one ManagementSummary
+                instead of two separate stat cards (same simplification as
+                /city/club and /city this round). The previous conditional
+                brand border on "Ожидают" is dropped — pending approvals are
+                already the more meaningful, genuinely-yellow "Новые
+                сотрудники" section below; a second echo on the summary was
+                redundant, not an additional signal. */}
+            <motion.div variants={cardIn}>
+              <ManagementSummary
+                stats={[
+                  { key: "employees", label: "Сотрудники", value: dashboard.summary.employeeCount },
+                  { key: "pending", label: "Ожидают", value: dashboard.summary.pendingApprovalCount },
+                ]}
+              />
             </motion.div>
 
             <motion.div variants={cardIn}>
+              {/* Round D, section 10 — plain informational card, not an
+                  attention state: neutral icon (was leftover bg-brand/12). */}
               <GlassCard variant="solid" pad="lg" animateIn={false}>
                 <div className="flex items-center gap-2">
-                  <span className="flex size-9 items-center justify-center rounded-2xl bg-brand/12">
-                    <GraduationCap className="size-5 text-brand" />
+                  <span className="flex size-9 items-center justify-center rounded-2xl bg-muted">
+                    <GraduationCap className="size-5 text-muted-foreground" />
                   </span>
                   <p className="font-bold">Обучение команды</p>
                 </div>
@@ -263,10 +272,12 @@ export default function TeamPage() {
                   <motion.div variants={cardIn} className="flex flex-col gap-3">
                     <p className="px-1 text-sm font-bold text-foreground">Новые сотрудники</p>
                     {pending.length === 0 ? (
-                      <GlassCard variant="solid" pad="md" animateIn={false} className="flex items-center gap-3">
-                        <CheckCircle2 className="size-5 shrink-0 text-success" />
-                        <p className="text-sm text-muted-foreground">Сейчас ничего не требует внимания.</p>
-                      </GlassCard>
+                      // Management UX Round D, section 7 — this was a
+                      // hand-rolled duplicate of ManagementEmptyState (the
+                      // shared primitive management-primitives.tsx's own
+                      // doc comment already claimed had consolidated every
+                      // such copy — /team's was missed; fixed here).
+                      <ManagementEmptyState />
                     ) : (
                       <div className="flex flex-col gap-2">
                         {pending.map((m) => (

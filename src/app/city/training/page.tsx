@@ -83,8 +83,11 @@ export default function CityTrainingPage() {
                       onClick={() => router.push(`/team?clubId=${c.clubId}`)}
                       className="flex w-full items-center gap-3 p-4 text-left transition-colors active:bg-foreground/5"
                     >
-                      <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-brand/12">
-                        <Building2 className="size-4.5 text-brand" />
+                      {/* Management UX Round D, section 10 — a normal club
+                          row, not an attention state: neutral icon (same
+                          fix applied to /city's own club list this round). */}
+                      <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-muted">
+                        <Building2 className="size-4.5 text-muted-foreground" />
                       </span>
                       <div className="min-w-0 flex-1">
                         <p className="truncate font-semibold">{c.clubName}</p>

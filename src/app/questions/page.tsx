@@ -83,7 +83,10 @@ export default function QuestionsInboxPage() {
       <AppHeader title="Вопросы сотрудников" leading={<ManagementAvatarLink />} showThemeSwitcher={false} />
       <RevalidatingBar show={Boolean(data) && isValidating} />
 
-      <motion.main variants={staggerStack} initial="hidden" animate="show" className="flex flex-col gap-4 px-5 pt-2">
+      {/* Management UX Round D, section 8 — a light visual pass only:
+          gap-4 -> gap-3 for a slightly tighter vertical rhythm (filters/
+          backend/anonymity/status semantics all untouched). */}
+      <motion.main variants={staggerStack} initial="hidden" animate="show" className="flex flex-col gap-3 px-5 pt-2">
         {/* Tabs */}
         <motion.div variants={cardIn} className="flex gap-2 overflow-x-auto pb-1">
           {QUESTION_STATUS_TABS.map((tab) => (
@@ -201,7 +204,7 @@ export default function QuestionsInboxPage() {
 function QuestionCard({ question, onClick }: { question: EmployeeQuestionDTO; onClick: () => void }) {
   const createdAt = new Date(question.createdAt).toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
   return (
-    <GlassCard variant="solid" pad="md" animateIn={false} interactive onClick={onClick} className="flex items-start gap-3">
+    <GlassCard variant="solid" pad="sm" animateIn={false} interactive onClick={onClick} className="flex items-start gap-3">
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <p className="truncate text-xs font-semibold text-muted-foreground">{questionCategoryLabel(question.category)}</p>
