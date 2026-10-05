@@ -532,7 +532,7 @@ export interface ClubManagerCabinetAccess {
 
 /**
  * The one place both club-manager cabinet routes (dashboard + team) resolve
- * "which club, and as whom" — three tiers, in priority order, mirroring
+ * "which club, and as whom" — four tiers, in priority order, mirroring
  * control/team's already-established pattern (Sprint 1 / Phase 2B):
  *
  * 1. An ACTIVE View-As CLUB_MANAGER preview — always that exact club,
@@ -543,14 +543,28 @@ export interface ClubManagerCabinetAccess {
  *    (Phase 2D), never this cabinet. effectiveUser here is the synthetic
  *    persona (resolveEffectiveReadContext) — real actor/authorization
  *    untouched, exactly like every other View As read path.
- * 2. The real actor's own active CLUB_MANAGER grant for the requested
- *    clubId — effectiveUser is the REAL user (no preview involved).
- * 3. The real actor's `club.read` authority for the requested clubId
+ * 2. Management UX Round B.1, section 1 (P0 fix) — the real actor's own
+ *    LEGACY AppRole=CLUB_MANAGER identity (EmployeeProfile.clubId, no
+ *    RoleAssignment row) for the requested clubId. Audited root cause: this
+ *    tier was MISSING entirely — resolveClubManagerClubs (the "clubs I
+ *    manage" list, GET /api/control/club/clubs) already recognizes this
+ *    exact legacy identity as equally valid to a real RoleAssignment grant,
+ *    but this function did not, so a legacy manager's own club correctly
+ *    appeared in their club list yet every actual read of that club's
+ *    dashboard/team 403'd — the two routes disagreed about who may see
+ *    what, despite this function's own doc claiming they never would. Kept
+ *    as its own tier (not folded into tier 3's RoleAssignment check) because
+ *    it is a different identity source, same as resolveClubManagerClubs
+ *    treats it.
+ * 3. The real actor's own active CLUB_MANAGER RoleAssignment grant for the
+ *    requested clubId — effectiveUser is the REAL user (no preview
+ *    involved).
+ * 4. The real actor's `club.read` authority for the requested clubId
  *    (CITY_MANAGER in scope, OPERATIONS_DIRECTOR, PROJECT_ADMIN) — a
  *    drill-down read, same authority control/team already grants for its
  *    RBAC path. effectiveUser is the REAL user.
  *
- * Returns null (never throws) when none of the three apply — callers turn
+ * Returns null (never throws) when none of the four apply — callers turn
  * that into a 403; a missing/malformed clubId query param is the caller's
  * own 400, checked before this is even called.
  */
@@ -565,6 +579,15 @@ export async function resolveClubManagerCabinetAccess(
   }
 
   if (!requestedClubId) return null;
+
+  // Tier 2 — legacy AppRole=CLUB_MANAGER, own employment club only (never
+  // any OTHER club a legacy manager doesn't actually work at). Checked
+  // against `user` directly — no RoleAssignment/actor lookup needed for
+  // this identity source, same as resolveClubManagerClubs's own check.
+  if (user.role === "CLUB_MANAGER" && user.employeeProfile?.clubId === requestedClubId) {
+    return { clubId: requestedClubId, clubName: getClubById(requestedClubId)?.name ?? null, effectiveUser: user, isPreviewing: false };
+  }
+
   const actor = await getActorContext(user);
 
   const ownsClubManagerGrant = actor.grants.some(
