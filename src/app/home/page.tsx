@@ -20,7 +20,6 @@ import {
   GraduationCap,
   ListChecks,
   Lock,
-  type LucideIcon,
   MessageSquare,
   Sparkles,
   Trophy,
@@ -28,7 +27,12 @@ import {
   Users,
 } from "lucide-react";
 import { BottomNavigation } from "@/components/bottom-navigation";
-import { AttentionSection, ManagementListRow, type AttentionItemData } from "@/components/management/management-primitives";
+import {
+  AttentionSection,
+  ManagementListRow,
+  ManagementSummary,
+  type AttentionItemData,
+} from "@/components/management/management-primitives";
 import { ThemeSwitcher } from "@/components/ui/theme-switcher";
 import { Avatar } from "@/components/ui/avatar";
 import { GlassCard } from "@/components/ui/glass-card";
@@ -250,15 +254,26 @@ export default function HomeScreen() {
             <div className="min-w-0 flex-1">
               {/* Management UX Round B, section 2 — CLUB_MANAGER gets
                   "Управляющий / {club}" here instead of the personal
-                  greeting/name; PERSONAL (and CITY_MANAGER/onboarding,
-                  untouched this round) keep this exactly as before. The
+                  greeting/name; PERSONAL (onboarding, untouched) keeps this
+                  exactly as before. Round C, section 2 — CITY_MANAGER gets
+                  the same role/scope two-line treatment: "Ст. города" /
+                  scopeLabel (the existing aggregate-across-grants label,
+                  unchanged — no per-city picker invented here). The
                   context-switcher row below is separate and unchanged — a
-                  multi-club manager still switches clubs there. */}
+                  multi-club/multi-context manager still switches there. */}
               <p className="text-xs font-medium text-muted-foreground">
-                {dash && dash.kind === "club_manager" ? "Управляющий" : `${greeting},`}
+                {dash && dash.kind === "club_manager"
+                  ? "Управляющий"
+                  : dash && dash.kind === "city_manager"
+                    ? "Ст. города"
+                    : `${greeting},`}
               </p>
               <h1 className="truncate text-xl font-extrabold tracking-tight text-foreground">
-                {dash && dash.kind === "club_manager" ? dash.block.clubLabel : firstName}
+                {dash && dash.kind === "club_manager"
+                  ? dash.block.clubLabel
+                  : dash && dash.kind === "city_manager"
+                    ? dash.block.scopeLabel
+                    : firstName}
               </h1>
             </div>
             <ChevronRight className="size-4 shrink-0 text-muted-foreground/50" />
@@ -394,8 +409,8 @@ export default function HomeScreen() {
           </div>
         )}
 
-        {/* CITY_MANAGER — Sprint: mini-app-context-switcher, section 5:
-            management content ONLY, ends after "Обучение по клубам".
+        {/* CITY_MANAGER — Management UX Round C: rebuilt compact Home,
+            management content ONLY, ends after "Вопросы сотрудников".
             Sprint: mini-app-cold-start, section 7 — a `dash` of this kind
             CAN arrive from the persisted home cache before the real session
             has confirmed the actor still holds this grant (e.g. right after
@@ -732,17 +747,6 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   return <p className="px-1 text-sm font-bold text-foreground">{children}</p>;
 }
 
-function EmptyAttention() {
-  return (
-    <GlassCard variant="solid" pad="md" animateIn={false} className="flex items-center gap-3">
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-2xl bg-success/12">
-        <CheckCircle2 className="size-5 text-success" />
-      </span>
-      <p className="text-sm text-muted-foreground">Сейчас ничего не требует внимания.</p>
-    </GlassCard>
-  );
-}
-
 /**
  * Sprint: mini-app-cold-start, section 7 — shown instead of
  * CityManagerHomeSection/ClubManagerHomeSection while `dash.kind` is a
@@ -763,137 +767,124 @@ function ConfirmingAccessPlaceholder() {
 }
 
 /**
- * CITY_MANAGER context body — Sprint: mini-app-context-switcher, section 5.
- * Order: Требует внимания → Мои клубы → Управляющие → Обучение по клубам.
- * The ONLY content this context renders — no personal cards follow it (the
- * caller never appends any). Every tap target opens a Mini App drill-down
- * screen (never /control) reusing the existing RoleAssignment/cabinet APIs.
+ * CITY_MANAGER context body — Management UX Round C. Rebuilt on the same
+ * Round A/B management primitives CLUB_MANAGER already uses (AttentionSection,
+ * ManagementSummary, ManagementListRow) so Home answers "what is happening
+ * in my city, and where do I need to intervene" at a glance — summary +
+ * attention + entry points, not a second copy of /city's own detailed
+ * workspace. Approved order: Требует внимания → Город сегодня → Клубы →
+ * Обучение → Вопросы сотрудников.
+ *
+ * REMOVED (sections 1/9): the full "Мои клубы" list, the separate full
+ * "Управляющие" list, and the oversized per-club training card — all three
+ * duplicated content /city (unchanged this round) already owns in full
+ * detail. Manager-assignment state now surfaces only (a) in Требует
+ * внимания when a club genuinely has none (tapping it opens the EXISTING
+ * /city/managers drill-down, unchanged — not a new screen), and (b) inside
+ * the Клубы row's own subtitle count — never as a second full roster here.
+ *
+ * Only real CityManagerHomeBlockDTO fields are used — clubCount/
+ * employeeCount/clubManagerCount/pendingApprovalCount/attention/training/
+ * questionsNewCount/questionsUnreadCount. `training` is null, and
+ * `averageProgressPercent` within it independently nullable, whenever there
+ * is no published content or no one in scope yet — both render an honest
+ * "—"/"Открыть обучение по клубам" rather than a fabricated 0%; a GENUINE
+ * 0% (data exists, average is truly zero) still renders "0%", never
+ * swallowed into the same neutral state as "no data at all".
  */
 function CityManagerHomeSection({ block, router }: { block: CityManagerHomeBlockDTO; router: HomeRouter }) {
-  const clubsWithoutManager = block.clubs.filter((c) => c.managerName === null);
-  const pendingClubs = block.attention.filter((a) => a.category === "PENDING_EMPLOYEE_APPROVAL");
+  // Home's own lean HomeAttentionItemDTO (no entityType/cityId — see
+  // toHomeAttention's doc comment in cabinet-dashboards.ts) is a different
+  // shape from the desktop-cabinet AttentionItemDTO /city's own
+  // clubsWithoutManager helper expects, so this filters inline rather than
+  // widening that shared helper's signature for one caller.
+  const clubsWithoutManagerCount = block.attention.filter((a) => a.category === "CLUB_WITHOUT_CLUB_MANAGER").length;
+
+  const attentionItems: AttentionItemData[] = [];
+  if (clubsWithoutManagerCount > 0) {
+    attentionItems.push({
+      key: "clubs-without-manager",
+      icon: UserCog,
+      text: `${clubsWithoutManagerCount} ${pluralRu(clubsWithoutManagerCount, "клуб без управляющего", "клуба без управляющего", "клубов без управляющего")}`,
+      onClick: () => router.push("/city/managers"),
+    });
+  }
+  if (block.pendingApprovalCount > 0) {
+    attentionItems.push({
+      key: "pending-approval",
+      icon: Users,
+      text: `${block.pendingApprovalCount} ${pluralRu(block.pendingApprovalCount, "сотрудник ожидает подтверждения", "сотрудника ожидают подтверждения", "сотрудников ожидают подтверждения")}`,
+      onClick: () => router.push("/city"),
+    });
+  }
+
+  // Section 4/7 — null means "no published lessons or no one in scope yet"
+  // (honest neutral state below), never conflated with a real, computed 0%.
+  const averageProgressPercent = block.training?.averageProgressPercent ?? null;
+
+  const clubsSubtitle =
+    `${block.clubCount} ${pluralRu(block.clubCount, "клуб", "клуба", "клубов")} · ${block.clubManagerCount} ${pluralRu(block.clubManagerCount, "управляющий", "управляющих", "управляющих")}` +
+    (clubsWithoutManagerCount > 0
+      ? ` · ${clubsWithoutManagerCount} ${pluralRu(clubsWithoutManagerCount, "клуб без управляющего", "клуба без управляющего", "клубов без управляющего")}`
+      : "");
+
+  const trainingSubtitle = averageProgressPercent !== null ? `Средний прогресс ${averageProgressPercent}%` : "Открыть обучение по клубам";
+
+  const questionsSubtitle =
+    block.questionsNewCount > 0
+      ? `${block.questionsNewCount} ${pluralRu(block.questionsNewCount, "новый", "новых", "новых")}`
+      : "Нет новых вопросов";
 
   return (
     <>
-      <motion.div variants={cardIn} className="flex flex-col gap-3">
-        <SectionLabel>Требует внимания</SectionLabel>
-        {block.attention.length === 0 ? (
-          <EmptyAttention />
-        ) : (
-          <div className="flex flex-col gap-2">
-            {clubsWithoutManager.length > 0 && (
-              <AttentionRow
-                icon={UserCog}
-                text={`${clubsWithoutManager.length} ${pluralRu(clubsWithoutManager.length, "клуб без управляющего", "клуба без управляющего", "клубов без управляющего")}`}
-                onClick={() => router.push("/city/managers")}
-              />
-            )}
-            {pendingClubs.length > 0 && (
-              <AttentionRow
-                icon={Users}
-                text={`${pendingClubs.length} ${pluralRu(pendingClubs.length, "сотрудник ожидает подтверждения", "сотрудника ожидают подтверждения", "сотрудников ожидают подтверждения")}`}
-                onClick={() => router.push("/city")}
-              />
-            )}
-          </div>
-        )}
+      <motion.div variants={cardIn}>
+        <AttentionSection items={attentionItems} />
       </motion.div>
 
       <motion.div variants={cardIn} className="flex flex-col gap-3">
-        <div className="flex items-center justify-between px-1">
-          <SectionLabel>Мои клубы</SectionLabel>
-          <span className="text-xs font-semibold text-muted-foreground">{block.scopeLabel}</span>
-        </div>
-        <GlassCard variant="solid" pad="none" animateIn={false} className="divide-y divide-border">
-          {block.clubs.length === 0 ? (
-            <p className="p-4 text-sm text-muted-foreground">Нет клубов в зоне ответственности.</p>
-          ) : (
-            block.clubs.map((c) => (
-              <button
-                key={c.clubId}
-                type="button"
-                onClick={() => router.push(`/city/club?clubId=${c.clubId}`)}
-                className="flex w-full items-center gap-3 p-4 text-left transition-colors active:bg-foreground/5"
-              >
-                <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-brand/12">
-                  <Building2 className="size-4.5 text-brand" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-semibold">{c.clubName}</p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {c.managerName ?? "Без управляющего"} · {pluralRu(c.employeeCount, "сотрудник", "сотрудника", "сотрудников")}
-                  </p>
-                </div>
-                {c.attentionCount > 0 && (
-                  <span className="shrink-0 rounded-full bg-brand/12 px-2 py-0.5 text-xs font-bold text-brand">{c.attentionCount}</span>
-                )}
-                <ChevronRight className="size-4 shrink-0 text-muted-foreground/50" />
-              </button>
-            ))
-          )}
-        </GlassCard>
+        <SectionLabel>Город сегодня</SectionLabel>
+        <ManagementSummary
+          stats={[
+            { key: "clubs", label: "Клубы", value: block.clubCount },
+            { key: "employees", label: "Сотрудники", value: block.employeeCount },
+            { key: "training", label: "Обучение", value: averageProgressPercent !== null ? `${averageProgressPercent}%` : "—" },
+          ]}
+        />
       </motion.div>
 
-      <motion.div variants={cardIn} className="flex flex-col gap-3">
-        <SectionLabel>Управляющие</SectionLabel>
-        <GlassCard variant="solid" pad="none" animateIn={false} className="divide-y divide-border">
-          {block.clubs.map((c) => (
-            <div key={c.clubId} className="flex items-center gap-3 p-4">
-              <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-muted">
-                <UserCog className="size-4.5 text-muted-foreground" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="truncate font-semibold">{c.managerName ?? "Не назначен"}</p>
-                <p className="truncate text-xs text-muted-foreground">{c.clubName}</p>
-              </div>
-              {c.managerName === null && (
-                <Button size="sm" variant="secondary" onClick={() => router.push(`/city/club?clubId=${c.clubId}`)}>
-                  Назначить
-                </Button>
-              )}
-            </div>
-          ))}
+      <motion.div variants={cardIn}>
+        <GlassCard variant="solid" pad="none" animateIn={false}>
+          <ManagementListRow icon={Building2} title="Клубы" subtitle={clubsSubtitle} onClick={() => router.push("/city")} />
         </GlassCard>
       </motion.div>
 
       <motion.div variants={cardIn}>
-        <SectionLabel>Обучение по клубам</SectionLabel>
-        <div className="mt-3">
-          <TrainingSummaryCard
-            totalPublishedLessons={block.training?.totalPublishedLessons ?? 0}
-            line1={
-              block.training && block.training.totalPublishedLessons > 0 && block.training.averageProgressPercent !== null
-                ? `Средний прогресс: ${block.training.averageProgressPercent}%`
-                : "Нет данных"
-            }
-            line2={block.training ? `Завершили все опубликованные уроки: ${block.training.employeesCompletedAll}` : undefined}
-            onClick={() => router.push("/city/training")}
-          />
-        </div>
+        <GlassCard variant="solid" pad="none" animateIn={false}>
+          <ManagementListRow icon={GraduationCap} title="Обучение" subtitle={trainingSubtitle} onClick={() => router.push("/city/training")} />
+        </GlassCard>
       </motion.div>
 
-      <motion.div variants={cardIn} className="flex flex-col gap-3">
-        {/* METRO UP ROUND 1, Milestone 4, section 9 — the unread-notification
-            dot is ADDITIVE to the existing business count (questionsNewCount,
-            unchanged), not a replacement: "preserve that business count ...
-            add unread notification indication subtly, without clutter." */}
-        <div className="flex items-center gap-2 px-1">
-          <SectionLabel>Вопросы сотрудников</SectionLabel>
-          {block.questionsUnreadCount > 0 && (
-            <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-brand px-1.5 text-[11px] font-bold text-brand-foreground">
-              {block.questionsUnreadCount}
-            </span>
-          )}
-        </div>
-        <AttentionRow
-          icon={MessageSquare}
-          text={
-            block.questionsNewCount > 0
-              ? `${block.questionsNewCount} ${pluralRu(block.questionsNewCount, "новый вопрос", "новых вопроса", "новых вопросов")}`
-              : "Нет новых вопросов"
-          }
-          onClick={() => router.push("/questions")}
-        />
+      <motion.div variants={cardIn}>
+        <GlassCard variant="solid" pad="none" animateIn={false}>
+          {/* METRO UP ROUND 1, Milestone 4, section 9 — the unread-notification
+              badge is ADDITIVE to the existing business count (questionsNewCount,
+              in the subtitle, unchanged semantics) — never a replacement for it.
+              Round C, section 8 — kept deliberately subtle (neutral bg-muted,
+              not the brand/yellow this round reserves for genuine attention). */}
+          <ManagementListRow
+            icon={MessageSquare}
+            title="Вопросы сотрудников"
+            subtitle={questionsSubtitle}
+            trailing={
+              block.questionsUnreadCount > 0 ? (
+                <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-muted px-1.5 text-[11px] font-bold text-muted-foreground">
+                  {block.questionsUnreadCount}
+                </span>
+              ) : undefined
+            }
+            onClick={() => router.push("/questions")}
+          />
+        </GlassCard>
       </motion.div>
     </>
   );
@@ -1058,52 +1049,5 @@ function ClubManagerHomeSection({
         </GlassCard>
       </motion.div>
     </>
-  );
-}
-
-function AttentionRow({ icon: Icon, text, onClick }: { icon: LucideIcon; text: string; onClick: () => void }) {
-  return (
-    <GlassCard variant="solid" pad="md" animateIn={false} interactive onClick={onClick} className="flex items-center gap-3">
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-2xl bg-brand/12">
-        <Icon className="size-5 text-brand" />
-      </span>
-      <p className="min-w-0 flex-1 truncate text-sm font-semibold">{text}</p>
-      <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-    </GlassCard>
-  );
-}
-
-/** Honest empty state ("Нет данных") whenever there's no published content or
- * no one in scope yet — never a fabricated percent. Never says "mandatory" /
- * "overdue" / "failed plan" (section 10).
- *
- * Sprint: manual-test-round-3, section 5A — an optional `onClick` turns this
- * into a drill-down entry point (CITY_MANAGER's "Обучение по клубам" →
- * /city/training) without changing the CLUB_MANAGER's own "Обучение команды"
- * call site, which omits onClick and stays a plain summary (its drill-down
- * is already one tap away via the "Моя команда" card just above it). */
-function TrainingSummaryCard({
-  totalPublishedLessons,
-  line1,
-  line2,
-  onClick,
-}: {
-  totalPublishedLessons: number;
-  line1: string;
-  line2?: string;
-  onClick?: () => void;
-}) {
-  return (
-    <GlassCard variant="solid" pad="lg" animateIn={false} interactive={Boolean(onClick)} onClick={onClick}>
-      <div className="flex items-center gap-2">
-        <span className="flex size-9 items-center justify-center rounded-2xl bg-brand/12">
-          <GraduationCap className="size-5 text-brand" />
-        </span>
-        <p className="flex-1 font-bold">{totalPublishedLessons > 0 ? `${totalPublishedLessons} уроков в Академии` : "Академия"}</p>
-        {onClick && <ChevronRight className="size-4 shrink-0 text-muted-foreground" />}
-      </div>
-      <p className="mt-2 text-sm text-muted-foreground">{line1}</p>
-      {line2 && <p className="mt-1 text-sm text-muted-foreground">{line2}</p>}
-    </GlassCard>
   );
 }
