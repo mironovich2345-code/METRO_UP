@@ -4,8 +4,9 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { CheckCircle2, Clock, GraduationCap, Lock } from "lucide-react";
-import { BottomNavigation } from "@/components/bottom-navigation";
+import { BottomNavigation, useEffectiveNavContext } from "@/components/bottom-navigation";
 import { AppHeader } from "@/components/app-header";
+import { ManagementAvatarLink } from "@/components/management/management-primitives";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Badge } from "@/components/ui/badge";
 import { XPProgress } from "@/components/ui/xp-progress";
@@ -17,6 +18,7 @@ import { cardIn, staggerStack } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { haptic } from "@/lib/telegram";
 import { homeContextToAcademySection } from "@/lib/cabinet-ui";
+import { isManagementNavContext } from "@/lib/nav-items";
 import { loadStoredContext } from "@/lib/home-context-storage";
 import { fetchAcademyOverview } from "@/lib/api/content-client";
 import { useQuery, QUERY_POLICY } from "@/lib/client/query-cache";
@@ -43,6 +45,11 @@ const SECTION_LABEL: Record<AcademyTargetRoleDTO, string> = {
  */
 export default function AcademyScreen() {
   const { telegramUser } = useApp();
+  // Round A.1, section A — /academy is a root screen for EVERY context
+  // (PERSONAL's own existing nav tab, and now also CLUB_MANAGER's/
+  // CITY_MANAGER's). The avatar entry is additive, shown only for the two
+  // management contexts — PERSONAL's header stays byte-identical.
+  const isManagementRoot = isManagementNavContext(useEffectiveNavContext());
   // Sprint: mini-app-performance — `undefined` = not yet resolved from
   // storage (key stays null, nothing fetched yet); `"default"` = resolved,
   // no stored preference, ask the server for its own MANAGER-first fallback;
@@ -77,7 +84,7 @@ export default function AcademyScreen() {
 
   return (
     <div className="relative min-h-[100dvh] pb-32">
-      <AppHeader title="Академия" subtitle="Твои курсы и прогресс" />
+      <AppHeader title="Академия" subtitle="Твои курсы и прогресс" leading={isManagementRoot ? <ManagementAvatarLink /> : undefined} />
       <RevalidatingBar show={Boolean(data) && isValidating} />
 
       {status === "ready" && data?.allowedSections && data.allowedSections.length > 1 && (

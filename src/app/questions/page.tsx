@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { ChevronRight, MessageSquareOff } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
 import { BottomNavigation } from "@/components/bottom-navigation";
+import { ManagementAvatarLink } from "@/components/management/management-primitives";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -76,7 +77,10 @@ export default function QuestionsInboxPage() {
 
   return (
     <div className="relative min-h-[100dvh] pb-32">
-      <AppHeader title="Вопросы сотрудников" showBack backHref="/home" showThemeSwitcher={false} />
+      {/* Round A.1, section A — /questions is always reached as the
+          viewer's own root "Вопросы" workspace screen — avatar entry, no
+          back button. */}
+      <AppHeader title="Вопросы сотрудников" leading={<ManagementAvatarLink />} showThemeSwitcher={false} />
       <RevalidatingBar show={Boolean(data) && isValidating} />
 
       <motion.main variants={staggerStack} initial="hidden" animate="show" className="flex flex-col gap-4 px-5 pt-2">

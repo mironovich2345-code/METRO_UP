@@ -102,6 +102,14 @@ export function resolveEffectiveNavContext(params: {
   return "PERSONAL";
 }
 
+/** Round A.1, section A — a root screen shared with PERSONAL (/plan,
+ * /academy) uses this to decide WHETHER to show the management-only
+ * avatar/Profile entry at all, without caring WHICH management context it
+ * is. PERSONAL keeps its own, already-existing header untouched either way. */
+export function isManagementNavContext(context: ManagementNavContext): boolean {
+  return context === "CLUB_MANAGER" || context === "CITY_MANAGER";
+}
+
 /**
  * accessStatus=LIMITED sees only Академия (the approved LIMITED whitelist —
  * Home/Метрик/База/Рейтинг are FULL-only, see requireFullAccess in authz.ts).

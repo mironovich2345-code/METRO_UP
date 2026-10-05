@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { CheckCircle2, ChevronRight, Clock, GraduationCap, UserCheck, Users } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
 import { BottomNavigation } from "@/components/bottom-navigation";
+import { ManagementAvatarLink } from "@/components/management/management-primitives";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
 import { RevalidatingBar } from "@/components/ui/revalidating-bar";
@@ -150,7 +151,7 @@ export default function TeamPage() {
   if (!isPreviewing && clubs && clubs.length > 1 && !selectedClubId) {
     return (
       <div className="relative min-h-[100dvh] pb-32">
-        <AppHeader title="Моя команда" showBack backHref="/home" showThemeSwitcher={false} />
+        <AppHeader title="Моя команда" leading={<ManagementAvatarLink />} showThemeSwitcher={false} />
         <main className="flex flex-col gap-3 px-5 pt-2">
           <p className="px-1 text-sm text-muted-foreground">Выберите клуб</p>
           {clubs.map((c) => (
@@ -172,13 +173,26 @@ export default function TeamPage() {
 
   return (
     <div className="relative min-h-[100dvh] pb-32">
-      <AppHeader
-        title={isReadOnlyDrillDown ? "Команда" : "Моя команда"}
-        subtitle={dashboard?.clubName ?? undefined}
-        showBack
-        backHref={explicitClubId ? `/city/club?clubId=${explicitClubId}` : "/home"}
-        showThemeSwitcher={false}
-      />
+      {/* Round A.1, section B — /team has two meanings: a real CLUB_MANAGER's
+          own ROOT workspace screen (no explicit clubId — avatar entry, no
+          back button, matching every other root screen), or a CITY_MANAGER's
+          explicit ?clubId= drill-down into one club's roster (a focused
+          detail view — keeps its existing back-button header unchanged).
+          isReadOnlyDrillDown (cabinet-ui.ts) is exactly this distinction —
+          already false for a View-As-CLUB_MANAGER preview, since that never
+          carries an explicitClubId, so a preview correctly gets the root
+          treatment too. */}
+      {isReadOnlyDrillDown ? (
+        <AppHeader
+          title="Команда"
+          subtitle={dashboard?.clubName ?? undefined}
+          showBack
+          backHref={`/city/club?clubId=${explicitClubId}`}
+          showThemeSwitcher={false}
+        />
+      ) : (
+        <AppHeader title="Моя команда" subtitle={dashboard?.clubName ?? undefined} leading={<ManagementAvatarLink />} showThemeSwitcher={false} />
+      )}
       <RevalidatingBar show={Boolean(teamData) && isValidating} />
 
       <motion.main variants={staggerStack} initial="hidden" animate="show" className="flex flex-col gap-5 px-5 pt-2">
@@ -307,13 +321,12 @@ export default function TeamPage() {
         )}
       </motion.main>
 
-      {/* Management UX Round A, section 6 — /team is a CLUB_MANAGER root
-          workspace screen. Rendered unconditionally here (including for a
-          CITY_MANAGER's read-only ?clubId= drill-down) — the nav reflects
-          the VIEWING actor's own effective context, not which specific
-          content this page happens to show; a CITY_MANAGER drilling in
-          correctly keeps seeing their own CITY_MANAGER nav. */}
-      <BottomNavigation />
+      {/* Round A.1, section B correction — a CITY_MANAGER's explicit
+          ?clubId= drill-down is a focused DETAIL view (back-button header
+          above), never a root workspace tab: no persistent nav here, same
+          as /city/club or /team/employee. The real CLUB_MANAGER root case
+          (including an active View-As-CLUB_MANAGER preview) keeps it. */}
+      {!isReadOnlyDrillDown && <BottomNavigation />}
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { AlertCircle, Building2, CheckCircle2, ChevronRight, Clock, GraduationCap } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
 import { BottomNavigation } from "@/components/bottom-navigation";
+import { ManagementAvatarLink } from "@/components/management/management-primitives";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
 import { RevalidatingBar } from "@/components/ui/revalidating-bar";
@@ -47,7 +48,10 @@ export default function CityClubsPage() {
 
   return (
     <div className="relative min-h-[100dvh] pb-32">
-      <AppHeader title="Мои клубы" subtitle={dashboard ? scopeLabel : undefined} showBack backHref="/home" showThemeSwitcher={false} />
+      {/* Round A.1, section A — /city is always CITY_MANAGER's own root
+          "Клубы" workspace screen (never a drill-down for someone else) —
+          avatar entry, no back button, matching every other root screen. */}
+      <AppHeader title="Мои клубы" subtitle={dashboard ? scopeLabel : undefined} leading={<ManagementAvatarLink />} showThemeSwitcher={false} />
       <RevalidatingBar show={Boolean(dashboard) && isValidating} />
 
       <motion.main variants={staggerStack} initial="hidden" animate="show" className="flex flex-col gap-5 px-5 pt-2">

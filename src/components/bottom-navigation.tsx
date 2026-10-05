@@ -37,7 +37,13 @@ const ICONS: Record<string, LucideIcon> = {
  * no flash-of-wrong-content window for the one context (PERSONAL) most
  * users have.
  */
-function useEffectiveNavContext(): ManagementNavContext {
+/**
+ * Round A.1, section A — exported so a page can decide ITS OWN presentation
+ * (e.g. whether to show an avatar/Profile entry, whether to render
+ * BottomNavigation at all) from the exact same resolved context the nav
+ * bar itself uses, without re-deriving it a second, possibly-divergent way.
+ */
+export function useEffectiveNavContext(): ManagementNavContext {
   const { user } = useAppUser();
   const [storedType, setStoredType] = useState<"PERSONAL" | "CLUB_MANAGER" | "CITY_MANAGER" | null>(null);
   useEffect(() => {

@@ -1,17 +1,18 @@
 "use client";
 
+import Link from "next/link";
 import { ChevronRight, CheckCircle2, type LucideIcon } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
+import { Avatar } from "@/components/ui/avatar";
 import { GlassCard } from "@/components/ui/glass-card";
 import { cn } from "@/lib/utils";
+import { useApp } from "@/providers/app-provider";
+import { useAppUser } from "@/providers/AppUserProvider";
 
 /**
- * METRO UP, Management UX Round A, section 8 — the small shared management
- * visual primitive set the audit recommended. Built and proven here;
- * NOT yet adopted by any existing screen (Home/Team/City/Club-detail are
- * explicitly untouched this round — "do NOT rebuild CLUB_MANAGER Home yet
- * / do NOT rebuild CITY_MANAGER Home yet"). Round B/C/D compose these into
- * the actual rebuilt screens.
+ * METRO UP, Management UX Round A — the small shared management visual
+ * primitive set the audit recommended. Round A.1/B now adopt `ManagementAvatarLink`
+ * (root-screen Profile entry) and the rest of this set (CLUB_MANAGER Home).
  *
  * Deliberately NOT built: a generic `ManagementHomeSection` wrapper —
  * CLUB_MANAGER and CITY_MANAGER Home layouts differ enough in content and
@@ -30,6 +31,37 @@ import { cn } from "@/lib/utils";
  * from this file).
  */
 
+/* ============================== ManagementAvatarLink ============================== */
+
+/**
+ * Round A.1, section A — the ONE Profile entry pattern (avatar → /profile),
+ * now reusable on management ROOT screens beyond Home. Self-contained
+ * (reads profile/avatar itself via the same two hooks Home already reads
+ * them from) so a call site only ever does
+ * `<AppHeader leading={<ManagementAvatarLink />} .../>` — no prop
+ * threading needed. Renders nothing before `profile` has hydrated (same
+ * "nothing to show yet" guard every other profile-dependent read in this
+ * app already uses) rather than a placeholder avatar. Deliberately no
+ * chevron/"Профиль" text — the avatar alone is already an established,
+ * recognized tap target (Home's own header has used it, unchanged, since
+ * Milestone 1); this is a smaller, secondary-header-sized instance of the
+ * exact same pattern, never a second, different one.
+ */
+export function ManagementAvatarLink() {
+  const { profile } = useApp();
+  const { user } = useAppUser();
+  if (!profile) return null;
+  return (
+    <Link
+      href="/profile"
+      aria-label="Открыть профиль"
+      className="-m-1 flex shrink-0 items-center rounded-2xl p-1 transition-colors active:bg-foreground/5"
+    >
+      <Avatar name={profile.displayName} src={user?.avatarUrl ?? undefined} size={36} ring />
+    </Link>
+  );
+}
+
 /* ============================== ManagementHeader ============================== */
 
 /**
@@ -37,24 +69,27 @@ import { cn } from "@/lib/utils";
  * Полтавская" / "Ст. города · Нижний Новгород". A single compact title
  * line (not AppHeader's usual two-line title+subtitle stack) — deliberately
  * matching the task's own one-line examples rather than introducing a
- * taller header. The avatar/Profile entry is NOT part of this component —
- * that stays Home's own, sole pattern (section 7's explicit "one entry
- * pattern only"); this header is for secondary/root management screens
- * that use the plain back-button AppHeader today, unchanged this round.
+ * taller header. Pass `leading={<ManagementAvatarLink />}` explicitly when
+ * a call site wants the Profile entry too — this component has no avatar
+ * built in by default, so a secondary screen that still wants its own
+ * distinct title (rather than this generic Role·Scope line) is never
+ * forced to also take an opinion on Profile entry it doesn't need.
  */
 export function ManagementHeader({
   roleLabel,
   scopeLabel,
   showBack,
   backHref,
+  leading,
 }: {
   roleLabel: string;
   scopeLabel?: string | null;
   showBack?: boolean;
   backHref?: string;
+  leading?: React.ReactNode;
 }) {
   const title = scopeLabel ? `${roleLabel} · ${scopeLabel}` : roleLabel;
-  return <AppHeader title={title} showBack={showBack} backHref={backHref} showThemeSwitcher={false} />;
+  return <AppHeader title={title} showBack={showBack} backHref={backHref} leading={leading} showThemeSwitcher={false} />;
 }
 
 /* ============================== ManagementEmptyState ============================== */

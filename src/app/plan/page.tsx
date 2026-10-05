@@ -5,7 +5,8 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { CheckCircle2, ChevronDown, ChevronRight, Circle, Clock, Lock } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
-import { BottomNavigation } from "@/components/bottom-navigation";
+import { BottomNavigation, useEffectiveNavContext } from "@/components/bottom-navigation";
+import { ManagementAvatarLink } from "@/components/management/management-primitives";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,14 @@ import { cacheKeys, cacheKeyPrefixes } from "@/lib/client/cache-keys";
 import type { DailyPlanDTO, DailyTaskDTO } from "@/lib/api/home-types";
 
 export default function PlanScreen() {
+  // Round A.1, section A — /plan is ALSO a plain PERSONAL employee's own
+  // screen (Home's "Открыть план" card); the avatar entry + dropped back
+  // button only apply when the viewer's effective context is actually
+  // CLUB_MANAGER (/plan is not in CITY_MANAGER's own nav set at all) —
+  // PERSONAL's header stays byte-identical either way.
+  const effectiveContext = useEffectiveNavContext();
+  const isClubManagerRoot = effectiveContext === "CLUB_MANAGER";
+
   const { data: plan, error, isLoading, isValidating, mutate } = useQuery(
     cacheKeys.planToday(),
     fetchPlanToday,
@@ -46,7 +55,14 @@ export default function PlanScreen() {
 
   return (
     <div className="relative min-h-[100dvh] pb-32">
-      <AppHeader title="План на сегодня" subtitle={dateLabel} showBack backHref="/home" showThemeSwitcher={false} />
+      <AppHeader
+        title="План на сегодня"
+        subtitle={dateLabel}
+        showBack={!isClubManagerRoot}
+        backHref={!isClubManagerRoot ? "/home" : undefined}
+        leading={isClubManagerRoot ? <ManagementAvatarLink /> : undefined}
+        showThemeSwitcher={false}
+      />
       <RevalidatingBar show={Boolean(plan) && isValidating} />
 
       <motion.main variants={staggerStack} initial="hidden" animate="show" className="px-5">
