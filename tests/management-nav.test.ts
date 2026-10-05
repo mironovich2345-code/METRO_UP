@@ -318,10 +318,12 @@ test("VISUAL-F: the still-untouched management DETAIL screens (section 6's own l
   }
 });
 
-test("VISUAL-F2: CityManagerHomeSection (inside home/page.tsx) does not reference the new management primitives — CITY_MANAGER Home remains unchanged even though the SAME file now imports them for the rebuilt CLUB_MANAGER section (Round B's explicit 'CITY_MANAGER Home must remain unchanged in this round')", () => {
+test("VISUAL-F2 (superseded by Round C): CityManagerHomeSection now DOES use the shared management primitives — Round B's 'CITY_MANAGER Home remains unchanged this round' constraint applied only through Round B.1; Round C is the round that explicitly rebuilds it on AttentionSection/ManagementSummary/ManagementListRow, same as CLUB_MANAGER already was", () => {
   const src = read("src/app/home/page.tsx");
   const fnSrc = src.slice(src.indexOf("function CityManagerHomeSection"), src.indexOf("function ReturnToCityCabinetCard"));
-  assert.doesNotMatch(fnSrc, /AttentionSection|AttentionItem|ManagementListRow|ManagementEmptyState|ManagementSummary|ManagementHeader|ManagementAvatarLink/);
+  assert.match(fnSrc, /AttentionSection/);
+  assert.match(fnSrc, /ManagementSummary/);
+  assert.match(fnSrc, /ManagementListRow/);
 });
 
 test("VISUAL-G: no generic 'ManagementHomeSection' wrapper abstraction was created — the audit's own explicit 'do not abstract for its own sake' instruction (the file's own comment explains WHY it's absent, in prose — this checks there is no actual declaration or usage, not that the words never appear)", () => {
@@ -409,10 +411,10 @@ test("A1-PROFILE-STILL-ABSENT: none of the Round A.1 header changes added Profil
  *  ROUND B — CLUB_MANAGER Home rebuild
  * ===================================================================== */
 
-test("B-PERSONAL-A: the PERSONAL header branch (dash.kind !== 'club_manager') is untouched — still shows greeting+firstName, never the new role/scope text", () => {
+test("B-PERSONAL-A (updated for Round C): the PERSONAL header fallback — neither club_manager nor city_manager — still resolves to greeting+firstName, now as the final branch of a three-way role/scope ternary instead of a two-way one", () => {
   const src = read("src/app/home/page.tsx");
-  assert.match(src, /\{dash && dash\.kind === "club_manager" \? "Управляющий" : `\$\{greeting\},`\}/);
-  assert.match(src, /\{dash && dash\.kind === "club_manager" \? dash\.block\.clubLabel : firstName\}/);
+  assert.match(src, /: dash && dash\.kind === "city_manager"\s*\n\s*\? "Ст\. города"\s*\n\s*: `\$\{greeting\},`/);
+  assert.match(src, /: dash && dash\.kind === "city_manager"\s*\n\s*\? dash\.block\.scopeLabel\s*\n\s*: firstName/);
 });
 
 test("B-PERSONAL-B: the PERSONAL Home body branch (dash.kind==='full') was not touched by this round — same card sequence as before", () => {
@@ -426,12 +428,12 @@ test("B-PERSONAL-B: the PERSONAL Home body branch (dash.kind==='full') was not t
   }
 });
 
-test("B-CITY-A: CityManagerHomeSection's own 5 sections (Требует внимания/Мои клубы/Управляющие/Обучение по клубам/Вопросы сотрудников) are all still present, unchanged — confirmed again at the Round B level, not just Round A's", () => {
+test("B-CITY-A (superseded by Round C's ROUND-C-A/B/C above): the old 5-section CityManagerHomeSection (Мои клубы + separate Управляющие + oversized training card) is exactly what Round C was asked to replace — this now checks the OLD section headings are gone, not present", () => {
   const src = read("src/app/home/page.tsx");
   const fnSrc = src.slice(src.indexOf("function CityManagerHomeSection"), src.indexOf("function ReturnToCityCabinetCard"));
-  for (const label of ["Требует внимания", "Мои клубы", "Управляющие", "Обучение по клубам", "Вопросы сотрудников"]) {
-    assert.match(fnSrc, new RegExp(label));
-  }
+  assert.doesNotMatch(fnSrc, /Мои клубы/);
+  assert.doesNotMatch(fnSrc, /Управляющие/);
+  assert.doesNotMatch(fnSrc, /Обучение по клубам/);
 });
 
 test("B-CLUBMGR-A: ClubManagerHomeSection reads only REAL ClubManagerHomeBlockDTO fields — no invented field names (block.clubLabel is consumed by Home's OWN header, one level up, not by this component)", () => {
@@ -635,12 +637,120 @@ test("TRAINING-COPY-C: no average-progress-percent field is referenced — CLUB_
 
 /* --------- section 6: do-not-change guardrails ---------- */
 
-test("GUARDRAIL-A: this round did not touch CITY_MANAGER Home composition, PERSONAL Home's card sequence, bottom-nav route sets, or /city's AttentionList — only the specifically-listed files/sections changed", () => {
-  const src = read("src/app/home/page.tsx");
-  const cityFnSrc = src.slice(src.indexOf("function CityManagerHomeSection"), src.indexOf("function ReturnToCityCabinetCard"));
-  for (const label of ["Требует внимания", "Мои клубы", "Управляющие", "Обучение по клубам", "Вопросы сотрудников"]) {
-    assert.match(cityFnSrc, new RegExp(label));
-  }
+test("GUARDRAIL-A (superseded by Round C — see ROUND-C-* below): bottom-nav route sets are unchanged by this round's work", () => {
   assert.deepEqual(CLUB_MANAGER_NAV_ROUTES.map((r) => r.href), ["/home", "/team", "/plan", "/academy"]);
   assert.deepEqual(CITY_MANAGER_NAV_ROUTES.map((r) => r.href), ["/home", "/city", "/questions", "/academy"]);
+});
+
+/* ===================================================================== *
+ *  ROUND C — CITY_MANAGER Home rebuild: summary + attention + entry
+ *  points, answering "what is happening in my city, and where do I need
+ *  to intervene" — never a second /city, never a full club/manager list.
+ * ===================================================================== */
+
+function cityManagerHomeFnSrc(): string {
+  const src = read("src/app/home/page.tsx");
+  return src.slice(src.indexOf("function CityManagerHomeSection"), src.indexOf("function ReturnToCityCabinetCard"));
+}
+
+test("ROUND-C-A: CityManagerHomeSection no longer renders the full club list — no iteration over block.clubs anywhere in its body", () => {
+  const fnSrc = cityManagerHomeFnSrc();
+  assert.doesNotMatch(fnSrc, /block\.clubs/);
+});
+
+test("ROUND-C-B: CityManagerHomeSection no longer renders a separate full 'Управляющие' roster — no such heading and no per-club 'Не назначен' manager row loop", () => {
+  const fnSrc = cityManagerHomeFnSrc();
+  assert.doesNotMatch(fnSrc, /Управляющие/);
+  assert.doesNotMatch(fnSrc, /Не назначен/);
+});
+
+test("ROUND-C-C: approved section order — Требует внимания (AttentionSection) -> Город сегодня (ManagementSummary) -> Клубы -> Обучение -> Вопросы сотрудников", () => {
+  const fnSrc = cityManagerHomeFnSrc();
+  const iAttention = fnSrc.indexOf("<AttentionSection items={attentionItems}");
+  const iSummary = fnSrc.indexOf("Город сегодня");
+  const iClubs = fnSrc.indexOf('title="Клубы"');
+  const iTraining = fnSrc.indexOf('title="Обучение"');
+  const iQuestions = fnSrc.indexOf('title="Вопросы сотрудников"');
+  for (const i of [iAttention, iSummary, iClubs, iTraining, iQuestions]) assert.ok(i >= 0);
+  assert.ok(iAttention < iSummary);
+  assert.ok(iSummary < iClubs);
+  assert.ok(iClubs < iTraining);
+  assert.ok(iTraining < iQuestions);
+});
+
+test("ROUND-C-D: Город сегодня (ManagementSummary) uses only real DTO fields — clubCount, employeeCount, averageProgressPercent — never a fabricated sales/advertising/rating/mystery/plan metric", () => {
+  const fnSrc = cityManagerHomeFnSrc();
+  assert.match(fnSrc, /label: "Клубы", value: block\.clubCount/);
+  assert.match(fnSrc, /label: "Сотрудники", value: block\.employeeCount/);
+  assert.match(fnSrc, /label: "Обучение", value: averageProgressPercent !== null/);
+  assert.doesNotMatch(fnSrc, /salesTotal|advertisingBudget|рекламный бюджет|mysteryShopper|operationsPlan|businessPlan/i);
+});
+
+test("ROUND-C-E: Клубы -> /city, Обучение -> /city/training, Вопросы сотрудников -> /questions — no new/invented route", () => {
+  const fnSrc = cityManagerHomeFnSrc();
+  assert.match(fnSrc, /title="Клубы" subtitle=\{clubsSubtitle\} onClick=\{\(\) => router\.push\("\/city"\)\}/);
+  assert.match(fnSrc, /title="Обучение" subtitle=\{trainingSubtitle\} onClick=\{\(\) => router\.push\("\/city\/training"\)\}/);
+  assert.match(fnSrc, /onClick=\{\(\) => router\.push\("\/questions"\)\}/);
+});
+
+test("ROUND-C-F: no fake KPI labels anywhere in the rebuilt section — no Реклама/Тайный покупатель/Рейтинг/Operations Plan/Бизнес-план text", () => {
+  const fnSrc = cityManagerHomeFnSrc();
+  assert.doesNotMatch(fnSrc, /Реклама|Тайный покупатель|Рейтинг|Operations Plan|Бизнес-план/);
+});
+
+test("ROUND-C-G: no 'Показатели' nav entry exists anywhere — not in either management nav set, not as a placeholder route (nav-items.ts's own doc comment explaining its deliberate absence is not itself a route and is excluded from this check)", () => {
+  const navSrc = read("src/lib/nav-items.ts");
+  assert.doesNotMatch(navSrc, /label: "Показатели"/);
+  assert.equal(CLUB_MANAGER_NAV_ROUTES.some((r) => r.label === "Показатели"), false);
+  assert.equal(CITY_MANAGER_NAV_ROUTES.some((r) => r.label === "Показатели"), false);
+  assert.equal(CLUB_MANAGER_NAV_ROUTES.length, 4);
+  assert.equal(CITY_MANAGER_NAV_ROUTES.length, 4);
+});
+
+test("ROUND-C-H: attention is empty exactly when both real categories are zero — no item is pushed unconditionally", () => {
+  const fnSrc = cityManagerHomeFnSrc();
+  assert.match(fnSrc, /const attentionItems: AttentionItemData\[\] = \[\];/);
+  assert.match(fnSrc, /if \(clubsWithoutManagerCount > 0\) \{/);
+  assert.match(fnSrc, /if \(block\.pendingApprovalCount > 0\) \{/);
+});
+
+test("ROUND-C-I: no-training-data is an honest state, never a fabricated 0% — the ternary checks `!== null`, and a GENUINE 0% (real data, truly zero) still renders its own value rather than collapsing into the same branch", () => {
+  const fnSrc = cityManagerHomeFnSrc();
+  assert.match(fnSrc, /averageProgressPercent !== null \? `Средний прогресс \$\{averageProgressPercent\}%` : "Открыть обучение по клубам"/);
+  assert.match(fnSrc, /averageProgressPercent !== null \? `\$\{averageProgressPercent\}%` : "—"/);
+});
+
+test("ROUND-C-J: zero-question state is clean copy ('Нет новых вопросов'), not a forced '0 новых'", () => {
+  const fnSrc = cityManagerHomeFnSrc();
+  assert.match(fnSrc, /block\.questionsNewCount > 0[\s\S]{0,200}: "Нет новых вопросов"/);
+});
+
+test("ROUND-C-K: the View-As-return nav/context fix from Round B.1 still applies unchanged — CityManagerHomeSection is still exactly what renders for dash.kind==='city_manager' once identity is confirmed, so ending a CLUB_MANAGER preview resolves back into THIS rebuilt section, not a second code path", () => {
+  const src = read("src/app/home/page.tsx");
+  assert.match(src, /dash\.kind === "city_manager"[\s\S]{0,200}<CityManagerHomeSection block=\{dash\.block\} router=\{router\} \/>/);
+});
+
+test("ROUND-C-L: header shows the role/scope two-line treatment for CITY_MANAGER too — 'Ст. города' / block.scopeLabel, the same pattern CLUB_MANAGER already uses for 'Управляющий' / clubLabel", () => {
+  const src = read("src/app/home/page.tsx");
+  assert.match(src, /dash\.kind === "city_manager"\s*\n\s*\? "Ст\. города"/);
+  assert.match(src, /dash\.kind === "city_manager"\s*\n\s*\? dash\.block\.scopeLabel/);
+});
+
+test("ROUND-C-M: the old EmptyAttention/AttentionRow/TrainingSummaryCard helpers are gone, not left as dead code alongside the shared AttentionSection/ManagementListRow/ManagementSummary primitives now used instead", () => {
+  const src = read("src/app/home/page.tsx");
+  assert.doesNotMatch(src, /function EmptyAttention/);
+  assert.doesNotMatch(src, /function AttentionRow/);
+  assert.doesNotMatch(src, /function TrainingSummaryCard/);
+});
+
+test("ROUND-C-N: PERSONAL Home's card sequence and ClubManagerHomeSection are untouched by this round — same anchor content still present, unrelated to the CITY_MANAGER rebuild", () => {
+  const src = read("src/app/home/page.tsx");
+  assert.match(src, /dash\.kind === "full"/);
+  for (const anchor of ["Продолжить обучение", "Твой опыт", "Тайный покупатель", "База знаний"]) {
+    assert.match(src, new RegExp(anchor));
+  }
+  const clubMgrFnSrc = src.slice(src.indexOf("function ClubManagerHomeSection"), src.indexOf("function AttentionRow") === -1 ? src.length : src.indexOf("function AttentionRow"));
+  assert.match(clubMgrFnSrc, /title="Команда"/);
+  assert.match(clubMgrFnSrc, /title="Обучение команды"/);
+  assert.doesNotMatch(clubMgrFnSrc, /Мой клуб/);
 });

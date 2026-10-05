@@ -70,10 +70,10 @@ test("DLURL-A: questionAttachmentDownloadUrl builds a same-origin proxy path con
 
 /* ============================== source-text wiring: Home block ============================== */
 
-test("WIRE-A: the Home CITY_MANAGER section renders a 'Вопросы сотрудников' block that routes to /questions, placed after 'Обучение по клубам' per the suggested order", () => {
+test("WIRE-A: the Home CITY_MANAGER section renders a 'Вопросы сотрудников' block that routes to /questions, placed after the Обучение row per the Management UX Round C approved order (anchored on the actual JSX title=\"...\" props, not bare prose — this file's own surrounding doc comments mention both phrases too)", () => {
   const src = read("src/app/home/page.tsx");
-  const trainingIdx = src.indexOf("Обучение по клубам");
-  const questionsIdx = src.indexOf("Вопросы сотрудников", trainingIdx);
+  const trainingIdx = src.indexOf('title="Обучение"');
+  const questionsIdx = src.indexOf('title="Вопросы сотрудников"', trainingIdx);
   assert.ok(trainingIdx > 0 && questionsIdx > trainingIdx, "expected the questions block after the training section");
   const sectionSrc = src.slice(questionsIdx, questionsIdx + 700);
   assert.match(sectionSrc, /router\.push\(.\/questions.\)/);
@@ -81,7 +81,7 @@ test("WIRE-A: the Home CITY_MANAGER section renders a 'Вопросы сотру
 
 test("WIRE-B: the Home block never renders individual question cards directly on Home — only the compact count row, no list iteration on this screen", () => {
   const src = read("src/app/home/page.tsx");
-  const questionsIdx = src.indexOf("Вопросы сотрудников");
+  const questionsIdx = src.indexOf('title="Вопросы сотрудников"');
   const sectionSrc = src.slice(questionsIdx, questionsIdx + 700);
   assert.doesNotMatch(sectionSrc, /\.map\(/);
 });

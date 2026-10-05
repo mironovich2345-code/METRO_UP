@@ -193,8 +193,10 @@ test(
 
 test(
   "RENDER-B: CITY_MANAGER context (kind:'city_manager') renders ONLY Требует " +
-    "внимания/Мои клубы/Управляющие/Обучение по клубам — no personal Plan/XP/" +
-    "Rating/Mystery/achievements/knowledge-base card anywhere on the page, " +
+    "внимания/Город сегодня/Клубы/Обучение/Вопросы сотрудников (Management UX " +
+    "Round C's compact rebuild — see management-nav.test.ts's ROUND-C-* for " +
+    "the real, running source-text coverage) — no personal Plan/XP/Rating/" +
+    "Mystery/achievements/knowledge-base card anywhere on the page, " +
     "guaranteed at the type level (CityManagerHomeContextDTO has no xp/rating/" +
     "mystery/achievementsCount fields)",
   skip,
