@@ -909,11 +909,26 @@ function CityManagerHomeSection({ block, router }: { block: CityManagerHomeBlock
  * context once the preview is gone.
  */
 function ReturnToCityCabinetCard({ onReturned }: { onReturned: () => void }) {
+  // Management UX Round B.1, section 2 (P0/P1 fix) — root cause of the
+  // stale-nav bug's OTHER half: viewAsApi.end() already flushes the SWR
+  // query cache (so Home's own /api/home refetch correctly returns
+  // city_manager data), but nothing previously refreshed AppUserProvider's
+  // SEPARATE, plain-React-state `user.viewContext` — it is not part of the
+  // SWR cache at all, so clearing that cache never touched it. Left
+  // uncorrected, `user.viewContext.previewRole` stayed "CLUB_MANAGER",
+  // which resolveEffectiveNavContext checks and overrides on — before it
+  // even looks at the (by-then-correct) stored context — so the nav stayed
+  // wrong regardless of anything storage-side. refreshAppUser() is the
+  // SAME call the global ViewAsBanner's own "Выйти из режима просмотра"
+  // already makes after ending a preview (see AppShellFrame's `onEnded`) —
+  // this card was simply missing it.
+  const { refresh: refreshAppUser } = useAppUser();
   const [ending, setEnding] = useState(false);
   const end = async () => {
     setEnding(true);
     try {
       await viewAsApi.end();
+      await refreshAppUser();
     } finally {
       onReturned();
     }
@@ -984,13 +999,22 @@ function ClubManagerHomeSection({
 
   // Section 6 — only real ClubTrainingSummaryDTO fields (totalPublishedLessons/
   // employeesInTraining/employeesCompleted); no "средний прогресс %" field
-  // exists for CLUB_MANAGER (that's a CITY_MANAGER-only aggregate), so the
-  // compact copy below uses the two fields that actually exist, same pairing
-  // the OLD TrainingSummaryCard and /team's own training card already use.
-  const trainingSubtitle =
-    block.training && block.training.totalPublishedLessons > 0
-      ? `Завершили всё: ${block.training.employeesCompleted} · Проходят обучение: ${block.training.employeesInTraining}`
-      : "Нет данных";
+  // exists for CLUB_MANAGER (that's a CITY_MANAGER-only aggregate). Round
+  // B.1, section 5 — live review found the ORIGINAL copy always forced
+  // BOTH numbers in ("Завершили всё: 0 · Проходят обучение: 1"), showing a
+  // zero that helps no one. Each clause now only appears when its own
+  // count is genuinely > 0 — never a forced zero.
+  const trainingSubtitle = (() => {
+    if (!block.training || block.training.totalPublishedLessons === 0) return "Нет данных";
+    const parts: string[] = [];
+    if (block.training.employeesCompleted > 0) parts.push(`Завершили всё: ${block.training.employeesCompleted}`);
+    if (block.training.employeesInTraining > 0) {
+      parts.push(
+        `${block.training.employeesInTraining} ${pluralRu(block.training.employeesInTraining, "проходит обучение", "проходят обучение", "проходят обучение")}`,
+      );
+    }
+    return parts.length > 0 ? parts.join(" · ") : "Пока никто не начал обучение";
+  })();
 
   const teamSubtitle =
     `${block.employeeCount} ${pluralRu(block.employeeCount, "сотрудник", "сотрудника", "сотрудников")}` +

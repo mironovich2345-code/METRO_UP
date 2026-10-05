@@ -97,16 +97,21 @@ export function ManagementHeader({
 /**
  * Section 13 — consolidates the "Сейчас ничего не требует внимания" card
  * copy-pasted today across home/page.tsx's local `EmptyAttention`, /city,
- * /city/club, and /team's inline equivalents. Same compact pad="md" scale
- * those already use — not an oversized card, just no longer duplicated
- * four times.
+ * /city/club, and /team's inline equivalents.
+ *
+ * Round B.1, section 3 — live review found the ORIGINAL version (pad="md",
+ * a size-9 rounded-2xl icon BADGE) too tall for what is, in context, a
+ * "nothing to do" line directly under its own section header — not a
+ * card that needs its own visual weight. Tightened to pad="sm" and a bare
+ * checkmark glyph (no badge bubble) — one calm, compact row, matching
+ * "✓ Сейчас ничего не требует внимания" — while keeping the section
+ * header above it (the stable Требует внимания hierarchy stays, only the
+ * empty-state row itself shrank).
  */
 export function ManagementEmptyState({ text = "Сейчас ничего не требует внимания." }: { text?: string }) {
   return (
-    <GlassCard variant="solid" pad="md" animateIn={false} className="flex items-center gap-3">
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-2xl bg-success/12">
-        <CheckCircle2 className="size-5 text-success" />
-      </span>
+    <GlassCard variant="solid" pad="sm" animateIn={false} className="flex items-center gap-2">
+      <CheckCircle2 className="size-4 shrink-0 text-success" />
       <p className="text-sm text-muted-foreground">{text}</p>
     </GlassCard>
   );

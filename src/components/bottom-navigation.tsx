@@ -11,7 +11,7 @@ import { visibleBottomNavRoutes, isActiveNavRoute, resolveEffectiveNavContext, t
 import { MetricCharacter } from "@/components/ui/metric-character";
 import { useApp } from "@/providers/app-provider";
 import { useAppUser } from "@/providers/AppUserProvider";
-import { loadStoredContext } from "@/lib/home-context-storage";
+import { loadStoredContext, onStoredContextChanged } from "@/lib/home-context-storage";
 import { getOwnerKey } from "@/lib/client/owner";
 
 const ICONS: Record<string, LucideIcon> = {
@@ -36,18 +36,31 @@ const ICONS: Record<string, LucideIcon> = {
  * SAME 5-item bar that already renders unconditionally today, so there is
  * no flash-of-wrong-content window for the one context (PERSONAL) most
  * users have.
- */
-/**
+ *
  * Round A.1, section A — exported so a page can decide ITS OWN presentation
  * (e.g. whether to show an avatar/Profile entry, whether to render
  * BottomNavigation at all) from the exact same resolved context the nav
  * bar itself uses, without re-deriving it a second, possibly-divergent way.
+ *
+ * Round B.1, section 2 (P0/P1 fix) — root cause of "stale nav after
+ * returning from View As": this hook used to read storage ONCE, on mount,
+ * and never again. BottomNavigation stays MOUNTED across a View-As end on
+ * Home (it's a data refetch, not a navigation — no remount), so its
+ * one-time read never saw Home's later, corrected `saveStoredContext`
+ * call; only an actual route change (a fresh mount elsewhere) happened to
+ * pick it up, which is exactly the "navigating to /city fixes it" symptom
+ * observed live. Fixed by also subscribing to onStoredContextChanged
+ * (home-context-storage.ts) for the lifetime of this hook — a same-tab,
+ * event-driven re-read with no polling and no race (the event fires
+ * synchronously at the moment of the write, not before).
  */
 export function useEffectiveNavContext(): ManagementNavContext {
   const { user } = useAppUser();
   const [storedType, setStoredType] = useState<"PERSONAL" | "CLUB_MANAGER" | "CITY_MANAGER" | null>(null);
   useEffect(() => {
-    setStoredType(loadStoredContext(getOwnerKey())?.type ?? null);
+    const readStoredContext = () => setStoredType(loadStoredContext(getOwnerKey())?.type ?? null);
+    readStoredContext();
+    return onStoredContextChanged(readStoredContext);
   }, []);
   return resolveEffectiveNavContext({ storedContextType: storedType, previewRole: user?.viewContext?.previewRole ?? null });
 }

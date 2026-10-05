@@ -82,30 +82,42 @@ export default function PlanScreen() {
 
         {status === "ready" && plan && (
           <>
+            {/* Round B.1, section 4 — zero tasks is a deliberate empty
+                state, never "0 из 0 · 0%" + an empty progress bar (which
+                reads as broken, not "nothing to do"). Non-zero behavior is
+                completely unchanged below. */}
             <motion.div variants={cardIn}>
               <GlassCard variant="solid" pad="lg" animateIn={false}>
-                <div className="flex items-center justify-between">
-                  <p className="font-bold">Сегодня</p>
-                  <span className="text-sm font-semibold text-muted-foreground">
-                    {plan.completed} из {plan.total} · {pct}%
-                  </span>
-                </div>
-                <div className="mt-3">
-                  <XPProgress value={plan.total ? plan.completed / plan.total : 0} size="md" />
-                </div>
+                {plan.total === 0 ? (
+                  <>
+                    <p className="font-bold">Сегодня</p>
+                    <p className="mt-2 text-sm text-muted-foreground">На сегодня задач нет</p>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <p className="font-bold">Сегодня</p>
+                      <span className="text-sm font-semibold text-muted-foreground">
+                        {plan.completed} из {plan.total} · {pct}%
+                      </span>
+                    </div>
+                    <div className="mt-3">
+                      <XPProgress value={plan.completed / plan.total} size="md" />
+                    </div>
+                  </>
+                )}
               </GlassCard>
             </motion.div>
 
-            <div className="mt-4 space-y-3">
-              {plan.tasks.map((task) => (
-                <motion.div key={task.id} variants={cardIn}>
-                  <TaskRow task={task} onChange={patchTask} />
-                </motion.div>
-              ))}
-              {plan.tasks.length === 0 && (
-                <p className="mt-10 text-center text-sm text-muted-foreground">На сегодня задач нет</p>
-              )}
-            </div>
+            {plan.tasks.length > 0 && (
+              <div className="mt-4 space-y-3">
+                {plan.tasks.map((task) => (
+                  <motion.div key={task.id} variants={cardIn}>
+                    <TaskRow task={task} onChange={patchTask} />
+                  </motion.div>
+                ))}
+              </div>
+            )}
           </>
         )}
       </motion.main>
