@@ -28,9 +28,11 @@ import {
   Users,
 } from "lucide-react";
 import { BottomNavigation } from "@/components/bottom-navigation";
+import { AttentionSection, ManagementListRow, type AttentionItemData } from "@/components/management/management-primitives";
 import { ThemeSwitcher } from "@/components/ui/theme-switcher";
 import { Avatar } from "@/components/ui/avatar";
 import { GlassCard } from "@/components/ui/glass-card";
+import { SectionHeader } from "@/components/ui/section-header";
 import { Button } from "@/components/ui/button";
 import { XPProgress } from "@/components/ui/xp-progress";
 import { RevalidatingBar } from "@/components/ui/revalidating-bar";
@@ -246,8 +248,18 @@ export default function HomeScreen() {
                 already routes to /profile where it can be changed. */}
             <Avatar name={profile.displayName} src={appUser?.avatarUrl ?? undefined} size={48} ring />
             <div className="min-w-0 flex-1">
-              <p className="text-xs font-medium text-muted-foreground">{greeting},</p>
-              <h1 className="truncate text-xl font-extrabold tracking-tight text-foreground">{firstName}</h1>
+              {/* Management UX Round B, section 2 — CLUB_MANAGER gets
+                  "Управляющий / {club}" here instead of the personal
+                  greeting/name; PERSONAL (and CITY_MANAGER/onboarding,
+                  untouched this round) keep this exactly as before. The
+                  context-switcher row below is separate and unchanged — a
+                  multi-club manager still switches clubs there. */}
+              <p className="text-xs font-medium text-muted-foreground">
+                {dash && dash.kind === "club_manager" ? "Управляющий" : `${greeting},`}
+              </p>
+              <h1 className="truncate text-xl font-extrabold tracking-tight text-foreground">
+                {dash && dash.kind === "club_manager" ? dash.block.clubLabel : firstName}
+              </h1>
             </div>
             <ChevronRight className="size-4 shrink-0 text-muted-foreground/50" />
           </Link>
@@ -400,9 +412,12 @@ export default function HomeScreen() {
           )
         )}
 
-        {/* CLUB_MANAGER — Sprint: mini-app-context-switcher, section 6:
-            План на сегодня (this context's own Daily Plan) → management
-            content, ends after "Мой клуб". Same cold-start guard as above. */}
+        {/* CLUB_MANAGER — Management UX Round B: rebuilt on the Round A
+            primitives. Требует внимания → План на сегодня → Команда →
+            Обучение команды, all inside ClubManagerHomeSection now (Plan
+            moved IN so the approved order — attention first — is a single
+            ordered list, not "Plan always first" as before). Same
+            cold-start guard as above. */}
         {dashStatus === "ready" && dash && dash.kind === "club_manager" && (
           identityConfirmed ? (
             <>
@@ -411,10 +426,7 @@ export default function HomeScreen() {
                   <ReturnToCityCabinetCard onReturned={() => reloadDash()} />
                 </motion.div>
               )}
-              <motion.div variants={cardIn}>
-                <PlanCard plan={dash.plan} onOpen={() => router.push("/plan")} />
-              </motion.div>
-              <ClubManagerHomeSection block={dash.block} router={router} />
+              <ClubManagerHomeSection block={dash.block} plan={dash.plan} router={router} />
             </>
           ) : (
             <ConfirmingAccessPlaceholder />
@@ -925,74 +937,100 @@ function ReturnToCityCabinetCard({ onReturned }: { onReturned: () => void }) {
 }
 
 /**
- * CLUB_MANAGER context body — Sprint: mini-app-context-switcher, section 6.
- * Order: Требует внимания → Моя команда → Обучение команды → Мой клуб (the
- * caller renders "План на сегодня" immediately before this, item 2 of the
- * same context). block.clubId is always a real, single club now — the
- * context switcher (not this component) is what disambiguates a multi-club
- * manager (section 6/7), so there is no "which club" branch here anymore.
+ * CLUB_MANAGER context body — Management UX Round B. Rebuilt on the Round
+ * A management primitives (AttentionSection, ManagementListRow); approved
+ * order: Требует внимания → План на сегодня → Команда → Обучение команды.
+ * `plan` now renders INSIDE this section (moved out of the caller, which
+ * used to render it unconditionally first) so the approved order is one
+ * real ordered sequence, attention genuinely first — not "Plan always
+ * first, then whatever this section has."
+ *
+ * "Мой клуб" is REMOVED (section 1) — audited and confirmed there is no
+ * distinct, useful club-level destination or content behind it today
+ * beyond what Team/Plan/Training already surface; no empty page was built
+ * to preserve the card. It returns once a real club-level indicator
+ * (Operations Plan / Mystery Shopper / club indicators) exists.
+ *
+ * block.clubId is always a real, single club — the context switcher (not
+ * this component) disambiguates a multi-club manager, unchanged.
  */
-function ClubManagerHomeSection({ block, router }: { block: ClubManagerHomeBlockDTO; router: HomeRouter }) {
+function ClubManagerHomeSection({
+  block,
+  plan,
+  router,
+}: {
+  block: ClubManagerHomeBlockDTO;
+  plan: HomeDashboardDTO["plan"];
+  router: HomeRouter;
+}) {
+  // Section 3 — only a REAL, currently-supported attention category exists
+  // for CLUB_MANAGER (pending employee approval); never a fabricated
+  // mystery-shopper/plan/budget item. Aggregated into one row, same as
+  // before — a tap goes to the one place it can actually be acted on.
+  const attentionItems: AttentionItemData[] =
+    block.attention.length > 0
+      ? [
+          {
+            key: "pending-approval",
+            icon: Users,
+            text: `${block.attention.length} ${pluralRu(block.attention.length, "сотрудник ожидает подтверждения", "сотрудника ожидают подтверждения", "сотрудников ожидают подтверждения")}`,
+            onClick: () => router.push("/team"),
+          },
+        ]
+      : [];
+
+  // Section 4 — the EXISTING Daily Plan, never a future business plan.
+  const planRatio = plan.total > 0 ? plan.completed / plan.total : 0;
+
+  // Section 6 — only real ClubTrainingSummaryDTO fields (totalPublishedLessons/
+  // employeesInTraining/employeesCompleted); no "средний прогресс %" field
+  // exists for CLUB_MANAGER (that's a CITY_MANAGER-only aggregate), so the
+  // compact copy below uses the two fields that actually exist, same pairing
+  // the OLD TrainingSummaryCard and /team's own training card already use.
+  const trainingSubtitle =
+    block.training && block.training.totalPublishedLessons > 0
+      ? `Завершили всё: ${block.training.employeesCompleted} · Проходят обучение: ${block.training.employeesInTraining}`
+      : "Нет данных";
+
+  const teamSubtitle =
+    `${block.employeeCount} ${pluralRu(block.employeeCount, "сотрудник", "сотрудника", "сотрудников")}` +
+    (block.pendingApprovalCount > 0
+      ? ` · ${block.pendingApprovalCount} ${pluralRu(block.pendingApprovalCount, "ждёт подтверждения", "ждут подтверждения", "ждут подтверждения")}`
+      : "");
+
   return (
     <>
-      <motion.div variants={cardIn} className="flex flex-col gap-3">
-        <SectionLabel>Требует внимания</SectionLabel>
-        {block.attention.length === 0 ? (
-          <EmptyAttention />
-        ) : (
-          <AttentionRow
-            icon={Users}
-            text={`${block.attention.length} ${pluralRu(block.attention.length, "сотрудник ожидает подтверждения", "сотрудника ожидают подтверждения", "сотрудников ожидают подтверждения")}`}
-            onClick={() => router.push("/team")}
-          />
-        )}
+      <motion.div variants={cardIn}>
+        <AttentionSection items={attentionItems} />
       </motion.div>
 
-      <motion.div variants={cardIn}>
-        <GlassCard variant="solid" pad="md" animateIn={false} interactive onClick={() => router.push("/team")}>
+      <motion.div variants={cardIn} className="flex flex-col gap-3">
+        <SectionHeader title="План на сегодня" />
+        <GlassCard variant="solid" pad="md" animateIn={false} interactive onClick={() => router.push("/plan")}>
           <div className="flex items-center gap-3">
-            <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-brand/12">
-              <Users className="size-5 text-brand" />
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-2xl bg-muted">
+              <ListChecks className="size-4.5 text-muted-foreground" />
             </span>
-            <div className="min-w-0 flex-1">
-              <p className="font-semibold">Моя команда</p>
-              <p className="truncate text-xs text-muted-foreground">
-                {pluralRu(block.employeeCount, "сотрудник", "сотрудника", "сотрудников")}
-                {block.pendingApprovalCount > 0 && ` · ${block.pendingApprovalCount} новых`}
-              </p>
-            </div>
-            <ChevronRight className="size-5 shrink-0 text-muted-foreground" />
+            <p className="min-w-0 flex-1 truncate font-semibold">{plan.total === 0 ? "Задач нет" : `${plan.completed} из ${plan.total}`}</p>
+            <ChevronRight className="size-4 shrink-0 text-muted-foreground/50" />
           </div>
+          {plan.total > 0 && (
+            <div className="mt-3">
+              <XPProgress value={planRatio} size="md" />
+            </div>
+          )}
         </GlassCard>
       </motion.div>
 
       <motion.div variants={cardIn}>
-        <SectionLabel>Обучение команды</SectionLabel>
-        <div className="mt-3">
-          <TrainingSummaryCard
-            totalPublishedLessons={block.training?.totalPublishedLessons ?? 0}
-            line1={
-              block.training && block.training.totalPublishedLessons > 0
-                ? `Завершили все опубликованные уроки: ${block.training.employeesCompleted}`
-                : "Нет данных"
-            }
-            line2={block.training && block.training.totalPublishedLessons > 0 ? `Проходят обучение: ${block.training.employeesInTraining}` : undefined}
-          />
-        </div>
+        <GlassCard variant="solid" pad="none" animateIn={false}>
+          <ManagementListRow icon={Users} title="Команда" subtitle={teamSubtitle} onClick={() => router.push("/team")} />
+        </GlassCard>
       </motion.div>
 
       <motion.div variants={cardIn}>
-        <GlassCard variant="solid" pad="md" animateIn={false} className="flex items-center gap-3">
-          <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-brand/12">
-            <Building2 className="size-5 text-brand" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="font-semibold">{block.clubLabel}</p>
-            <p className="truncate text-xs text-muted-foreground">Мой клуб</p>
-          </div>
-          {block.isPreviewing && (
-            <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">Просмотр</span>
-          )}
+        <GlassCard variant="solid" pad="none" animateIn={false}>
+          <ManagementListRow icon={GraduationCap} title="Обучение команды" subtitle={trainingSubtitle} onClick={() => router.push("/team")} />
         </GlassCard>
       </motion.div>
     </>
