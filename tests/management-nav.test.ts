@@ -306,9 +306,9 @@ test("VISUAL-E2: Academy/Plan's avatar entry is GATED behind a ternary with an u
   assert.match(plan, /leading=\{isClubManagerRoot \? <ManagementAvatarLink \/> : undefined\}/);
 });
 
-test("VISUAL-F: the still-untouched management DETAIL screens (section 6's own list) were not rewired to use the new primitives — Round A.1/B only touched root workspace screens", () => {
+test("VISUAL-F (updated for Round D): /city/club is now DELIBERATELY rewired onto the shared management primitives (section 2's AttentionItem/ManagementListRow/ManagementSummary). /city/managers is visually realigned to the SAME compact divide-y language with plain Tailwind (its inline action-button rows don't fit ManagementListRow's single-onClick/chevron shape, so it has no real use for the primitives file) — still correctly primitive-free, same as /city/training's inline-only color fix and the deeper /team/employee + /questions/[id] drill-downs nobody asked to touch this round", () => {
+  assert.match(read("src/app/city/club/page.tsx"), /management-primitives/);
   for (const file of [
-    "src/app/city/club/page.tsx",
     "src/app/city/managers/page.tsx",
     "src/app/city/training/page.tsx",
     "src/app/team/employee/page.tsx",
@@ -497,7 +497,7 @@ test("B-CACHE-A: ClubManagerHomeSection takes `plan` as a prop from the SAME das
   assert.doesNotMatch(fnSrc, /useQuery|fetch\(|cabinetApi\.|questionsApi\./);
 });
 
-test("B-HEADER-A: Home's context-switcher row (the multi-club CLUB_MANAGER affordance) is completely untouched — same showSwitcher/ContextSwitcherSheet condition and markup as before this round", () => {
+test("B-HEADER-A (markup compacted in Round D, mechanism unchanged): Home's context-switcher row still uses the same showSwitcher/ContextSwitcherSheet condition and trigger — only the trigger's visual markup changed (see SWITCHER-* below)", () => {
   const src = read("src/app/home/page.tsx");
   assert.match(src, /showSwitcher \? \(/);
   assert.match(src, /onClick=\{\(\) => setSwitcherOpen\(true\)\}/);
@@ -753,4 +753,214 @@ test("ROUND-C-N: PERSONAL Home's card sequence and ClubManagerHomeSection are un
   assert.match(clubMgrFnSrc, /title="Команда"/);
   assert.match(clubMgrFnSrc, /title="Обучение команды"/);
   assert.doesNotMatch(clubMgrFnSrc, /Мой клуб/);
+});
+
+/* ===================================================================== *
+ *  ROUND D — compact context switcher, back-nav, secondary screens
+ * ===================================================================== */
+
+/* --------- section 0/11: compact context switcher --------- */
+
+test("SWITCHER-A: exactly one available context for a management kind (CITY_MANAGER/CLUB_MANAGER) renders NOTHING in the old context-label row — the header above already states role+scope, so there is nothing left to duplicate", () => {
+  const src = read("src/app/home/page.tsx");
+  assert.match(src, /!isManagementKind &&\s*\n\s*contextLabel && <p/);
+});
+
+test("SWITCHER-B: multiple available contexts render a COMPACT chip ('Кабинет' + icon + chevron, neutral border/bg) — never the old full-width button that repeated the entire current context label a second time", () => {
+  const src = read("src/app/home/page.tsx");
+  assert.match(src, /aria-label="Переключить кабинет"/);
+  assert.match(src, />\s*Кабинет\s*</);
+  assert.doesNotMatch(src, /uppercase leading-tight tracking-wide text-brand\/80">Кабинет/);
+  assert.doesNotMatch(src, /bg-brand\/\[0\.08\]/);
+});
+
+test("SWITCHER-C: View-As preview still suppresses the switcher entirely (showSwitcher = !isPreviewing && ...) — unchanged mechanism, not weakened or rewritten this round", () => {
+  const src = read("src/app/home/page.tsx");
+  assert.match(src, /const showSwitcher = !isPreviewing && availableContexts\.length > 1;/);
+});
+
+test("SWITCHER-D: switching still works — the compact chip's onClick still opens the SAME ContextSwitcherSheet via setSwitcherOpen(true), no new switching mechanism invented", () => {
+  const src = read("src/app/home/page.tsx");
+  assert.match(src, /onClick=\{\(\) => setSwitcherOpen\(true\)\}/);
+  assert.match(src, /<ContextSwitcherSheet/);
+});
+
+test("SWITCHER-E: PERSONAL's own position/club/city identity line is untouched — it is gated on !isManagementKind (not on showSwitcher alone), so a plain employee with exactly one context still sees it exactly as before (it was never a context-switcher duplicate to begin with)", () => {
+  const src = read("src/app/home/page.tsx");
+  assert.match(src, /const isManagementKind = dash\?\.kind === "city_manager" \|\| dash\?\.kind === "club_manager";/);
+});
+
+/* --------- section 4: one back affordance --------- */
+
+test("BACKBTN-A: AppHeader shows the in-page circular back button only OUTSIDE a real Telegram client — inside Telegram the native BackButton (bound unconditionally on Boolean(showBack), independent of isInsideTelegram) is the only one, fixing the live-reported double-back-button on every detail screen that uses this shared component", () => {
+  const src = read("src/components/app-header.tsx");
+  assert.match(src, /const showInPageBackButton = Boolean\(showBack\) && !isInsideTelegram;/);
+  assert.match(src, /useTelegramBackButton\(Boolean\(showBack\), goBack\);/);
+  assert.match(src, /\{showInPageBackButton && \(/);
+});
+
+/* --------- section 2/3: /city/club --------- */
+
+function cityClubSrc(): string {
+  return read("src/app/city/club/page.tsx");
+}
+
+test("CLUBDETAIL-A: exactly one back affordance in page-level UI — AppHeader's own showBack (now Telegram-aware, see BACKBTN-A), no second hand-built back/close control anywhere in ClubDetail's own JSX", () => {
+  const src = cityClubSrc();
+  const clubDetailFnSrc = src.slice(src.indexOf("function ClubDetail"), src.indexOf("function AssignManagerSheet"));
+  assert.match(clubDetailFnSrc, /showBack backHref="\/city"/);
+  assert.doesNotMatch(clubDetailFnSrc, /ChevronLeft|ArrowLeft/);
+});
+
+test("CLUBDETAIL-B: the summary uses only real ClubManagerSummaryDTO fields via ManagementSummary — employeeCount/pendingApprovalCount, no fabricated metric, no separate stat cards", () => {
+  const src = cityClubSrc();
+  assert.match(src, /label: "Сотрудники", value: dashboard\.summary\.employeeCount/);
+  assert.match(src, /label: "Ожидают", value: dashboard\.summary\.pendingApprovalCount/);
+  assert.doesNotMatch(src, /grid-cols-2/);
+});
+
+test("CLUBDETAIL-C: employee rows now preserve/add drill-down into /team/employee — this screen never had this tap-through before Round D", () => {
+  const src = cityClubSrc();
+  assert.match(src, /onClick=\{\(\) => router\.push\(`\/team\/employee\?userId=\$\{m\.userId\}&clubId=\$\{clubId\}`\)\}/);
+});
+
+test("CLUBDETAIL-D: View-As CLUB_MANAGER action is preserved — viewAsApi.start is still called, still wired to a button, just visually secondary now", () => {
+  const src = cityClubSrc();
+  assert.match(src, /await viewAsApi\.start\(\{ role: "CLUB_MANAGER", clubId \}\);/);
+  assert.match(src, /onClick=\{viewAsClubManager\}/);
+});
+
+test("CLUBDETAIL-E: assign/revoke/restore actions are all preserved — rolesApi.create/revoke/restore still called, each still wired to its own button", () => {
+  const src = cityClubSrc();
+  assert.match(src, /await rolesApi\.create\(\{ userId: selected, role: "CLUB_MANAGER", scopeType: "CLUB", clubId \}\);/);
+  assert.match(src, /await rolesApi\.revoke\(id\);/);
+  assert.match(src, /await rolesApi\.restore\(id\);/);
+  assert.match(src, /onClick=\{\(\) => revoke\(currentManager\.id\)\}/);
+  assert.match(src, /onClick=\{\(\) => restore\(r\.id\)\}/);
+  assert.match(src, /onClick=\{\(\) => setAssigning\(true\)\}/);
+});
+
+test("CLUBDETAIL-F: View As is no longer the single biggest object on the page — the old full-width standalone button/copy is gone, folded into a small secondary action inside the Управляющий card", () => {
+  const src = cityClubSrc();
+  assert.doesNotMatch(src, /Посмотреть кабинет Управляющего/);
+  assert.match(src, /Посмотреть кабинет/);
+  assert.doesNotMatch(src, /min-h-14/);
+});
+
+test("CLUBDETAIL-G: Требует внимания is omitted entirely when empty — no large empty-state fallback rendered on this detail screen (section 3's explicit instruction)", () => {
+  const src = cityClubSrc();
+  assert.match(src, /\{dashboard\.attention\.length > 0 && \(/);
+  const clubDetailFnSrc = src.slice(src.indexOf("function ClubDetail"), src.indexOf("function AssignManagerSheet"));
+  assert.doesNotMatch(clubDetailFnSrc, /ManagementEmptyState|Сейчас ничего не требует внимания/);
+});
+
+/* --------- section 5: /city --------- */
+
+function citySrc(): string {
+  return read("src/app/city/page.tsx");
+}
+
+test("CITYROOT-A: /city now renders one ManagementSummary instead of three separate stat cards — the old grid-cols-3 stat block is gone", () => {
+  const src = citySrc();
+  assert.doesNotMatch(src, /grid-cols-3/);
+  assert.match(src, /label: "Клубы", value: dashboard\.summary\.clubCount/);
+  assert.match(src, /label: "Сотрудники", value: dashboard\.summary\.employeeCount/);
+  assert.match(src, /label: "Управляющие", value: dashboard\.summary\.clubManagerCount/);
+});
+
+test("CITYROOT-B: the full club list is preserved — same divide-y container, same /city/club?clubId= tap target per row", () => {
+  const src = citySrc();
+  assert.match(src, /onClick=\{\(\) => router\.push\(`\/city\/club\?clubId=\$\{c\.clubId\}`\)\}/);
+  assert.match(src, /dashboard\.clubs\.map\(\(c\) =>/);
+});
+
+test("CITYROOT-C: the training entry is preserved — same /city/training tap target", () => {
+  const src = citySrc();
+  assert.match(src, /onClick=\{\(\) => router\.push\("\/city\/training"\)\}/);
+});
+
+/* --------- section 6: /city/managers --------- */
+
+function managersSrc(): string {
+  return read("src/app/city/managers/page.tsx");
+}
+
+test("MANAGERS-A: assign/revoke actions are preserved — rolesApi.revoke still called, assign still routes into /city/club?clubId=", () => {
+  const src = managersSrc();
+  assert.match(src, /await rolesApi\.revoke\(assignmentId\);/);
+  assert.match(src, /onClick=\{\(\) => router\.push\(`\/city\/club\?clubId=\$\{c\.clubId\}`\)\}/);
+  assert.match(src, /onClick=\{\(\) => revoke\(cm\.assignmentId\)\}/);
+});
+
+test("MANAGERS-B: migrated to one GlassCard pad='none' + divide-y container instead of one GlassCard per row — exactly one such container wraps both the unassigned-clubs and the assigned-managers lists", () => {
+  const src = managersSrc();
+  const occurrences = (src.match(/<GlassCard variant="solid" pad="none" animateIn=\{false\} className="divide-y divide-border">/g) ?? []).length;
+  assert.equal(occurrences, 1);
+  assert.doesNotMatch(src, /GlassCard variant="solid" pad="md" animateIn=\{false\} className="flex items-center gap-3"/);
+});
+
+/* --------- section 7: /team --------- */
+
+function teamSrc(): string {
+  return read("src/app/team/page.tsx");
+}
+
+test("TEAMALIGN-A: CLUB_MANAGER's root nav still renders — BottomNavigation gated on !isReadOnlyDrillDown, unchanged", () => {
+  const src = teamSrc();
+  assert.match(src, /\{!isReadOnlyDrillDown && <BottomNavigation \/>\}/);
+});
+
+test("TEAMALIGN-B: CITY_MANAGER's ?clubId= drill-down still shows no bottom nav and keeps its own back-button header — unchanged branch", () => {
+  const src = teamSrc();
+  assert.match(src, /isReadOnlyDrillDown \? \(\s*\n\s*<AppHeader\s*\n\s*title="Команда"/);
+});
+
+test("TEAMALIGN-C: pending-approval attention + approve() action are both preserved (not broken by the ManagementEmptyState swap), and the roster (MemberRow) is untouched per the explicit 'do NOT over-refactor' instruction", () => {
+  const src = teamSrc();
+  assert.match(src, /await managerApi\.approve\(userId, "FULL", dashboard\.clubId\);/);
+  assert.match(src, /\{!dashboard\.isPreviewing && !isReadOnlyDrillDown && \(/);
+  assert.match(src, /function MemberRow\(/);
+});
+
+/* --------- section 8: /questions --------- */
+
+function questionsSrc(): string {
+  return read("src/app/questions/page.tsx");
+}
+
+test("QUESTIONSLIGHT-A: category/club filters are preserved — same <select> controls, same QUESTION_CATEGORY_OPTIONS source", () => {
+  const src = questionsSrc();
+  assert.match(src, /QUESTION_CATEGORY_OPTIONS\.map/);
+  assert.match(src, /clubOptions\.map/);
+});
+
+test("QUESTIONSLIGHT-B: status badges are preserved — Badge + questionStatusBadgeVariant/questionStatusLabel still render per question", () => {
+  const src = questionsSrc();
+  assert.match(src, /<Badge variant=\{questionStatusBadgeVariant\(question\.status\)\}>\{questionStatusLabel\(question\.status\)\}<\/Badge>/);
+});
+
+test("QUESTIONSLIGHT-C: anonymous author data is still not exposed — QuestionCard renders only authorDisplay text, never a photo/avatar field", () => {
+  const src = questionsSrc();
+  const cardFnSrc = src.slice(src.indexOf("function QuestionCard"), src.length);
+  assert.match(cardFnSrc, /question\.authorDisplay/);
+  assert.doesNotMatch(cardFnSrc, /photoUrl|avatarUrl|<Avatar/);
+});
+
+test("QUESTIONSLIGHT-D: only a light visual pass happened — gap-4 -> gap-3 on the main container, QuestionCard pad md -> sm; everything else (backend fetch, notification/status semantics) untouched", () => {
+  const src = questionsSrc();
+  assert.match(src, /className="flex flex-col gap-3 px-5 pt-2"/);
+  assert.match(src, /<GlassCard variant="solid" pad="sm" animateIn=\{false\} interactive onClick=\{onClick\} className="flex items-start gap-3">/);
+});
+
+/* --------- PERSONAL untouched --------- */
+
+test("PERSONAL-UNTOUCHED-ROUND-D: the dash.kind==='full' branch and its PlanCard/ContinueLearningCard/RatingCard/MysteryCard/XpCard sequence are still present, unmoved — Round D's changes (switcher chip, AppHeader back button) are either management-kind-gated or app-wide-structural, never specific to PERSONAL's own card content", () => {
+  const src = read("src/app/home/page.tsx");
+  const startIdx = src.indexOf('dashStatus === "ready" && dash && dash.kind === "full"');
+  const endIdx = src.indexOf('dashStatus === "ready" && dash && dash.kind === "city_manager"');
+  assert.ok(startIdx > 0 && endIdx > startIdx);
+  const fullBranch = src.slice(startIdx, endIdx);
+  for (const anchor of ["PlanCard", "ContinueLearningCard", "RatingCard", "MysteryCard", "XpCard"]) {
+    assert.match(fullBranch, new RegExp(anchor));
+  }
 });
