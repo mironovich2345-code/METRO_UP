@@ -235,6 +235,11 @@ export default function HomeScreen() {
   // not the generic "Личный кабинет" switcher-list label — only the tap
   // affordance is new. Management contexts show their own scope/club label.
   const contextLabel = dash?.kind === "full" ? personalIdentity : (activeContext?.label ?? null);
+  // Round D, section 0 — CLUB_MANAGER/CITY_MANAGER already repeat this exact
+  // label as the header's own role/scope two lines (Round B/C); PERSONAL's
+  // personalIdentity line is NOT a duplicate of anything in its header
+  // (which shows the personal greeting, not position/club/city) and stays.
+  const isManagementKind = dash?.kind === "city_manager" || dash?.kind === "club_manager";
 
   return (
     <div className="relative min-h-[100dvh] pb-32">
@@ -280,33 +285,36 @@ export default function HomeScreen() {
           </Link>
           <ThemeSwitcher />
         </div>
-        {/* Sprint: manual-test-round-2, section 2 — the previous control (bare
-            small text + tiny chevron) was too subtle for real-device testers
-            to recognize as interactive. A plain MANAGER with only PERSONAL
-            available renders NO switcher at all (no useless control) — the
-            original, unstyled identity line, unchanged. */}
-        {contextLabel &&
-          (showSwitcher ? (
-            <div className="mt-2 pl-[60px] pr-1">
-              <button
-                type="button"
-                onClick={() => setSwitcherOpen(true)}
-                aria-label="Переключить кабинет"
-                className="flex max-w-full items-center gap-2 rounded-2xl border border-brand/25 bg-brand/[0.08] py-1.5 pl-2.5 pr-2.5 text-left transition-colors active:bg-brand/15"
-              >
-                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-brand/15">
-                  <ArrowLeftRight className="size-3.5 text-brand" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[10px] font-bold uppercase leading-tight tracking-wide text-brand/80">Кабинет</span>
-                  <span className="block truncate text-xs font-semibold leading-tight text-foreground">{contextLabel}</span>
-                </span>
-                <ChevronDown className="size-4 shrink-0 text-brand/70" />
-              </button>
-            </div>
-          ) : (
-            <p className="mt-1.5 truncate pl-[60px] text-xs font-medium text-muted-foreground">{contextLabel}</p>
-          ))}
+        {/* Management UX Round D, section 0 — the header above is now the
+            source of truth for "who/where am I" (role/scope, or the personal
+            greeting). This row's OLD job — repeating that same context as a
+            full label, either as a button or as plain text — read as the
+            same information shown twice (the live report's literal A/B
+            example). Its ONLY remaining job is offering a way to CHANGE
+            context, so it shrinks to a compact "[ ↔ Кабинет ▾ ]" chip, and
+            disappears entirely whenever there is nothing to switch TO
+            (exactly one available context) or switching doesn't apply right
+            now (an active View-As preview — isManagementKind only suppresses
+            the OLD text fallback for management kinds; PERSONAL's own
+            pre-existing position/club/city identity line, which was never a
+            context-switcher duplicate to begin with, is untouched below). */}
+        {showSwitcher ? (
+          <div className="mt-2 pl-[60px] pr-1">
+            <button
+              type="button"
+              onClick={() => setSwitcherOpen(true)}
+              aria-label="Переключить кабинет"
+              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground transition-colors active:bg-muted"
+            >
+              <ArrowLeftRight className="size-3.5 text-muted-foreground" />
+              Кабинет
+              <ChevronDown className="size-3.5 text-muted-foreground" />
+            </button>
+          </div>
+        ) : (
+          !isManagementKind &&
+          contextLabel && <p className="mt-1.5 truncate pl-[60px] text-xs font-medium text-muted-foreground">{contextLabel}</p>
+        )}
       </header>
       <RevalidatingBar show={Boolean(dash) && dashValidating} />
 

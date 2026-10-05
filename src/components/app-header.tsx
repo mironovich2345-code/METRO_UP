@@ -6,7 +6,7 @@ import { ChevronLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { haptic } from "@/lib/telegram";
 import { ThemeSwitcher } from "@/components/ui/theme-switcher";
-import { useTelegramBackButton } from "@/providers/TelegramProvider";
+import { useTelegram, useTelegramBackButton } from "@/providers/TelegramProvider";
 
 interface AppHeaderProps {
   title?: string;
@@ -41,6 +41,7 @@ export function AppHeader({
   sticky,
 }: AppHeaderProps) {
   const router = useRouter();
+  const { isInsideTelegram } = useTelegram();
 
   const goBack = () => {
     haptic("light");
@@ -52,6 +53,19 @@ export function AppHeader({
   // is shown. Outside Telegram this is a no-op; the in-page button still works.
   useTelegramBackButton(Boolean(showBack), goBack);
 
+  // Management UX Round D, section 4 — live review on a real Telegram Mini
+  // App found TWO visible back affordances for the same action on every
+  // detail screen: Telegram's own native top-chrome BackButton (bound just
+  // above) AND this component's in-page circular button. Inside a real
+  // Telegram client the native control is always reliable (it's the same
+  // hardware/gesture back users already expect), so the in-page one is pure
+  // redundancy there — shown only when `!isInsideTelegram`, where it is the
+  // ONLY way back (a plain browser tab, local dev, screenshots) and must not
+  // be removed. `goBack`/useTelegramBackButton's binding above is unaffected
+  // either way — this only changes which control is drawn, never whether a
+  // way back exists.
+  const showInPageBackButton = Boolean(showBack) && !isInsideTelegram;
+
   return (
     <header
       className={cn(
@@ -61,7 +75,7 @@ export function AppHeader({
         className,
       )}
     >
-      {showBack && (
+      {showInPageBackButton && (
         <motion.button
           type="button"
           whileTap={{ scale: 0.9 }}
