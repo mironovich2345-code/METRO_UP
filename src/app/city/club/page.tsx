@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { CheckCircle2, Clock, Eye, GraduationCap, RotateCw, ShieldOff, UserCog, Users } from "lucide-react";
+import { ChevronRight, Clock, Eye, GraduationCap, RotateCw, ShieldOff, UserCog, Users } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
+import { AttentionItem, ManagementListRow, ManagementSummary } from "@/components/management/management-primitives";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
 import { RevalidatingBar } from "@/components/ui/revalidating-bar";
@@ -15,7 +16,7 @@ import { fetchProfileManagementRoles } from "@/lib/api/home-client";
 import type { CabinetTeamMemberDTO } from "@/lib/api/cabinet-client";
 import { useQuery, QUERY_POLICY, invalidatePrefix } from "@/lib/client/query-cache";
 import { cacheKeys, cacheKeyPrefixes } from "@/lib/client/cache-keys";
-import { canRestoreAssignment, describeRoleAssignmentError, resolveCityClubPageStatus } from "@/lib/cabinet-ui";
+import { canRestoreAssignment, describeRoleAssignmentError, pluralRu, resolveCityClubPageStatus } from "@/lib/cabinet-ui";
 import { cardIn, staggerStack, springSoft } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
@@ -121,6 +122,21 @@ function ClubDetail({ clubId }: { clubId: string }) {
   const currentManager = managerRows?.find((r) => r.status === "ACTIVE") ?? null;
   const history = managerRows?.filter((r) => r.status !== "ACTIVE") ?? [];
 
+  // Management UX Round D, section 3 — same honest, no-forced-zero copy as
+  // ClubManagerHomeSection's own trainingSubtitle (home/page.tsx, Round
+  // B.1) — only real ClubTrainingSummaryDTO fields, each clause appears
+  // only when its own count is genuinely > 0.
+  const trainingSubtitle = (() => {
+    const training = dashboard?.training;
+    if (!training || training.totalPublishedLessons === 0) return "Нет данных";
+    const parts: string[] = [];
+    if (training.employeesCompleted > 0) parts.push(`Завершили всё: ${training.employeesCompleted}`);
+    if (training.employeesInTraining > 0) {
+      parts.push(`${training.employeesInTraining} ${pluralRu(training.employeesInTraining, "проходит обучение", "проходят обучение", "проходят обучение")}`);
+    }
+    return parts.length > 0 ? parts.join(" · ") : "Пока никто не начал обучение";
+  })();
+
   const revoke = async (id: string) => {
     setBusyId(id);
     setMsg(null);
@@ -200,51 +216,60 @@ function ClubDetail({ clubId }: { clubId: string }) {
 
         {status === "ready" && dashboard && (
           <>
-            <motion.div variants={cardIn} className="grid grid-cols-2 gap-3">
-              <GlassCard variant="solid" pad="md" animateIn={false}>
-                <p className="text-xs text-muted-foreground">Сотрудников</p>
-                <p className="mt-1 text-2xl font-extrabold tabular-nums">{dashboard.summary.employeeCount}</p>
-              </GlassCard>
-              <GlassCard variant="solid" pad="md" animateIn={false}>
-                <p className="text-xs text-muted-foreground">Ожидают подтверждения</p>
-                <p className="mt-1 text-2xl font-extrabold tabular-nums">{dashboard.summary.pendingApprovalCount}</p>
-              </GlassCard>
-            </motion.div>
-
             <motion.div variants={cardIn}>
-              {/* whitespace-normal override — this label is long enough to
-                  overflow a 320px screen with the base Button's nowrap
-                  (section 7's mobile pass); wraps to two lines instead. */}
-              <Button variant="secondary" block onClick={viewAsClubManager} disabled={startingPreview} className="h-auto min-h-14 whitespace-normal py-3 text-center leading-snug">
-                <Eye className="size-4 shrink-0" /> {startingPreview ? "…" : "Посмотреть кабинет Управляющего"}
-              </Button>
+              <ManagementSummary
+                stats={[
+                  { key: "employees", label: "Сотрудники", value: dashboard.summary.employeeCount },
+                  { key: "pending", label: "Ожидают", value: dashboard.summary.pendingApprovalCount },
+                ]}
+              />
             </motion.div>
 
-            {/* ---- Управляющий (section 13) ---- */}
+            {/* ---- Управляющий (section 13) — Management UX Round D,
+                section 3: one compact section, View As + Снять/Назначить
+                folded in as visually SECONDARY actions (ghost/secondary
+                small buttons) instead of View As being the biggest object
+                on the page (the previous standalone full-width button). View
+                As stays available regardless of whether a manager is
+                assigned — buildSyntheticPersona needs only clubId — same
+                as before. */}
             <motion.div variants={cardIn} className="flex flex-col gap-3">
               <p className="px-1 text-sm font-bold text-foreground">Управляющий</p>
-              {currentManager ? (
-                <GlassCard variant="solid" pad="md" animateIn={false} className="flex items-center gap-3">
-                  <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-brand/12">
-                    <UserCog className="size-4.5 text-brand" />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-semibold">{currentManager.userDisplayName}</p>
-                    <p className="text-xs text-muted-foreground">Назначен {new Date(currentManager.startedAt).toLocaleDateString("ru-RU")}</p>
-                  </div>
-                  <Button size="sm" variant="ghost" onClick={() => revoke(currentManager.id)} disabled={busyId === currentManager.id}>
-                    <ShieldOff className="size-3.5" /> {busyId === currentManager.id ? "…" : "Снять"}
-                  </Button>
-                </GlassCard>
-              ) : (
-                <GlassCard variant="solid" pad="md" animateIn={false} className="flex items-center gap-3">
+              <GlassCard variant="solid" pad="md" animateIn={false} className="flex flex-col gap-3">
+                <div className="flex items-center gap-3">
                   <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-muted">
                     <UserCog className="size-4.5 text-muted-foreground" />
                   </span>
-                  <p className="min-w-0 flex-1 text-sm text-muted-foreground">Не назначен</p>
-                  <Button size="sm" onClick={() => setAssigning(true)}>Назначить</Button>
-                </GlassCard>
-              )}
+                  {currentManager ? (
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-semibold">{currentManager.userDisplayName}</p>
+                      <p className="text-xs text-muted-foreground">Назначен {new Date(currentManager.startedAt).toLocaleDateString("ru-RU")}</p>
+                    </div>
+                  ) : (
+                    <p className="min-w-0 flex-1 text-sm text-muted-foreground">Не назначен</p>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={viewAsClubManager}
+                    disabled={startingPreview}
+                    className="h-auto min-h-9 flex-1 whitespace-normal py-1.5 text-center leading-snug"
+                  >
+                    <Eye className="size-3.5 shrink-0" /> {startingPreview ? "…" : "Посмотреть кабинет"}
+                  </Button>
+                  {currentManager ? (
+                    <Button size="sm" variant="ghost" onClick={() => revoke(currentManager.id)} disabled={busyId === currentManager.id}>
+                      <ShieldOff className="size-3.5" /> {busyId === currentManager.id ? "…" : "Снять"}
+                    </Button>
+                  ) : (
+                    <Button size="sm" variant="secondary" onClick={() => setAssigning(true)}>
+                      Назначить
+                    </Button>
+                  )}
+                </div>
+              </GlassCard>
 
               {history.length > 0 && (
                 <div className="flex flex-col gap-1.5">
@@ -270,7 +295,10 @@ function ClubDetail({ clubId }: { clubId: string }) {
               )}
             </motion.div>
 
-            {/* ---- Сотрудники ---- */}
+            {/* ---- Сотрудники — Round D adds the employee drill-down tap
+                (/team/employee, the SAME shared, independently-authorized
+                screen /team's own roster already links to) that this
+                screen never had before. ---- */}
             <motion.div variants={cardIn} className="flex flex-col gap-3">
               <p className="px-1 text-sm font-bold text-foreground">Сотрудники</p>
               <GlassCard variant="solid" pad="none" animateIn={false} className="divide-y divide-border">
@@ -278,7 +306,12 @@ function ClubDetail({ clubId }: { clubId: string }) {
                   <p className="p-4 text-sm text-muted-foreground">В клубе пока нет сотрудников.</p>
                 ) : (
                   team.map((m) => (
-                    <div key={m.userId} className="flex items-center gap-3 p-4">
+                    <button
+                      key={m.userId}
+                      type="button"
+                      onClick={() => router.push(`/team/employee?userId=${m.userId}&clubId=${clubId}`)}
+                      className="flex w-full items-center gap-3 p-4 text-left transition-colors active:bg-foreground/5"
+                    >
                       <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-muted">
                         <Users className="size-4.5 text-muted-foreground" />
                       </span>
@@ -289,60 +322,51 @@ function ClubDetail({ clubId }: { clubId: string }) {
                       <p className="shrink-0 text-xs font-semibold tabular-nums text-muted-foreground">
                         {m.academy.progressPercent != null ? `${m.academy.progressPercent}%` : "Нет данных"}
                       </p>
-                    </div>
+                      <ChevronRight className="size-4 shrink-0 text-muted-foreground/50" />
+                    </button>
                   ))
                 )}
               </GlassCard>
             </motion.div>
 
-            {/* ---- Обучение ---- */}
+            {/* ---- Обучение — compact navigation row, routes to the SAME
+                /team?clubId= destination the old standalone "Открыть
+                команду" button used (removed below — this row now covers
+                it, per the target IA, which has no separate button). ---- */}
             <motion.div variants={cardIn}>
-              <GlassCard variant="solid" pad="lg" animateIn={false}>
-                <div className="flex items-center gap-2">
-                  <span className="flex size-9 items-center justify-center rounded-2xl bg-brand/12">
-                    <GraduationCap className="size-5 text-brand" />
-                  </span>
-                  <p className="font-bold">Обучение</p>
-                </div>
-                {dashboard.training ? (
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    Проходят обучение: {dashboard.training.employeesInTraining} · Завершили все опубликованные уроки: {dashboard.training.employeesCompleted}
-                  </p>
-                ) : (
-                  <p className="mt-2 text-sm text-muted-foreground">Нет данных</p>
-                )}
+              <GlassCard variant="solid" pad="none" animateIn={false}>
+                <ManagementListRow
+                  icon={GraduationCap}
+                  title="Обучение"
+                  subtitle={trainingSubtitle}
+                  onClick={() => router.push(`/team?clubId=${clubId}`)}
+                />
               </GlassCard>
             </motion.div>
 
-            {/* ---- Требует внимания ---- */}
-            <motion.div variants={cardIn} className="flex flex-col gap-3">
-              <p className="px-1 text-sm font-bold text-foreground">Требует внимания</p>
-              {dashboard.attention.length === 0 ? (
-                <GlassCard variant="solid" pad="md" animateIn={false} className="flex items-center gap-3">
-                  <CheckCircle2 className="size-5 shrink-0 text-success" />
-                  <p className="text-sm text-muted-foreground">Сейчас ничего не требует внимания.</p>
-                </GlassCard>
-              ) : (
+            {/* ---- Требует внимания — only rendered when genuinely
+                non-empty (section 3's explicit "do not render a large empty
+                attention section at the bottom"). Every item here is a
+                PENDING_EMPLOYEE_APPROVAL entry for THIS club
+                (getClubManagerDashboard never emits any other category) —
+                entityId is the employee's userId, so tapping opens that same
+                employee's existing training detail, the same destination the
+                Сотрудники row right above already offers for that person. */}
+            {dashboard.attention.length > 0 && (
+              <motion.div variants={cardIn} className="flex flex-col gap-3">
+                <p className="px-1 text-sm font-bold text-foreground">Требует внимания</p>
                 <div className="flex flex-col gap-2">
                   {dashboard.attention.map((a) => (
-                    <GlassCard key={a.entityId} variant="solid" pad="md" animateIn={false} className="flex items-center gap-3">
-                      <Clock className={cn("size-4.5 shrink-0", "text-brand")} />
-                      <p className="min-w-0 flex-1 truncate text-sm">
-                        {a.category === "PENDING_EMPLOYEE_APPROVAL" ? `${a.entityName} ожидает подтверждения` : a.entityName}
-                      </p>
-                    </GlassCard>
+                    <AttentionItem
+                      key={a.entityId}
+                      icon={Clock}
+                      text={`${a.entityName} ожидает подтверждения`}
+                      onClick={() => router.push(`/team/employee?userId=${a.entityId}&clubId=${clubId}`)}
+                    />
                   ))}
                 </div>
-              )}
-            </motion.div>
-
-            {/* Sprint: manual-test-round-3, section 1 (P0 fix) — explicit
-                clubId, so /team reads this club directly instead of trying
-                (and 403ing) to resolve "clubs the CITY_MANAGER themselves
-                manage". */}
-            <Button variant="secondary" block onClick={() => router.push(`/team?clubId=${clubId}`)}>
-              Открыть команду
-            </Button>
+              </motion.div>
+            )}
           </>
         )}
       </motion.main>

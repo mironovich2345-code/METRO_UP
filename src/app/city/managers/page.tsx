@@ -89,46 +89,54 @@ export default function CityManagersPage() {
           <>
             {msg && <p className="text-sm text-red-500">{msg}</p>}
 
-            {/* Clubs WITHOUT a manager first — "Не назначен" + CTA into club detail
-                (section 15: never silently omit them from this list). */}
-            {dashboard.clubs
-              .filter((c) => !c.activeClubManager)
-              .map((c) => (
-                <motion.div key={c.clubId} variants={cardIn}>
-                  <GlassCard variant="solid" pad="md" animateIn={false} className="flex items-center gap-3">
-                    <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-muted">
-                      <UserCog className="size-4.5 text-muted-foreground" />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-semibold text-muted-foreground">Не назначен</p>
-                      <p className="truncate text-xs text-muted-foreground">{c.clubName}</p>
-                    </div>
-                    <Button size="sm" variant="secondary" onClick={() => router.push(`/city/club?clubId=${c.clubId}`)}>
-                      Назначить
-                    </Button>
-                  </GlassCard>
-                </motion.div>
-              ))}
+            {/* Management UX Round D, section 6 — migrated from one
+                GlassCard per row to a single pad="none" + divide-y
+                container, same compact list pattern as /city/club and
+                /city's own club list this round. Both icon treatments are
+                now neutral (section 10 — a normal club/manager row is
+                navigation/information, not an attention state; the
+                previous brand/12 icon on assigned managers was exactly the
+                "leftover decorative yellow" the audit asked to remove).
+                Clubs WITHOUT a manager still come first — "Не назначен" +
+                CTA into club detail (section 15: never silently omit them). */}
+            {dashboard.clubs.length === 0 ? (
+              <p className="px-1 text-sm text-muted-foreground">В вашей зоне пока нет клубов.</p>
+            ) : (
+              <motion.div variants={cardIn}>
+                <GlassCard variant="solid" pad="none" animateIn={false} className="divide-y divide-border">
+                  {dashboard.clubs
+                    .filter((c) => !c.activeClubManager)
+                    .map((c) => (
+                      <div key={c.clubId} className="flex items-center gap-3 p-4">
+                        <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-muted">
+                          <UserCog className="size-4.5 text-muted-foreground" />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate font-semibold text-muted-foreground">Не назначен</p>
+                          <p className="truncate text-xs text-muted-foreground">{c.clubName}</p>
+                        </div>
+                        <Button size="sm" variant="secondary" onClick={() => router.push(`/city/club?clubId=${c.clubId}`)}>
+                          Назначить
+                        </Button>
+                      </div>
+                    ))}
 
-            {dashboard.clubManagers.map((cm) => (
-              <motion.div key={cm.assignmentId} variants={cardIn}>
-                <GlassCard variant="solid" pad="md" animateIn={false} className="flex items-center gap-3">
-                  <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-brand/12">
-                    <UserCog className="size-4.5 text-brand" />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate font-semibold">{cm.displayName}</p>
-                    <p className="truncate text-xs text-muted-foreground">{cm.clubName}</p>
-                  </div>
-                  <Button size="sm" variant="ghost" onClick={() => revoke(cm.assignmentId)} disabled={busyId === cm.assignmentId}>
-                    <ShieldOff className="size-3.5" /> {busyId === cm.assignmentId ? "…" : "Снять"}
-                  </Button>
+                  {dashboard.clubManagers.map((cm) => (
+                    <div key={cm.assignmentId} className="flex items-center gap-3 p-4">
+                      <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-muted">
+                        <UserCog className="size-4.5 text-muted-foreground" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-semibold">{cm.displayName}</p>
+                        <p className="truncate text-xs text-muted-foreground">{cm.clubName}</p>
+                      </div>
+                      <Button size="sm" variant="ghost" onClick={() => revoke(cm.assignmentId)} disabled={busyId === cm.assignmentId}>
+                        <ShieldOff className="size-3.5" /> {busyId === cm.assignmentId ? "…" : "Снять"}
+                      </Button>
+                    </div>
+                  ))}
                 </GlassCard>
               </motion.div>
-            ))}
-
-            {dashboard.clubs.length === 0 && (
-              <p className="px-1 text-sm text-muted-foreground">В вашей зоне пока нет клубов.</p>
             )}
           </>
         )}

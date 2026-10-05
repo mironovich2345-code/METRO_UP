@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { AlertCircle, Building2, CheckCircle2, ChevronRight, Clock, GraduationCap } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
 import { BottomNavigation } from "@/components/bottom-navigation";
-import { ManagementAvatarLink } from "@/components/management/management-primitives";
+import { ManagementAvatarLink, ManagementSummary } from "@/components/management/management-primitives";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
 import { RevalidatingBar } from "@/components/ui/revalidating-bar";
@@ -75,19 +75,18 @@ export default function CityClubsPage() {
 
         {status === "ready" && dashboard && (
           <>
-            <motion.div variants={cardIn} className="grid grid-cols-3 gap-3">
-              <GlassCard variant="solid" pad="md" animateIn={false}>
-                <p className="text-xs text-muted-foreground">Клубов</p>
-                <p className="mt-1 text-xl font-extrabold tabular-nums">{dashboard.summary.clubCount}</p>
-              </GlassCard>
-              <GlassCard variant="solid" pad="md" animateIn={false}>
-                <p className="text-xs text-muted-foreground">Сотрудников</p>
-                <p className="mt-1 text-xl font-extrabold tabular-nums">{dashboard.summary.employeeCount}</p>
-              </GlassCard>
-              <GlassCard variant="solid" pad="md" animateIn={false}>
-                <p className="text-xs text-muted-foreground">Управляющих</p>
-                <p className="mt-1 text-xl font-extrabold tabular-nums">{dashboard.summary.clubManagerCount}</p>
-              </GlassCard>
+            {/* Management UX Round D, section 5 — one light ManagementSummary
+                instead of three separate stat cards, matching CITY_MANAGER
+                Home's own "Город сегодня" language (Round C). Same three
+                real dashboard.summary fields, no new data. */}
+            <motion.div variants={cardIn}>
+              <ManagementSummary
+                stats={[
+                  { key: "clubs", label: "Клубы", value: dashboard.summary.clubCount },
+                  { key: "employees", label: "Сотрудники", value: dashboard.summary.employeeCount },
+                  { key: "managers", label: "Управляющие", value: dashboard.summary.clubManagerCount },
+                ]}
+              />
             </motion.div>
 
             <motion.div variants={cardIn} className="flex flex-col gap-3">
@@ -110,8 +109,12 @@ export default function CityClubsPage() {
                       onClick={() => router.push(`/city/club?clubId=${c.clubId}`)}
                       className="flex w-full items-center gap-3 p-4 text-left transition-colors active:bg-foreground/5"
                     >
-                      <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-brand/12">
-                        <Building2 className="size-4.5 text-brand" />
+                      {/* Management UX Round D, section 10 — a normal club
+                          row is navigation, not attention: neutral icon
+                          (the attentionCount badge just below is the
+                          genuinely meaningful yellow, kept as-is). */}
+                      <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-muted">
+                        <Building2 className="size-4.5 text-muted-foreground" />
                       </span>
                       <div className="min-w-0 flex-1">
                         <p className="truncate font-semibold">{c.clubName}</p>
@@ -136,8 +139,10 @@ export default function CityClubsPage() {
                   server-side to this same CITY_MANAGER's effective clubs. */}
               <GlassCard variant="solid" pad="lg" animateIn={false} interactive onClick={() => router.push("/city/training")}>
                 <div className="flex items-center gap-2">
-                  <span className="flex size-9 items-center justify-center rounded-2xl bg-brand/12">
-                    <GraduationCap className="size-5 text-brand" />
+                  {/* Round D, section 10 — plain navigation entry, not an
+                      attention item: neutral icon (was leftover bg-brand/12). */}
+                  <span className="flex size-9 items-center justify-center rounded-2xl bg-muted">
+                    <GraduationCap className="size-5 text-muted-foreground" />
                   </span>
                   <p className="flex-1 font-bold">Обучение по клубам</p>
                   <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
