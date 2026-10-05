@@ -1,11 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
   grantCoversCityOrItsClubs,
   anyGrantCoversCityOrItsClubs,
   anyGrantCoversClub,
 } from "../src/lib/server/rbac/scope-core";
 import type { RoleGrant } from "../src/lib/server/rbac/types";
+
+const read = (p: string) => readFileSync(path.join(process.cwd(), p), "utf8");
 
 /**
  * Sprint: role-cabinets, step 4 — OPERATIONS_DIRECTOR / CITY_MANAGER /
@@ -231,12 +235,77 @@ test(
 test(
   "CLM-DASH-D: DIRECT ATTACK — a CLUB_MANAGER of club A cannot read club B's " +
     "dashboard or team roster via clubId= (resolveClubManagerCabinetAccess's " +
-    "tier 2 only matches the actor's OWN active CLUB_MANAGER grant; tier 3 " +
+    "tier 3 only matches the actor's OWN active CLUB_MANAGER grant; tier 4 " +
     "requires real club.read authority, which a plain CLUB_MANAGER never has " +
-    "for a club outside their own grant)",
+    "for a club outside their own grant — tier 2, the legacy-manager check, " +
+    "also never matches since EmployeeProfile.clubId is club A, not B)",
   { skip: "integration: requires Postgres + running server" },
   () => {},
 );
+
+/* --------------------------- Round B.1, section 1 (P0 fix) --------------------------- */
+
+test(
+  "CLM-DASH-H: Round B.1 fix — a legacy AppRole=CLUB_MANAGER (EmployeeProfile." +
+    "clubId, NO RoleAssignment row at all) reading GET /api/control/cabinet/" +
+    "club-manager?clubId=<their own club> gets 200 with that club's dashboard " +
+    "via tier 2. This was the exact P0 bug: GET /api/control/club/clubs " +
+    "already correctly listed this club for them (resolveClubManagerClubs' " +
+    "own legacy recognition), but every actual read of it 403'd, because " +
+    "resolveClubManagerCabinetAccess had no equivalent tier — only tiers 3/4, " +
+    "both RoleAssignment/authorize()-based — before this fix",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
+test(
+  "CLM-DASH-I: the SAME legacy manager's team roster (GET .../club-manager/" +
+    "team?clubId=<their own club>) also succeeds via the same tier 2 fix — " +
+    "the two routes agree again, as resolveClubManagerCabinetAccess's own " +
+    "doc comment claims",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
+test(
+  "CLM-DASH-J: a legacy AppRole=CLUB_MANAGER attempting clubId=<a club they " +
+    "do NOT personally work at> still 403s — tier 2 matches EmployeeProfile." +
+    "clubId EXACTLY, never any other club; this is not a backdoor to every " +
+    "club in the network",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
+test("CLM-DASH-WIRE-A: resolveClubManagerCabinetAccess's legacy-manager tier 2 (user.role===\"CLUB_MANAGER\" && user.employeeProfile?.clubId===requestedClubId) is checked BEFORE tier 3's RoleAssignment-grant lookup — the exact fix for the P0 'real CLUB_MANAGER sees Раздел недоступен' bug, verifiable without a live database", () => {
+  const src = read("src/lib/server/rbac/cabinet-dashboards.ts");
+  const fnStart = src.indexOf("export async function resolveClubManagerCabinetAccess");
+  const fnEnd = src.indexOf("\nexport ", fnStart + 10);
+  const fnSrc = src.slice(fnStart, fnEnd);
+  const legacyCheckIdx = fnSrc.indexOf('user.role === "CLUB_MANAGER" && user.employeeProfile?.clubId === requestedClubId');
+  const grantCheckIdx = fnSrc.indexOf("ownsClubManagerGrant");
+  assert.ok(legacyCheckIdx > 0 && grantCheckIdx > legacyCheckIdx, "expected the legacy-manager tier before the RoleAssignment-grant tier");
+});
+
+test("CLM-DASH-WIRE-B: the legacy-manager tier returns isPreviewing:false — it is a REAL read by the real user, never mistaken for a View-As preview (which would wrongly make it eligible for the global preview-read semantics elsewhere)", () => {
+  const src = read("src/lib/server/rbac/cabinet-dashboards.ts");
+  const fnStart = src.indexOf("export async function resolveClubManagerCabinetAccess");
+  const fnEnd = src.indexOf("\nexport ", fnStart + 10);
+  const fnSrc = src.slice(fnStart, fnEnd);
+  const legacyCheckIdx = fnSrc.indexOf('user.role === "CLUB_MANAGER" && user.employeeProfile?.clubId === requestedClubId');
+  const nextReturnIdx = fnSrc.indexOf("return {", legacyCheckIdx);
+  const returnSrc = fnSrc.slice(nextReturnIdx, fnSrc.indexOf("}", nextReturnIdx) + 1);
+  assert.match(returnSrc, /isPreviewing: false/);
+  assert.match(returnSrc, /effectiveUser: user/);
+});
+
+test("CLM-DASH-WIRE-C: resolveClubManagerCabinetAccess has exactly ONE caller site family — the two GET cabinet routes — never a mutation/write route, so this fix cannot have widened any write authorization (View-As mutation-blocking, src/middleware.ts, is untouched — see VIEWAS-CAB-D above)", () => {
+  const dashboardRoute = read("src/app/api/control/cabinet/club-manager/route.ts");
+  const teamRoute = read("src/app/api/control/cabinet/club-manager/team/route.ts");
+  assert.match(dashboardRoute, /export async function GET\(/);
+  assert.doesNotMatch(dashboardRoute, /export async function (POST|PUT|PATCH|DELETE)\(/);
+  assert.match(teamRoute, /export async function GET\(/);
+  assert.doesNotMatch(teamRoute, /export async function (POST|PUT|PATCH|DELETE)\(/);
+});
 
 test(
   "CLM-DASH-E: an employee with zero LessonProgress rows shows " +

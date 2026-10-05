@@ -501,3 +501,146 @@ test("B-HEADER-A: Home's context-switcher row (the multi-club CLUB_MANAGER affor
   assert.match(src, /onClick=\{\(\) => setSwitcherOpen\(true\)\}/);
   assert.match(src, /<ContextSwitcherSheet/);
 });
+
+/* ===================================================================== *
+ *  ROUND B.1 — live screenshot fixes
+ * ===================================================================== */
+
+/* --------- section 2: stale nav after ending a View-As preview --------- */
+
+test("STALE-NAV-A: saveStoredContext and onStoredContextChanged both reference the SAME CONTEXT_CHANGED_EVENT constant — the event name is defined exactly once, never two separately-hardcoded strings that could silently drift apart", () => {
+  const src = read("src/lib/home-context-storage.ts");
+  const stringLiteralOccurrences = (src.match(/"metro-up:home-context-changed"/g) ?? []).length;
+  assert.equal(stringLiteralOccurrences, 1, "the event name string should be defined exactly once");
+  assert.match(src, /window\.dispatchEvent\(new Event\(CONTEXT_CHANGED_EVENT\)\)/);
+  assert.match(src, /window\.addEventListener\(CONTEXT_CHANGED_EVENT, listener\)/);
+  assert.match(src, /window\.removeEventListener\(CONTEXT_CHANGED_EVENT, listener\)/);
+});
+
+test("STALE-NAV-B: onStoredContextChanged returns an unsubscribe function — the exact cleanup-returning shape a useEffect needs", () => {
+  const src = read("src/lib/home-context-storage.ts");
+  const fnSrc = src.slice(src.indexOf("export function onStoredContextChanged"), src.length);
+  assert.match(fnSrc, /return \(\) => window\.removeEventListener/);
+});
+
+test("STALE-NAV-C: useEffectiveNavContext subscribes to onStoredContextChanged for its own lifetime (not just a one-time mount read) and returns its unsubscribe as the effect's own cleanup — the root-cause fix for 'nav stays stale until the next real navigation'", () => {
+  const src = read("src/components/bottom-navigation.tsx");
+  assert.match(src, /return onStoredContextChanged\(readStoredContext\)/);
+});
+
+test("STALE-NAV-D: ReturnToCityCabinetCard refreshes AppUserProvider's user (clearing the stale previewRole) in addition to ending the preview — the SAME refresh() call the global ViewAsBanner's own 'end' flow already makes", () => {
+  const src = read("src/app/home/page.tsx");
+  const fnSrc = src.slice(src.indexOf("function ReturnToCityCabinetCard"), src.indexOf("function ClubManagerHomeSection"));
+  assert.match(fnSrc, /const \{ refresh: refreshAppUser \} = useAppUser\(\);/);
+  assert.match(fnSrc, /await viewAsApi\.end\(\);\s*\n\s*await refreshAppUser\(\);/);
+});
+
+test("STALE-NAV-E: ending the preview still unconditionally calls onReturned() (Home's own reloadDash) in a finally block regardless of whether end()/refreshAppUser() succeed — matches the pre-existing 'always reload' behavior, untouched", () => {
+  const src = read("src/app/home/page.tsx");
+  const fnSrc = src.slice(src.indexOf("function ReturnToCityCabinetCard"), src.indexOf("function ClubManagerHomeSection"));
+  assert.match(fnSrc, /finally \{\s*\n\s*onReturned\(\);\s*\n\s*\}/);
+});
+
+test("STALE-NAV-F: the full scenario, expressed via the pure resolver — during preview: CLUB_MANAGER; mid-transition (previewRole just cleared, storage not yet rewritten): still correctly CLUB_MANAGER via the stored-context fallback, never a PERSONAL flash; once storage catches up: CITY_MANAGER — exactly the task's own mandated 'start preview -> nav=CLUB_MANAGER -> end preview -> nav=CITY_MANAGER immediately' scenario", () => {
+  const duringPreview = resolveEffectiveNavContext({ storedContextType: "CLUB_MANAGER", previewRole: "CLUB_MANAGER" });
+  assert.equal(duringPreview, "CLUB_MANAGER");
+
+  const midTransition = resolveEffectiveNavContext({ storedContextType: "CLUB_MANAGER", previewRole: null });
+  assert.equal(midTransition, "CLUB_MANAGER");
+
+  const afterBothSettle = resolveEffectiveNavContext({ storedContextType: "CITY_MANAGER", previewRole: null });
+  assert.equal(afterBothSettle, "CITY_MANAGER");
+});
+
+test("STALE-NAV-G: Home's own effect still saves whatever the server just confirmed as the active context (unchanged from before this round) — this is the write the STALE-NAV-A..C fix ensures the nav reactively picks back up, instead of only on the next route change", () => {
+  const src = read("src/app/home/page.tsx");
+  assert.match(src, /saveStoredContext\(ownerKey, \{ type: dash\.activeContext\.type, clubId: dash\.activeContext\.clubId \}\)/);
+});
+
+/* --------- section 3: compact empty attention state --------- */
+
+test("EMPTY-ATTN-A: ManagementEmptyState is now a compact single row — pad=\"sm\" (not \"md\") and a bare checkmark icon with no rounded-2xl badge bubble around it", () => {
+  const src = read("src/components/management/management-primitives.tsx");
+  const fnSrc = src.slice(src.indexOf("export function ManagementEmptyState"), src.length);
+  assert.match(fnSrc, /pad="sm"/);
+  assert.doesNotMatch(fnSrc, /rounded-2xl bg-success/);
+});
+
+/* --------- section 4: zero-task Daily Plan empty state --------- */
+
+test("PLAN-ZERO-A: /plan omits '0 из 0'/the progress bar entirely when total===0 — a deliberate 'Сегодня / На сегодня задач нет' empty state instead", () => {
+  const src = read("src/app/plan/page.tsx");
+  const fnSrc = src.slice(src.indexOf('status === "ready" && plan'), src.indexOf("{plan.tasks.length > 0"));
+  const zeroBranchIdx = fnSrc.indexOf("plan.total === 0 ? (");
+  const elseBranchIdx = fnSrc.indexOf(") : (", zeroBranchIdx);
+  assert.ok(zeroBranchIdx > 0 && elseBranchIdx > zeroBranchIdx);
+  const zeroBranch = fnSrc.slice(zeroBranchIdx, elseBranchIdx);
+  assert.match(zeroBranch, /На сегодня задач нет/);
+  assert.doesNotMatch(zeroBranch, /XPProgress|из \{plan\.total\}/);
+});
+
+test("PLAN-ZERO-B: non-zero plan state is unchanged — still renders '{completed} из {total} · {pct}%' plus XPProgress", () => {
+  const src = read("src/app/plan/page.tsx");
+  const fnSrc = src.slice(src.indexOf('status === "ready" && plan'), src.indexOf("{plan.tasks.length > 0"));
+  const elseMarkerIdx = fnSrc.indexOf(") : (");
+  const endIdx = fnSrc.indexOf(")}", elseMarkerIdx);
+  const nonZeroBranch = fnSrc.slice(elseMarkerIdx, endIdx);
+  assert.match(nonZeroBranch, /\{plan\.completed\} из \{plan\.total\} · \{pct\}%/);
+  assert.match(nonZeroBranch, /<XPProgress value=\{plan\.completed \/ plan\.total\}/);
+});
+
+test("PLAN-ZERO-C: the zero-state fix applies to EVERY viewer of /plan (PERSONAL and CLUB_MANAGER alike) — deliberately NOT gated behind isClubManagerRoot the way the avatar/header change is, per section 8's 'deliberately safe for all roles'", () => {
+  const src = read("src/app/plan/page.tsx");
+  const branchIdx = src.indexOf("plan.total === 0 ? (");
+  assert.ok(branchIdx > 0);
+  const nearbySrc = src.slice(Math.max(0, branchIdx - 200), branchIdx);
+  assert.doesNotMatch(nearbySrc, /isClubManagerRoot/);
+});
+
+test("PLAN-ZERO-D: the redundant second 'На сегодня задач нет' message (previously shown separately below an empty task list) was removed — it now appears exactly once, inside the Сегодня card", () => {
+  const src = read("src/app/plan/page.tsx");
+  assert.match(src, /\{plan\.tasks\.length > 0 && \(/);
+  const occurrences = (src.match(/На сегодня задач нет/g) ?? []).length;
+  assert.equal(occurrences, 1);
+});
+
+test("PLAN-HOME-ZERO-A: ClubManagerHomeSection's own compact Plan row already correctly omits the progress bar at zero tasks (built this way since Round B, re-confirmed here) and shows 'Задач нет', never a 0% indicator", () => {
+  const src = read("src/app/home/page.tsx");
+  const fnSrc = src.slice(src.indexOf("function ClubManagerHomeSection"), src.indexOf("function AttentionRow"));
+  assert.match(fnSrc, /plan\.total === 0 \? "Задач нет"/);
+  assert.match(fnSrc, /\{plan\.total > 0 && \(/);
+});
+
+/* --------- section 5: training copy --------- */
+
+test("TRAINING-COPY-A: the training subtitle never forces a zero-value clause — 'Завершили всё: N' only appears when employeesCompleted > 0, and the in-training clause only when employeesInTraining > 0", () => {
+  const src = read("src/app/home/page.tsx");
+  const fnSrc = src.slice(src.indexOf("function ClubManagerHomeSection"), src.indexOf("function AttentionRow"));
+  assert.match(fnSrc, /block\.training\.employeesCompleted > 0\) parts\.push/);
+  assert.match(fnSrc, /block\.training\.employeesInTraining > 0\) \{/);
+  assert.doesNotMatch(fnSrc, /Завершили всё: \$\{block\.training\.employeesCompleted\} · Проходят/);
+});
+
+test("TRAINING-COPY-B: the in-training clause uses correct singular/plural Russian agreement ('проходит' for 1, 'проходят' otherwise) via pluralRu, not a hardcoded plural form", () => {
+  const src = read("src/app/home/page.tsx");
+  const fnSrc = src.slice(src.indexOf("function ClubManagerHomeSection"), src.indexOf("function AttentionRow"));
+  assert.match(fnSrc, /pluralRu\(block\.training\.employeesInTraining, "проходит обучение", "проходят обучение", "проходят обучение"\)/);
+});
+
+test("TRAINING-COPY-C: no average-progress-percent field is referenced — CLUB_MANAGER's ClubTrainingSummaryDTO genuinely has none (re-confirmed; see Round B's own B-CLUBMGR-E)", () => {
+  const src = read("src/app/home/page.tsx");
+  const fnSrc = src.slice(src.indexOf("function ClubManagerHomeSection"), src.indexOf("function AttentionRow"));
+  assert.doesNotMatch(fnSrc, /averageProgressPercent/);
+});
+
+/* --------- section 6: do-not-change guardrails ---------- */
+
+test("GUARDRAIL-A: this round did not touch CITY_MANAGER Home composition, PERSONAL Home's card sequence, bottom-nav route sets, or /city's AttentionList — only the specifically-listed files/sections changed", () => {
+  const src = read("src/app/home/page.tsx");
+  const cityFnSrc = src.slice(src.indexOf("function CityManagerHomeSection"), src.indexOf("function ReturnToCityCabinetCard"));
+  for (const label of ["Требует внимания", "Мои клубы", "Управляющие", "Обучение по клубам", "Вопросы сотрудников"]) {
+    assert.match(cityFnSrc, new RegExp(label));
+  }
+  assert.deepEqual(CLUB_MANAGER_NAV_ROUTES.map((r) => r.href), ["/home", "/team", "/plan", "/academy"]);
+  assert.deepEqual(CITY_MANAGER_NAV_ROUTES.map((r) => r.href), ["/home", "/city", "/questions", "/academy"]);
+});
