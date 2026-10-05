@@ -9,6 +9,7 @@ import {
   visibleBottomNavRoutes,
   resolveEffectiveNavContext,
   isActiveNavRoute,
+  isManagementNavContext,
 } from "../src/lib/nav-items";
 
 /**
@@ -155,6 +156,12 @@ test("CONTEXT-B: an unrecognized/unsupported stored context value never exposes 
   assert.equal(ctx, "PERSONAL");
 });
 
+test("CONTEXT-D: isManagementNavContext is true for CLUB_MANAGER/CITY_MANAGER and false for PERSONAL — the one predicate /plan and /academy use to decide whether to show the avatar entry at all", () => {
+  assert.equal(isManagementNavContext("CLUB_MANAGER"), true);
+  assert.equal(isManagementNavContext("CITY_MANAGER"), true);
+  assert.equal(isManagementNavContext("PERSONAL"), false);
+});
+
 test("CONTEXT-C: visibleBottomNavRoutes itself defaults any effectiveContext value it doesn't recognize to the PERSONAL set — defense in depth beyond the resolver", () => {
   assert.deepEqual(
     // @ts-expect-error — deliberately outside the declared ManagementNavContext union
@@ -250,8 +257,12 @@ test("PROFILE-A: Profile is not a bottom-nav tab in ANY of the three nav sets �
   }
 });
 
-test("PROFILE-B: the new management-primitives.tsx file never references /profile — it does not invent a second Profile entry point", () => {
-  assert.doesNotMatch(read("src/components/management/management-primitives.tsx"), /\/profile/);
+test("PROFILE-B: Round A.1's ManagementAvatarLink is the ONLY place in the primitives file with an actual /profile href (code, not prose) — no second, different entry point was invented alongside it", () => {
+  const src = read("src/components/management/management-primitives.tsx");
+  const occurrences = (src.match(/href="\/profile"/g) ?? []).length;
+  assert.equal(occurrences, 1, "expected exactly one href=\"/profile\" — the prose mention in this file's own doc comment is not a second entry point");
+  const fnSrc = src.slice(src.indexOf("export function ManagementAvatarLink"), src.indexOf("/* ============================== ManagementHeader"));
+  assert.match(fnSrc, /href="\/profile"/);
 });
 
 /* ============================== visual system: attention vs neutral (section 10) ============================== */
@@ -282,23 +293,35 @@ test("VISUAL-D: ManagementEmptyState's default copy matches the exact Russian st
   assert.match(read("src/components/management/management-primitives.tsx"), /Сейчас ничего не требует внимания\./);
 });
 
-test("VISUAL-E: no existing PERSONAL screen imports the new management primitives — this round does not touch PERSONAL styling (section 3)", () => {
+test("VISUAL-E: screens with NO management-context branch at all never import the new management primitives (Knowledge/Ranking/Metric/Profile are untouched by Round A/A.1/B)", () => {
+  for (const file of ["src/app/knowledge/page.tsx", "src/app/ranking/page.tsx", "src/app/metric/page.tsx", "src/app/profile/page.tsx"]) {
+    assert.doesNotMatch(read(file), /management-primitives/);
+  }
+});
+
+test("VISUAL-E2: Academy/Plan's avatar entry is GATED behind a ternary with an undefined fallback, never unconditional — PERSONAL provably still gets leading=undefined, i.e. its EXACT pre-Round-A.1 header (Round A.1, section A)", () => {
+  const academy = read("src/app/academy/page.tsx");
+  assert.match(academy, /leading=\{isManagementRoot \? <ManagementAvatarLink \/> : undefined\}/);
+  const plan = read("src/app/plan/page.tsx");
+  assert.match(plan, /leading=\{isClubManagerRoot \? <ManagementAvatarLink \/> : undefined\}/);
+});
+
+test("VISUAL-F: the still-untouched management DETAIL screens (section 6's own list) were not rewired to use the new primitives — Round A.1/B only touched root workspace screens", () => {
   for (const file of [
-    "src/app/home/page.tsx",
-    "src/app/academy/page.tsx",
-    "src/app/knowledge/page.tsx",
-    "src/app/ranking/page.tsx",
-    "src/app/metric/page.tsx",
-    "src/app/profile/page.tsx",
+    "src/app/city/club/page.tsx",
+    "src/app/city/managers/page.tsx",
+    "src/app/city/training/page.tsx",
+    "src/app/team/employee/page.tsx",
+    "src/app/questions/[id]/page.tsx",
   ]) {
     assert.doesNotMatch(read(file), /management-primitives/);
   }
 });
 
-test("VISUAL-F: none of the existing management screens were rewired to use the new primitives yet — built and proven, not migrated (section 8/11's explicit 'do not migrate every screen')", () => {
-  for (const file of ["src/app/home/page.tsx", "src/app/team/page.tsx", "src/app/city/page.tsx", "src/app/city/club/page.tsx", "src/app/city/managers/page.tsx"]) {
-    assert.doesNotMatch(read(file), /management-primitives/);
-  }
+test("VISUAL-F2: CityManagerHomeSection (inside home/page.tsx) does not reference the new management primitives — CITY_MANAGER Home remains unchanged even though the SAME file now imports them for the rebuilt CLUB_MANAGER section (Round B's explicit 'CITY_MANAGER Home must remain unchanged in this round')", () => {
+  const src = read("src/app/home/page.tsx");
+  const fnSrc = src.slice(src.indexOf("function CityManagerHomeSection"), src.indexOf("function ReturnToCityCabinetCard"));
+  assert.doesNotMatch(fnSrc, /AttentionSection|AttentionItem|ManagementListRow|ManagementEmptyState|ManagementSummary|ManagementHeader|ManagementAvatarLink/);
 });
 
 test("VISUAL-G: no generic 'ManagementHomeSection' wrapper abstraction was created — the audit's own explicit 'do not abstract for its own sake' instruction (the file's own comment explains WHY it's absent, in prose — this checks there is no actual declaration or usage, not that the words never appear)", () => {
@@ -317,4 +340,164 @@ test("BACKEND-A: Round A touched no Prisma schema or migration — this round is
   // would already fail loudly on if the two had drifted apart.
   assert.match(schema, /model Notification \{/);
   assert.match(schema, /model EmployeeQuestion \{/);
+});
+
+/* ===================================================================== *
+ *  ROUND A.1 — root shell corrections
+ * ===================================================================== */
+
+test("A1-TEAM-A: /team's drill-down branch (CITY_MANAGER's explicit ?clubId=) keeps its back-button header and has NO avatar entry", () => {
+  const src = read("src/app/team/page.tsx");
+  const ifIdx = src.indexOf("{isReadOnlyDrillDown ? (");
+  const elseMarkerIdx = src.indexOf(") : (", ifIdx);
+  assert.ok(ifIdx > 0 && elseMarkerIdx > ifIdx);
+  const drillDownBranch = src.slice(ifIdx, elseMarkerIdx);
+  assert.match(drillDownBranch, /showBack/);
+  assert.doesNotMatch(drillDownBranch, /ManagementAvatarLink/);
+});
+
+test("A1-TEAM-B: /team's root branch (real CLUB_MANAGER, or a View-As-CLUB_MANAGER preview) shows the avatar entry and sets no showBack", () => {
+  const src = read("src/app/team/page.tsx");
+  const ifIdx = src.indexOf("{isReadOnlyDrillDown ? (");
+  const elseMarkerIdx = src.indexOf(") : (", ifIdx);
+  const endIdx = src.indexOf(")}", elseMarkerIdx);
+  const rootBranch = src.slice(elseMarkerIdx, endIdx);
+  assert.match(rootBranch, /ManagementAvatarLink/);
+  assert.doesNotMatch(rootBranch, /showBack/);
+});
+
+test("A1-TEAM-C: /team's persistent bottom nav is gated on !isReadOnlyDrillDown — hidden for a CITY_MANAGER's explicit club drill-down, shown for the real CLUB_MANAGER root case (section B's own rule, 'use route/query semantics')", () => {
+  const src = read("src/app/team/page.tsx");
+  assert.match(src, /\{!isReadOnlyDrillDown && <BottomNavigation \/>\}/);
+});
+
+test("A1-TEAM-D: the multi-club CLUB_MANAGER club-selector screen (never reachable during a CITY_MANAGER drill-down — its own data query is gated on !explicitClubId) also gets the avatar entry and keeps its own BottomNavigation", () => {
+  const src = read("src/app/team/page.tsx");
+  const commentIdx = src.indexOf("// Multi-club, not yet chosen");
+  const firstReturnIdx = src.indexOf("return (", commentIdx);
+  const secondReturnIdx = src.indexOf("return (", firstReturnIdx + 10);
+  const selectorSrc = src.slice(firstReturnIdx, secondReturnIdx);
+  assert.match(selectorSrc, /ManagementAvatarLink/);
+  assert.match(selectorSrc, /<BottomNavigation \/>/);
+});
+
+test("A1-CITY-A: /city's header always shows the avatar entry and never a back button — it is always the viewer's own root 'Клубы' screen, never a drill-down for someone else", () => {
+  const src = read("src/app/city/page.tsx");
+  assert.match(src, /leading=\{<ManagementAvatarLink \/>\}/);
+  assert.doesNotMatch(src, /showBack/);
+});
+
+test("A1-QUESTIONS-A: /questions' header always shows the avatar entry and never a back button", () => {
+  const src = read("src/app/questions/page.tsx");
+  assert.match(src, /leading=\{<ManagementAvatarLink \/>\}/);
+  assert.doesNotMatch(src, /showBack/);
+});
+
+test("A1-PLAN-A: /plan's avatar entry and dropped back button are both gated on isClubManagerRoot — a plain PERSONAL employee visiting /plan still gets showBack=true and no avatar, byte-identical to before", () => {
+  const src = read("src/app/plan/page.tsx");
+  assert.match(src, /showBack=\{!isClubManagerRoot\}/);
+  assert.match(src, /leading=\{isClubManagerRoot \? <ManagementAvatarLink \/> : undefined\}/);
+});
+
+test("A1-PROFILE-STILL-ABSENT: none of the Round A.1 header changes added Profile to any bottom-nav route array (re-confirmed after this round's edits)", () => {
+  for (const set of [BOTTOM_NAV_ROUTES, CLUB_MANAGER_NAV_ROUTES, CITY_MANAGER_NAV_ROUTES]) {
+    assert.equal(set.some((r) => r.href === "/profile"), false);
+  }
+});
+
+/* ===================================================================== *
+ *  ROUND B — CLUB_MANAGER Home rebuild
+ * ===================================================================== */
+
+test("B-PERSONAL-A: the PERSONAL header branch (dash.kind !== 'club_manager') is untouched — still shows greeting+firstName, never the new role/scope text", () => {
+  const src = read("src/app/home/page.tsx");
+  assert.match(src, /\{dash && dash\.kind === "club_manager" \? "Управляющий" : `\$\{greeting\},`\}/);
+  assert.match(src, /\{dash && dash\.kind === "club_manager" \? dash\.block\.clubLabel : firstName\}/);
+});
+
+test("B-PERSONAL-B: the PERSONAL Home body branch (dash.kind==='full') was not touched by this round — same card sequence as before", () => {
+  const src = read("src/app/home/page.tsx");
+  const startIdx = src.indexOf('dashStatus === "ready" && dash && dash.kind === "full"');
+  const endIdx = src.indexOf('dashStatus === "ready" && dash && dash.kind === "city_manager"');
+  assert.ok(startIdx > 0 && endIdx > startIdx);
+  const fnSrc = src.slice(startIdx, endIdx);
+  for (const card of ["PlanCard", "ContinueLearningCard", "XpCard", "RatingCard", "MysteryCard"]) {
+    assert.match(fnSrc, new RegExp(card));
+  }
+});
+
+test("B-CITY-A: CityManagerHomeSection's own 5 sections (Требует внимания/Мои клубы/Управляющие/Обучение по клубам/Вопросы сотрудников) are all still present, unchanged — confirmed again at the Round B level, not just Round A's", () => {
+  const src = read("src/app/home/page.tsx");
+  const fnSrc = src.slice(src.indexOf("function CityManagerHomeSection"), src.indexOf("function ReturnToCityCabinetCard"));
+  for (const label of ["Требует внимания", "Мои клубы", "Управляющие", "Обучение по клубам", "Вопросы сотрудников"]) {
+    assert.match(fnSrc, new RegExp(label));
+  }
+});
+
+test("B-CLUBMGR-A: ClubManagerHomeSection reads only REAL ClubManagerHomeBlockDTO fields — no invented field names (block.clubLabel is consumed by Home's OWN header, one level up, not by this component)", () => {
+  const src = read("src/app/home/page.tsx");
+  const fnSrc = src.slice(src.indexOf("function ClubManagerHomeSection"), src.indexOf("function AttentionRow"));
+  for (const field of ["block.attention", "block.employeeCount", "block.pendingApprovalCount", "block.training"]) {
+    assert.match(fnSrc, new RegExp(field.replace(".", "\\.")));
+  }
+});
+
+test("B-CLUBMGR-B: 'Мой клуб' card is removed from ClubManagerHomeSection — no 'Мой клуб' text anywhere in it, and no empty placeholder page was built to preserve it", () => {
+  const src = read("src/app/home/page.tsx");
+  const fnSrc = src.slice(src.indexOf("function ClubManagerHomeSection"), src.indexOf("function AttentionRow"));
+  assert.doesNotMatch(fnSrc, /Мой клуб/);
+});
+
+test("B-CLUBMGR-C: the approved order is Требует внимания (AttentionSection) -> План на сегодня -> Команда -> Обучение команды", () => {
+  const src = read("src/app/home/page.tsx");
+  const fnSrc = src.slice(src.indexOf("function ClubManagerHomeSection"), src.indexOf("function AttentionRow"));
+  const iAttention = fnSrc.indexOf("<AttentionSection");
+  const iPlan = fnSrc.indexOf("План на сегодня");
+  const iTeam = fnSrc.indexOf('title="Команда"');
+  const iTraining = fnSrc.indexOf('title="Обучение команды"');
+  assert.ok(iAttention >= 0 && iPlan > iAttention && iTeam > iPlan && iTraining > iTeam, "expected Attention -> Plan -> Team -> Training, in that order");
+});
+
+test("B-CLUBMGR-D: the Plan row navigates to /plan, the Team row navigates to /team, the Training row uses the existing /team drill-down — no new/invented route", () => {
+  const src = read("src/app/home/page.tsx");
+  const fnSrc = src.slice(src.indexOf("function ClubManagerHomeSection"), src.indexOf("function AttentionRow"));
+  assert.match(fnSrc, /onClick=\{\(\) => router\.push\("\/plan"\)\}/);
+  assert.match(fnSrc, /title="Команда" subtitle=\{teamSubtitle\} onClick=\{\(\) => router\.push\("\/team"\)\}/);
+  assert.match(fnSrc, /title="Обучение команды" subtitle=\{trainingSubtitle\} onClick=\{\(\) => router\.push\("\/team"\)\}/);
+});
+
+test("B-CLUBMGR-E: no fake KPI DATA (an actual field/value reference, not this test file's own explanatory prose) appears anywhere in ClubManagerHomeSection — no averageProgressPercent (CLUB_MANAGER has no such field), no рекламный бюджет/Operations Plan/mystery-shopper value", () => {
+  const src = read("src/app/home/page.tsx");
+  const fnSrc = src.slice(src.indexOf("function ClubManagerHomeSection"), src.indexOf("function AttentionRow"));
+  assert.doesNotMatch(fnSrc, /averageProgressPercent/);
+  assert.doesNotMatch(fnSrc, /\.mystery|mysteryScore|operationsPlan|advertisingBudget/i);
+});
+
+test("B-CLUBMGR-F: the attention item exists only when block.attention is genuinely non-empty; the OLD local EmptyAttention component is not reused here — AttentionSection owns its own empty state now", () => {
+  const src = read("src/app/home/page.tsx");
+  const fnSrc = src.slice(src.indexOf("function ClubManagerHomeSection"), src.indexOf("function AttentionRow"));
+  assert.match(fnSrc, /block\.attention\.length > 0/);
+  assert.doesNotMatch(fnSrc, /EmptyAttention/);
+});
+
+test("B-VIEWAS-A: the club_manager branch renders ReturnToCityCabinetCard (for an active preview) plus the SAME ClubManagerHomeSection call — a View-As-CLUB_MANAGER preview gets the exact rebuilt Home, no second code path", () => {
+  const src = read("src/app/home/page.tsx");
+  const callSiteIdx = src.indexOf('dashStatus === "ready" && dash && dash.kind === "club_manager"');
+  assert.ok(callSiteIdx > 0);
+  const callSiteSrc = src.slice(callSiteIdx, callSiteIdx + 700);
+  assert.match(callSiteSrc, /ReturnToCityCabinetCard/);
+  assert.match(callSiteSrc, /<ClubManagerHomeSection block=\{dash\.block\} plan=\{dash\.plan\} router=\{router\} \/>/);
+});
+
+test("B-CACHE-A: ClubManagerHomeSection takes `plan` as a prop from the SAME dash payload — no new useQuery/fetch/API call was introduced for the rebuilt section", () => {
+  const src = read("src/app/home/page.tsx");
+  const fnSrc = src.slice(src.indexOf("function ClubManagerHomeSection"), src.indexOf("function AttentionRow"));
+  assert.doesNotMatch(fnSrc, /useQuery|fetch\(|cabinetApi\.|questionsApi\./);
+});
+
+test("B-HEADER-A: Home's context-switcher row (the multi-club CLUB_MANAGER affordance) is completely untouched — same showSwitcher/ContextSwitcherSheet condition and markup as before this round", () => {
+  const src = read("src/app/home/page.tsx");
+  assert.match(src, /showSwitcher \? \(/);
+  assert.match(src, /onClick=\{\(\) => setSwitcherOpen\(true\)\}/);
+  assert.match(src, /<ContextSwitcherSheet/);
 });
