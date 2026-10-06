@@ -22,8 +22,19 @@ export async function GET(req: NextRequest) {
     if (!access) {
       if (!clubIdParam) throw new AuthError(400, "club_required");
       // Sprint: manual-test-round-3, section 10 — safe observability, same
-      // convention as the /team sibling route.
-      console.warn(`[club-dashboard-access-denied] ${JSON.stringify({ actorUserId: user.id, clubId: clubIdParam })}`);
+      // convention as the /team sibling route. Management Round E0, section
+      // 1 — userRole/hasEmployeeProfileClub added (both non-PII: an AppRole
+      // enum value and a boolean) so a denial can be told apart at a glance
+      // between "no legacy identity for this club" vs. "something else" —
+      // temporary diagnostics for the live P0 trace, safe to keep.
+      console.warn(
+        `[club-dashboard-access-denied] ${JSON.stringify({
+          actorUserId: user.id,
+          clubId: clubIdParam,
+          userRole: user.role,
+          hasEmployeeProfileClub: Boolean(user.employeeProfile?.clubId),
+        })}`,
+      );
       throw new AuthError(403, "forbidden", "Недостаточно прав для просмотра этого клуба");
     }
     return jsonOk(await getClubManagerDashboard(access.clubId, access.clubName, access.effectiveUser, access.isPreviewing));

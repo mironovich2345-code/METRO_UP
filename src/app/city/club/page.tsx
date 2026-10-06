@@ -9,6 +9,7 @@ import { AttentionItem, ManagementListRow, ManagementSummary } from "@/component
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
 import { RevalidatingBar } from "@/components/ui/revalidating-bar";
+import { useAppUser } from "@/providers/AppUserProvider";
 import { ApiError } from "@/lib/api/client";
 import { cabinetApi } from "@/lib/api/cabinet-client";
 import { rolesApi, viewAsApi } from "@/lib/api/roles-client";
@@ -58,6 +59,7 @@ function invalidateAfterClubRoleChange() {
 
 function ClubDetail({ clubId }: { clubId: string }) {
   const router = useRouter();
+  const { refresh: refreshAppUser } = useAppUser();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [assigning, setAssigning] = useState(false);
@@ -175,12 +177,33 @@ function ClubDetail({ clubId }: { clubId: string }) {
    * buildSyntheticPersona (effective-context.ts) builds the read persona
    * from clubId alone, never from an existing RoleAssignment row — audited
    * before adding this button, not assumed.
+   *
+   * Management Round E0, section 1 (P0 root cause for "View-As CLUB_MANAGER
+   * -> /team -> Раздел недоступен") — viewAsApi.start() only flushes the SWR
+   * query cache (clearAllQueries); it never touches AppUserProvider's own
+   * `user.viewContext`, a SEPARATE piece of client state /team/page.tsx
+   * reads directly (`user?.viewContext?.previewRole === "CLUB_MANAGER"`) to
+   * decide whether it's in the preview flow at all. Left uncorrected, that
+   * check stayed stale-false immediately after starting a preview, so
+   * /team treated the CITY_MANAGER as their REAL, non-previewing self and
+   * ran the real actor's own "clubs I manage" lookup
+   * (GET /api/control/club/clubs) — which correctly 403s a CITY_MANAGER
+   * (they hold no CLUB_MANAGER grant themselves), producing exactly the
+   * reported "Раздел недоступен". Home itself never hit this, since its own
+   * nav/content both key off the FRESH server response (dash.activeContext/
+   * dash.block.isPreviewing), not this client-side flag — which is why the
+   * bottom nav correctly showed "Команда" while /team still 403'd. Fixed
+   * the same way Round B.1 fixed the symmetric gap on viewAsApi.end(): an
+   * explicit refreshAppUser() before navigating, so every consumer of
+   * AppUserProvider's user.viewContext (not just this screen) is already
+   * correct by the time Home/the nav/'/team mount.
    */
   const viewAsClubManager = async () => {
     setStartingPreview(true);
     setMsg(null);
     try {
       await viewAsApi.start({ role: "CLUB_MANAGER", clubId });
+      await refreshAppUser();
       router.push("/home");
     } catch (e) {
       setStartingPreview(false);
