@@ -1,8 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describeRoleAssignmentError, resolveActiveAcademySection, homeContextToAcademySection } from "../src/lib/cabinet-ui";
-import { resolveAllowedAcademySections } from "../src/lib/server/rbac/scope-core";
+import { resolveAllowedAcademySections, resolveAllowedAcademySectionsForPersona } from "../src/lib/server/rbac/scope-core";
 import type { ActorContext, RoleGrant } from "../src/lib/server/rbac/types";
+
+const read = (p: string) => readFileSync(path.join(process.cwd(), p), "utf8");
 
 /**
  * METRO UP — MANUAL TEST ROUND 2 FIXES.
@@ -74,6 +78,52 @@ test("ACAD-SECTIONS-D: a SUSPENDED/ENDED CLUB_MANAGER or CITY_MANAGER grant neve
 test("ACAD-SECTIONS-E: a real actor holding BOTH CLUB_MANAGER and CITY_MANAGER grants still gets the CITY_MANAGER-hierarchy result, not a naive union/duplicate", () => {
   const a = actor({ grants: [grant({ role: "CLUB_MANAGER", clubId: "club-1" }), grant({ id: "g2", role: "CITY_MANAGER", scopeType: "CITY", cityId: "city-1" })] });
   assert.deepEqual(resolveAllowedAcademySections(a), ["MANAGER", "CLUB_MANAGER", "CITY_MANAGER"]);
+});
+
+/* --------------------- resolveAllowedAcademySectionsForPersona (Round E0, section 2 fix) --------------------- */
+
+test("ACAD-PERSONA-A: previewRole='CLUB_MANAGER' caps allowed sections to [MANAGER, CLUB_MANAGER] EVEN WHEN the real actor underneath holds a CITY_MANAGER grant — the exact live bug ('CLUB_MANAGER Academy showed Менеджер/Управляющий/Ст. города') reproduced and fixed", () => {
+  const a = actor({ grants: [grant({ role: "CITY_MANAGER", scopeType: "CITY", cityId: "city-1" })] });
+  assert.deepEqual(resolveAllowedAcademySectionsForPersona(a, "CLUB_MANAGER"), ["MANAGER", "CLUB_MANAGER"]);
+});
+
+test("ACAD-PERSONA-B: previewRole='MANAGER' caps allowed sections to exactly [MANAGER], even over a CITY_MANAGER real actor — a MANAGER-persona preview never sees ANY management tab", () => {
+  const a = actor({ grants: [grant({ role: "CITY_MANAGER", scopeType: "CITY", cityId: "city-1" })] });
+  assert.deepEqual(resolveAllowedAcademySectionsForPersona(a, "MANAGER"), ["MANAGER"]);
+});
+
+test("ACAD-PERSONA-C: previewRole=null (not previewing, OR a CITY_MANAGER's own non-substituting self-preview) falls through to the real actor's own resolveAllowedAcademySections, unchanged — a real CITY_MANAGER still correctly gets all three sections", () => {
+  const a = actor({ grants: [grant({ role: "CITY_MANAGER", scopeType: "CITY", cityId: "city-1" })] });
+  assert.deepEqual(resolveAllowedAcademySectionsForPersona(a, null), ["MANAGER", "CLUB_MANAGER", "CITY_MANAGER"]);
+});
+
+test("ACAD-PERSONA-D: previewRole=null with a plain MANAGER actor (no preview at all, the common case) is unaffected — still exactly [MANAGER]", () => {
+  assert.deepEqual(resolveAllowedAcademySectionsForPersona(actor({ grants: [] }), null), ["MANAGER"]);
+});
+
+test("ACAD-PERSONA-WIRE: every Academy GET route that computes allowedSections now imports resolveAllowedAcademySectionsForPersona (not the bare, real-actor-only resolveAllowedAcademySections) and derives previewRole from resolveEffectiveReadContext's own isPreviewing/viewContext — the exact fix for 'direct URL forbidden outside the PREVIEWED role's allowed target role', not just the real actor's", () => {
+  for (const file of [
+    "src/app/api/academy/overview/route.ts",
+    "src/app/api/academy/state/route.ts",
+    "src/app/api/academy/days/[id]/route.ts",
+    "src/app/api/academy/lessons/[slug]/route.ts",
+  ]) {
+    const src = read(file);
+    assert.match(src, /resolveAllowedAcademySectionsForPersona/, `${file} should use the persona-aware resolver`);
+    assert.doesNotMatch(src, /\bresolveAllowedAcademySections\(/, `${file} should not call the bare real-actor-only resolver directly`);
+    assert.match(src, /effective\.isPreviewing \? \(effective\.viewContext!\.previewRole as "MANAGER" \| "CLUB_MANAGER"\) : null/);
+  }
+});
+
+test("ACAD-PERSONA-WIRE-MUTATIONS: the three Academy mutation routes (complete/quiz/start) deliberately still use the bare, real-actor-only resolveAllowedAcademySections — a MANAGER/CLUB_MANAGER persona preview can never reach them at all (src/middleware.ts blocks every mutating method under an active persona preview, before any route handler runs), so there is nothing for a persona-aware check to fix there", () => {
+  for (const file of [
+    "src/app/api/academy/lessons/[slug]/complete/route.ts",
+    "src/app/api/academy/lessons/[slug]/quiz/route.ts",
+    "src/app/api/academy/lessons/[slug]/start/route.ts",
+  ]) {
+    const src = read(file);
+    assert.match(src, /resolveAllowedAcademySections\(actor\)/, `${file} should still use the real-actor resolver`);
+  }
 });
 
 /* ------------------------- resolveActiveAcademySection (section 4) ------------------------- */

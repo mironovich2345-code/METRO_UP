@@ -378,3 +378,36 @@ test(
   { skip: "integration: requires Postgres + running server" },
   () => {},
 );
+
+/* ------------------- Management Round E0, section 1 (P0 re-trace) ------------------- */
+
+test("CLM-DASH-WIRE-D: tier 3's RoleAssignment-grant check still requires status===\"ACTIVE\" literally — a revoked/suspended/ended CLUB_MANAGER grant for the exact requested club never matches (section 12's 'revoked access denied' requirement), unweakened by this round's changes", () => {
+  const src = read("src/lib/server/rbac/cabinet-dashboards.ts");
+  assert.match(src, /g\.role === "CLUB_MANAGER" && g\.status === "ACTIVE" && g\.clubId === requestedClubId/);
+});
+
+test(
+  "TEAM-E0-A: a legacy AppRole=CLUB_MANAGER clicking from their OWN roster " +
+    "into one of their OWN employees' training detail (GET /api/control/" +
+    "cabinet/employee-training?userId=<own employee>) now succeeds via the " +
+    "new isOwnLegacyClub branch — found while re-tracing the SAME P0 'Team " +
+    "access' bug one click deeper than the roster list itself",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
+test(
+  "TEAM-E0-B: the SAME legacy manager requesting a DIFFERENT club's employee " +
+    "(not their own) still 403s — isOwnLegacyClub matches EmployeeProfile." +
+    "clubId EXACTLY, never any other club; club.read's generic grant-only " +
+    "check is also unweakened for everyone else (CITY_MANAGER scope reads, " +
+    "etc.)",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
+test("TEAM-E0-WIRE: employee-training's new legacy-identity branch mirrors resolveClubManagerCabinetAccess's own tier-2 comparison exactly (user.role===\"CLUB_MANAGER\" matched against EmployeeProfile.clubId, never a broader fallback), and only SHORT-CIRCUITS the generic club.read check — it never replaces or weakens authorize()'s own grant-based result for every other caller", () => {
+  const src = read("src/app/api/control/cabinet/employee-training/route.ts");
+  assert.match(src, /const isOwnLegacyClub = user\.role === "CLUB_MANAGER" && user\.employeeProfile\?\.clubId === target\.clubId;/);
+  assert.match(src, /if \(!isOwnLegacyClub && !authorize\(actor, \{ action: "club\.read", targetClubId: target\.clubId, targetClubCityId \}\)\) \{/);
+});

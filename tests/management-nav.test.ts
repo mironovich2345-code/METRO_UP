@@ -543,6 +543,19 @@ test("STALE-NAV-E: ending the preview still unconditionally calls onReturned() (
   assert.match(fnSrc, /finally \{\s*\n\s*onReturned\(\);\s*\n\s*\}/);
 });
 
+test("STALE-NAV-G2 (Management Round E0, section 1 — the symmetric gap on the START side): /city/club's viewAsClubManager refreshes AppUserProvider's user BEFORE navigating to /home — the root cause of 'View-As CLUB_MANAGER -> /team -> Раздел недоступен'. /team/page.tsx's own isPreviewing check reads user.viewContext.previewRole directly (not the storage-fallback-aware resolveEffectiveNavContext STALE-NAV-F already covers) — viewAsApi.start() only flushes the SWR cache, so without this explicit refresh, that check stayed stale-false immediately after starting a preview, and /team ran the REAL actor's own (CITY_MANAGER, not CLUB_MANAGER) 'clubs I manage' lookup, which correctly 403s them", () => {
+  const src = read("src/app/city/club/page.tsx");
+  const fnSrc = src.slice(src.indexOf("const viewAsClubManager ="), src.indexOf("<AppHeader title={dashboard?.clubName"));
+  assert.match(fnSrc, /await viewAsApi\.start\(\{ role: "CLUB_MANAGER", clubId \}\);\s*\n\s*await refreshAppUser\(\);/);
+});
+
+test("STALE-NAV-G3: ClubDetail declares refreshAppUser via the same useAppUser() hook AppUserProvider exports elsewhere", () => {
+  const src = read("src/app/city/club/page.tsx");
+  assert.match(src, /import \{ useAppUser \} from "@\/providers\/AppUserProvider";/);
+  const fnSrc = src.slice(src.indexOf("function ClubDetail"), src.indexOf("const viewAsClubManager ="));
+  assert.match(fnSrc, /const \{ refresh: refreshAppUser \} = useAppUser\(\);/);
+});
+
 test("STALE-NAV-F: the full scenario, expressed via the pure resolver — during preview: CLUB_MANAGER; mid-transition (previewRole just cleared, storage not yet rewritten): still correctly CLUB_MANAGER via the stored-context fallback, never a PERSONAL flash; once storage catches up: CITY_MANAGER — exactly the task's own mandated 'start preview -> nav=CLUB_MANAGER -> end preview -> nav=CITY_MANAGER immediately' scenario", () => {
   const duringPreview = resolveEffectiveNavContext({ storedContextType: "CLUB_MANAGER", previewRole: "CLUB_MANAGER" });
   assert.equal(duringPreview, "CLUB_MANAGER");
