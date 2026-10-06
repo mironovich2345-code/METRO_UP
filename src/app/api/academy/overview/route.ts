@@ -4,7 +4,7 @@ import { jsonOk, handleError } from "@/lib/server/http";
 import { getAcademyOverview, resolveOnboardingProgramId, resolveAcademyProgramIdsForSection } from "@/lib/server/academy";
 import { resolveEffectiveReadContext } from "@/lib/server/rbac/effective-context";
 import { getActorContext } from "@/lib/server/rbac/context";
-import { resolveAllowedAcademySections } from "@/lib/server/rbac/scope-core";
+import { resolveAllowedAcademySectionsForPersona } from "@/lib/server/rbac/scope-core";
 import { resolveActiveAcademySection } from "@/lib/cabinet-ui";
 
 export const runtime = "nodejs";
@@ -33,7 +33,8 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   try {
     const user = await requireActiveAccess();
-    const { effectiveUser } = await resolveEffectiveReadContext(user);
+    const effective = await resolveEffectiveReadContext(user);
+    const { effectiveUser } = effective;
 
     if (user.employeeProfile!.accessStatus === "PENDING_APPROVAL") {
       const restrictTo = [await resolveOnboardingProgramId()].filter((id): id is string => id !== null);
@@ -42,7 +43,12 @@ export async function GET(req: NextRequest) {
     }
 
     const actor = await getActorContext(user);
-    const allowedSections = resolveAllowedAcademySections(actor);
+    // Round E0, section 2 — persona-aware: a MANAGER/CLUB_MANAGER preview
+    // gets exactly that role's own sections, never the real actor's
+    // (possibly higher) superset. See resolveAllowedAcademySectionsForPersona's
+    // own doc comment for the full root-cause explanation.
+    const previewRole = effective.isPreviewing ? (effective.viewContext!.previewRole as "MANAGER" | "CLUB_MANAGER") : null;
+    const allowedSections = resolveAllowedAcademySectionsForPersona(actor, previewRole);
     const activeSection = resolveActiveAcademySection(req.nextUrl.searchParams.get("section"), allowedSections);
     const restrictTo = await resolveAcademyProgramIdsForSection(activeSection);
     const overview = await getAcademyOverview(effectiveUser.id, restrictTo);

@@ -6,7 +6,7 @@ import { prisma } from "@/lib/server/db";
 import { isAcademyContentAllowed, resolveOnboardingProgramId } from "@/lib/server/academy";
 import { resolveEffectiveReadContext } from "@/lib/server/rbac/effective-context";
 import { getActorContext } from "@/lib/server/rbac/context";
-import { resolveAllowedAcademySections } from "@/lib/server/rbac/scope-core";
+import { resolveAllowedAcademySectionsForPersona } from "@/lib/server/rbac/scope-core";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,8 +38,8 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ slug: strin
       await requireSystemAccess(); // only admins may preview drafts
     } else {
       const user = await requireActiveAccess();
-      const { effectiveUser } = await resolveEffectiveReadContext(user);
-      userId = effectiveUser.id;
+      const effective = await resolveEffectiveReadContext(user);
+      userId = effective.effectiveUser.id;
       const status = user.employeeProfile!.accessStatus;
       if (status === "PENDING_APPROVAL") {
         restrictToProgramId = await resolveOnboardingProgramId();
@@ -47,7 +47,9 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ slug: strin
         const lessonRow = await prisma.lesson.findUnique({ where: { slug }, select: { course: { select: { programId: true } } } });
         if (lessonRow) {
           const actor = await getActorContext(user);
-          const allowedSections = resolveAllowedAcademySections(actor);
+          // Round E0, section 2 — same persona-aware fix as academy/overview.
+          const previewRole = effective.isPreviewing ? (effective.viewContext!.previewRole as "MANAGER" | "CLUB_MANAGER") : null;
+          const allowedSections = resolveAllowedAcademySectionsForPersona(actor, previewRole);
           const allowed = await isAcademyContentAllowed(status, { lessonProgramId: lessonRow.course.programId }, allowedSections);
           if (!allowed) return jsonError(404, "lesson_not_found");
         }

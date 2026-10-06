@@ -4,7 +4,7 @@ import { jsonOk, jsonError, handleError } from "@/lib/server/http";
 import { getAcademyDayDetail, isAcademyContentAllowed, resolveDayProgramId } from "@/lib/server/academy";
 import { resolveEffectiveReadContext } from "@/lib/server/rbac/effective-context";
 import { getActorContext } from "@/lib/server/rbac/context";
-import { resolveAllowedAcademySections } from "@/lib/server/rbac/scope-core";
+import { resolveAllowedAcademySectionsForPersona } from "@/lib/server/rbac/scope-core";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,11 +24,16 @@ export const dynamic = "force-dynamic";
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
     const user = await requireActiveAccess();
-    const { effectiveUser } = await resolveEffectiveReadContext(user);
+    const effective = await resolveEffectiveReadContext(user);
+    const { effectiveUser } = effective;
     const { id } = await ctx.params;
     const dayProgramId = await resolveDayProgramId(id);
     const actor = await getActorContext(user);
-    const allowedSections = resolveAllowedAcademySections(actor);
+    // Round E0, section 2 — same persona-aware fix as academy/overview; a
+    // direct link to another role's day must 404 for the PREVIEWED role
+    // too, not just the real actor's own (possibly higher) grants.
+    const previewRole = effective.isPreviewing ? (effective.viewContext!.previewRole as "MANAGER" | "CLUB_MANAGER") : null;
+    const allowedSections = resolveAllowedAcademySectionsForPersona(actor, previewRole);
     if (!(await isAcademyContentAllowed(user.employeeProfile!.accessStatus, { dayProgramId }, allowedSections))) {
       return jsonError(404, "day_not_found");
     }

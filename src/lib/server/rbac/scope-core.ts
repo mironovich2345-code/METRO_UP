@@ -133,3 +133,36 @@ export function resolveAllowedAcademySections(actor: ActorContext): AcademyTarge
   if (hasActiveRole(actor.grants, "CLUB_MANAGER")) return ["MANAGER", "CLUB_MANAGER"];
   return ["MANAGER"];
 }
+
+/**
+ * Management Round E0, section 2 (root cause) — every Academy GET route
+ * called `resolveAllowedAcademySections(actor)` against the REAL actor's
+ * grants ONLY, with no awareness of an active MANAGER/CLUB_MANAGER persona
+ * preview (effective-context.ts's isPersonaPreview). A CITY_MANAGER
+ * previewing as CLUB_MANAGER is still, underneath, a real CITY_MANAGER —
+ * so the real-actor resolver correctly (for ITS OWN purpose) returned all
+ * three sections, and every Academy screen/direct-link check during that
+ * preview showed/allowed the CITY_MANAGER's own superset instead of the
+ * previewed role's own, narrower set — exactly the live-reported "CLUB_MANAGER
+ * Academy shows Менеджер/Управляющий/Ст. города" bug. View As exists
+ * specifically so a preview sees what THAT role sees, nothing more.
+ *
+ * `previewRole` is the SAME narrow persona-substitution union
+ * effective-context.ts's isPersonaPreview already gates on (MANAGER |
+ * CLUB_MANAGER) — a CITY_MANAGER's own self-preview is NOT persona
+ * substitution (isPreviewing stays false for it there), so callers pass
+ * `null` for that case and this falls through to the real actor's own
+ * grants, correctly unchanged. This does not replace
+ * resolveAllowedAcademySections — it is the one extra branch every
+ * call site needs, kept as its own function so the real-actor-only
+ * resolver (still correct and still used standalone wherever no preview
+ * concept applies) is never silently given a signature it doesn't need.
+ */
+export function resolveAllowedAcademySectionsForPersona(
+  actor: ActorContext,
+  previewRole: "MANAGER" | "CLUB_MANAGER" | null,
+): AcademyTargetRoleDTO[] {
+  if (previewRole === "MANAGER") return ["MANAGER"];
+  if (previewRole === "CLUB_MANAGER") return ["MANAGER", "CLUB_MANAGER"];
+  return resolveAllowedAcademySections(actor);
+}
