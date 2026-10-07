@@ -825,6 +825,22 @@ function CityManagerHomeSection({ block, router }: { block: CityManagerHomeBlock
       onClick: () => router.push("/city"),
     });
   }
+  // Management Round E1, section 16 — approved as a small, isolated
+  // composition addition only: real questionsNewCount, gated strictly on
+  // > 0 (never a forced zero-value row), linking to the existing /questions
+  // screen. No backend/notification change — this reads the SAME field the
+  // permanent "Вопросы сотрудников" row below already reads; that row
+  // stays exactly as-is, this is purely additive. CLUB_MANAGER is
+  // deliberately NOT given this item — its own block has no
+  // questionsNewCount field/routing today (section 16's explicit scope).
+  if (block.questionsNewCount > 0) {
+    attentionItems.push({
+      key: "new-questions",
+      icon: MessageSquare,
+      text: `${block.questionsNewCount} ${pluralRu(block.questionsNewCount, "новый вопрос", "новых вопроса", "новых вопросов")}`,
+      onClick: () => router.push("/questions"),
+    });
+  }
 
   // Section 4/7 — null means "no published lessons or no one in scope yet"
   // (honest neutral state below), never conflated with a real, computed 0%.
