@@ -1,5 +1,6 @@
 import type { AccessStatusDTO, PositionDTO } from "./types";
 import type { DailyPlanDTO } from "./home-types";
+import type { EmployeeTrainingProgramDTO } from "./content-types";
 
 /**
  * Sprint: role-cabinets, step 4 — SERVER READ MODELS for the
@@ -215,3 +216,83 @@ export interface ClubManagerTeamDTO {
 /** Re-exported for convenience so cabinet-dashboards.ts's callers don't also
  * need to import from ./types directly. */
 export type { PositionDTO };
+
+/* ============================================================================
+ * Management Round E1 — ONE shared employee read model, used identically by
+ * CLUB_MANAGER (own club only) and CITY_MANAGER (effective scope) alike —
+ * authorization decides WHICH employee this can be requested for; the shape
+ * returned once authorized never differs by role. Future OPERATIONS_DIRECTOR
+ * reuses this same shape unchanged. Every section is independently
+ * nullable/empty rather than ever fabricated — see each field's own comment.
+ * ============================================================================
+ */
+
+export interface ManagementEmployeeProfileDTO {
+  displayName: string;
+  /** Signed/public URL for the custom uploaded avatar — never a storage key.
+   * Null = no custom avatar; the client falls back to initials, same as
+   * every other avatar in this app (never telegramPhotoUrl). */
+  avatarUrl: string | null;
+  position: string | null;
+  clubName: string | null;
+  cityName: string | null;
+}
+
+/** `startedAt` is null whenever this employee has no OPEN (endedAt: null)
+ * EmploymentAssignment row — which is EVERY employee today, since nothing
+ * in this codebase writes to that table yet (Round E0's audit finding).
+ * NEVER derived from User.createdAt. The client shows a calm "not set"
+ * copy when null, never a fabricated 0-day tenure. */
+export interface ManagementEmployeeEmploymentDTO {
+  startedAt: string | null;
+}
+
+/** One row per quiz this employee has ever attempted — never per lesson
+ * (a lesson may have no quiz at all), and never including QuizOption.isCorrect
+ * or raw attempt `answers` (section 8's explicit "never expose correct
+ * answers"). `latestPercent`/`passed` reflect the most recent attempt by
+ * startedAt (same "most recent wins" convention cabinet-dashboards.ts's own
+ * loadLatestQuizResults already uses); `bestPercent` is MAX(scorePercent)
+ * across every attempt, independent of recency. */
+export interface ManagementEmployeeTestSummaryDTO {
+  quizId: string;
+  title: string;
+  passed: boolean;
+  latestPercent: number;
+  bestPercent: number;
+  lastAttemptAt: string;
+  attemptCount: number;
+}
+
+/** One PUBLISHED MysteryShopperResult row — DRAFT rows (SPM still working on
+ * it) never reach this DTO at all, not even to be hidden client-side.
+ * `periodLabel` matches the EXISTING MysterySummaryDTO convention exactly
+ * (getMysterySummary, src/lib/server/mystery.ts: ruMonthYear(month, year))
+ * — the server computes it once, the client never reformats raw month/year
+ * itself. `comment` is carried through for an expanded/detail view
+ * (section 10's "show them only in detail where appropriate") — the
+ * compact card itself only needs period+score. */
+export interface ManagementEmployeeMysteryResultDTO {
+  periodLabel: string;
+  score: number;
+  comment: string | null;
+}
+
+export interface ManagementEmployeeCardDTO {
+  profile: ManagementEmployeeProfileDTO;
+  employment: ManagementEmployeeEmploymentDTO;
+  /** Reuses getEmployeeTrainingDetail's existing overall/programs shape
+   * unchanged (no due dates/overdue/mandatory status — none of that exists
+   * in the content model); displayName/position live in `profile` instead,
+   * never duplicated here. */
+  learning: { overall: { completed: number; total: number }; programs: EmployeeTrainingProgramDTO[] };
+  /** Empty array (never null) when this employee has no QuizAttempt rows at
+   * all — the client shows an honest "Не проходил", not a fabricated row. */
+  tests: ManagementEmployeeTestSummaryDTO[];
+  mysteryShopper: {
+    /** Same row as history[0] when history is non-empty; null when empty —
+     * never recomputed differently from the history list. */
+    latest: ManagementEmployeeMysteryResultDTO | null;
+    history: ManagementEmployeeMysteryResultDTO[];
+  };
+}

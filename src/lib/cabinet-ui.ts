@@ -22,6 +22,32 @@ export function pluralRu(n: number, one: string, few: string, many: string): str
   return many;
 }
 
+/**
+ * Management Round E1, section 6 — "Стаж" computed PURELY from a real
+ * EmploymentAssignment.startedAt (the caller's job to never pass
+ * User.createdAt here). `now` is an explicit parameter — defaulting to the
+ * real current time at every production call site — so this stays pure and
+ * directly unit-testable rather than silently depending on Date.now()
+ * inside a test run. Returns a calm, correctly-pluralized Russian label:
+ * under 30 days as days, under a year as months, otherwise years (+
+ * remaining months when non-zero, e.g. "2 года 3 месяца").
+ */
+export function formatTenureRu(startedAtIso: string, now: Date = new Date()): string {
+  const started = new Date(startedAtIso);
+  const totalDays = Math.max(0, Math.floor((now.getTime() - started.getTime()) / 86_400_000));
+  if (totalDays < 30) {
+    return `${totalDays} ${pluralRu(totalDays, "день", "дня", "дней")}`;
+  }
+  const totalMonths = Math.floor(totalDays / 30);
+  const years = Math.floor(totalMonths / 12);
+  const months = totalMonths % 12;
+  if (years === 0) {
+    return `${months} ${pluralRu(months, "месяц", "месяца", "месяцев")}`;
+  }
+  const yearsLabel = `${years} ${pluralRu(years, "год", "года", "лет")}`;
+  return months > 0 ? `${yearsLabel} ${months} ${pluralRu(months, "месяц", "месяца", "месяцев")}` : yearsLabel;
+}
+
 /** The distinct, non-null city names covered by a CITY_MANAGER's clubs —
  * drives the cabinet header's scope summary (section 4): handles one city,
  * several cities, and a club-only scope (empty array) uniformly, since it's

@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/server/db";
 import { requireUser, AuthError } from "@/lib/server/authz";
 import { jsonOk, jsonError, handleError } from "@/lib/server/http";
-import { getEmployeeTrainingDetail } from "@/lib/server/academy";
+import { getManagementEmployeeCard } from "@/lib/server/rbac/employee-card";
 import { getActorContext, cityIdForClub } from "@/lib/server/rbac/context";
 import { authorize } from "@/lib/server/rbac/authorize-core";
 
@@ -21,6 +21,14 @@ export const dynamic = "force-dynamic";
  * this club, or network-wide access" — never a new, parallel scope rule. A
  * plain MANAGER (no such grant) is rejected the same way it already is
  * everywhere else in this file.
+ *
+ * Management Round E1 — the response is now the fuller
+ * ManagementEmployeeCardDTO (profile/employment/learning/tests/mystery
+ * shopper), composed by getManagementEmployeeCard; the URL, the route name,
+ * and every authorization check below are UNCHANGED from Round E0 — this is
+ * still the one endpoint behind /team/employee, never a second role-specific
+ * one (section 3's explicit "do not create duplicate role-specific employee
+ * pages").
  */
 export async function GET(req: NextRequest) {
   try {
@@ -30,7 +38,7 @@ export async function GET(req: NextRequest) {
 
     const target = await prisma.employeeProfile.findUnique({
       where: { userId: targetUserId },
-      select: { clubId: true },
+      select: { clubId: true, cityId: true, positionId: true },
     });
     if (!target) return jsonError(404, "user_not_found");
 
@@ -62,7 +70,7 @@ export async function GET(req: NextRequest) {
       throw new AuthError(403, "forbidden", "Недостаточно прав для просмотра этого сотрудника");
     }
 
-    return jsonOk(await getEmployeeTrainingDetail(targetUserId));
+    return jsonOk(await getManagementEmployeeCard(targetUserId, target));
   } catch (e) {
     return handleError(e);
   }
