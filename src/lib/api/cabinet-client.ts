@@ -5,9 +5,9 @@ import type {
   CityManagerTrainingClubRowDTO,
   ClubManagerDashboardDTO,
   ClubManagerTeamDTO,
+  ManagementEmployeeCardDTO,
   OperationsDirectorDashboardDTO,
 } from "./cabinet-types";
-import type { EmployeeTrainingDetailDTO } from "./content-types";
 
 /**
  * Sprint: role-cabinets, step 5 — thin client wrappers for the read-model
@@ -44,9 +44,11 @@ export const cabinetApi = {
   /** Sprint: manual-test-round-3, section 5A — CITY_MANAGER-only club-level
    * training rows. */
   cityManagerTraining: () => request<{ clubs: CityManagerTrainingClubRowDTO[] }>(`/api/control/cabinet/city-manager/training`),
-  /** Sprint: manual-test-round-3, sections 5C/5D — the shared, role-agnostic
-   * per-employee training detail (CITY_MANAGER and CLUB_MANAGER alike). */
-  employeeTraining: (userId: string) => request<EmployeeTrainingDetailDTO>(`/api/control/cabinet/employee-training${qs({ userId })}`),
+  /** Sprint: manual-test-round-3, sections 5C/5D; Management Round E1 — the
+   * shared, role-agnostic management Employee Card (CITY_MANAGER and
+   * CLUB_MANAGER alike, future OPERATIONS_DIRECTOR reuses the same shape).
+   * Same URL as before Round E1 — only the response got richer. */
+  employeeTraining: (userId: string) => request<ManagementEmployeeCardDTO>(`/api/control/cabinet/employee-training${qs({ userId })}`),
 };
 
 export type {
@@ -58,6 +60,11 @@ export type {
   ClubManagerDashboardDTO,
   ClubManagerTeamDTO,
   CabinetTeamMemberDTO,
+  ManagementEmployeeCardDTO,
+  ManagementEmployeeEmploymentDTO,
+  ManagementEmployeeMysteryResultDTO,
+  ManagementEmployeeProfileDTO,
+  ManagementEmployeeTestSummaryDTO,
   OperationsDirectorDashboardDTO,
   TrainingSummaryDTO,
 } from "./cabinet-types";
