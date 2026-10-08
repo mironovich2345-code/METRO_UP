@@ -96,6 +96,11 @@ export const cacheKeys = {
    * /city/club's "Задачи" row and invalidated right after a successful
    * assignment to that same club. */
   cityClubTaskStatus: (clubId: string) => key("city-club-task-status", clubId),
+  /** Management Round E2.1 — the actual delegated-task rows this
+   * CITY_MANAGER assigned to the club's active manager (drill-down from
+   * the same "Задачи" row), invalidated alongside cityClubTaskStatus
+   * right after a successful assignment. */
+  cityClubDelegatedTasks: (clubId: string) => key("city-club-delegated-tasks", clubId),
 
   /** Published, shareable knowledge-base content — no per-user data at all
    * (section 5's own named "knowledge-base metadata/content" candidate). */

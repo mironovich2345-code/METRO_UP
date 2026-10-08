@@ -7,7 +7,8 @@ import type { CurrentUser } from "./session";
 import { getActorContext, cityIdForClub } from "./rbac/context";
 import { authorize } from "./rbac/authorize-core";
 import { hasActiveRole } from "./rbac/scope-core";
-import type { AssignCityManagerTaskResultDTO, ClubManagerTaskStatusDTO } from "@/lib/api/cabinet-types";
+import { sortDelegatedTasks } from "./city-plan-core";
+import type { AssignCityManagerTaskResultDTO, ClubManagerTaskStatusDTO, ManagerDelegatedTaskDTO } from "@/lib/api/cabinet-types";
 
 /**
  * Management Round E2 — CITY_MANAGER -> CLUB_MANAGER Daily Plan delegation.
@@ -168,4 +169,38 @@ export async function getClubManagerTaskStatus(clubId: string): Promise<ClubMana
     manager,
     today: { total: tasks.length, completed: tasks.filter((t) => t.status === "COMPLETED").length },
   };
+}
+
+/**
+ * Management Round E2.1 — the actual gap E2's compact total-plan summary
+ * (getClubManagerTaskStatus above) left: the REAL delegated tasks (text/
+ * date/completion) THIS CITY_MANAGER personally assigned to the club's
+ * active manager, including future-dated ones not yet visible on the
+ * manager's own /plan. Authorization (CITY_MANAGER role + club.read scope)
+ * is the CALLER's job — the exact same split getClubManagerTaskStatus
+ * already uses — this function only resolves the target manager (server-
+ * side, from clubId, never a client-supplied userId — identical
+ * resolution to the create path) and filters STRICTLY by
+ * createdByUserId = actorUserId. A task created by a DIFFERENT
+ * CITY_MANAGER, by the CLUB_MANAGER themselves (their own one-off/club-
+ * template tasks), or by SYSTEM, can never appear here regardless of
+ * role — createdByUserId alone is exact enough that no extra `source`
+ * filter is needed (no other code path ever stamps a CITY_MANAGER's own
+ * id into that column).
+ *
+ * One bounded query (never N+1 — a single findMany, not one read per
+ * task/date). Sort: date ascending, then incomplete-before-done within
+ * the same date — a plain in-memory pass over the one result set, not a
+ * second query.
+ */
+export async function getCityManagerDelegatedTasks(actorUserId: string, clubId: string): Promise<ManagerDelegatedTaskDTO[]> {
+  const manager = await resolveActiveClubManagerForClub(clubId);
+  if (!manager) return [];
+  const rows = await prisma.dailyTask.findMany({
+    where: { userId: manager.userId, createdByUserId: actorUserId },
+    select: { id: true, title: true, date: true, status: true },
+  });
+  return sortDelegatedTasks(
+    rows.map((r) => ({ id: r.id, title: r.title, date: r.date.toISOString().slice(0, 10), status: r.status })),
+  );
 }

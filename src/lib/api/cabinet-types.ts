@@ -1,5 +1,5 @@
 import type { AccessStatusDTO, PositionDTO } from "./types";
-import type { DailyPlanDTO } from "./home-types";
+import type { DailyPlanDTO, DailyTaskStatusDTO } from "./home-types";
 import type { EmployeeTrainingProgramDTO } from "./content-types";
 
 /**
@@ -320,4 +320,20 @@ export interface AssignCityManagerTaskResultDTO {
 export interface ClubManagerTaskStatusDTO {
   manager: { userId: string; displayName: string };
   today: { total: number; completed: number };
+}
+
+/**
+ * Management Round E2.1 — the gap E2's compact summary left: a CITY_MANAGER
+ * could see a manager's TOTAL today count, but never the actual tasks
+ * THEY assigned (text/date/completion), and never a future-dated one
+ * before its own day arrives. One row per DailyTask this CITY_MANAGER
+ * personally created for this manager — `date` is YYYY-MM-DD (the same
+ * app-timezone-day string convention DailyPlanDTO already uses), `status`
+ * is the real DailyTaskStatusDTO, never recomputed/renamed.
+ */
+export interface ManagerDelegatedTaskDTO {
+  id: string;
+  title: string;
+  date: string;
+  status: DailyTaskStatusDTO;
 }

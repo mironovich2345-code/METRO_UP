@@ -8,6 +8,7 @@ import type {
   ClubManagerTaskStatusDTO,
   ClubManagerTeamDTO,
   ManagementEmployeeCardDTO,
+  ManagerDelegatedTaskDTO,
   OperationsDirectorDashboardDTO,
 } from "./cabinet-types";
 
@@ -63,6 +64,12 @@ export const cabinetApi = {
    * the club has no active manager to report on. */
   clubManagerTaskStatus: (clubId: string) =>
     request<ClubManagerTaskStatusDTO | null>(`/api/control/cabinet/city-manager/club-task-status${qs({ clubId })}`),
+  /** Management Round E2.1 — the actual delegated-task rows (text/date/
+   * completion) THIS CITY_MANAGER assigned to the club's active manager.
+   * Distinct from clubManagerTaskStatus above, which is just the
+   * manager's total today count across their whole Daily Plan. */
+  cityManagerDelegatedTasks: (clubId: string) =>
+    request<ManagerDelegatedTaskDTO[]>(`/api/control/cabinet/city-manager/delegated-tasks${qs({ clubId })}`),
 };
 
 export type {
@@ -81,6 +88,7 @@ export type {
   ManagementEmployeeMysteryResultDTO,
   ManagementEmployeeProfileDTO,
   ManagementEmployeeTestSummaryDTO,
+  ManagerDelegatedTaskDTO,
   OperationsDirectorDashboardDTO,
   TrainingSummaryDTO,
 } from "./cabinet-types";
