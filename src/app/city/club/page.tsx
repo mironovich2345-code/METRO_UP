@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronRight, Clock, Eye, GraduationCap, RotateCw, ShieldOff, UserCog, Users } from "lucide-react";
+import { ChevronRight, Clock, Eye, GraduationCap, ListChecks, RotateCw, ShieldOff, UserCog, Users } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
 import { AttentionItem, ManagementListRow, ManagementSummary } from "@/components/management/management-primitives";
 import { GlassCard } from "@/components/ui/glass-card";
@@ -18,6 +18,7 @@ import type { CabinetTeamMemberDTO } from "@/lib/api/cabinet-client";
 import { useQuery, QUERY_POLICY, invalidatePrefix } from "@/lib/client/query-cache";
 import { cacheKeys, cacheKeyPrefixes } from "@/lib/client/cache-keys";
 import { canRestoreAssignment, describeRoleAssignmentError, pluralRu, resolveCityClubPageStatus } from "@/lib/cabinet-ui";
+import { appDateString } from "@/lib/app-day";
 import { cardIn, staggerStack, springSoft } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
@@ -64,6 +65,7 @@ function ClubDetail({ clubId }: { clubId: string }) {
   const [msg, setMsg] = useState<string | null>(null);
   const [assigning, setAssigning] = useState(false);
   const [startingPreview, setStartingPreview] = useState(false);
+  const [assigningTask, setAssigningTask] = useState(false);
 
   // The SAME three independent, already-scope-checked reads as before,
   // bundled under one cache key/fetcher — MUTABLE: pendingApprovalCount,
@@ -109,6 +111,25 @@ function ClubDetail({ clubId }: { clubId: string }) {
     QUERY_POLICY.MEDIUM,
   );
   const isCityManager = managementRoles?.some((r) => r.type === "CITY_MANAGER") ?? false;
+
+  /**
+   * Management Round E2, section 11 — the compact "Задачи" status for this
+   * club's active manager (either identity source — resolveActiveClubManagerForClub's
+   * own union; see city-plan.ts). A dedicated small read, deliberately NOT
+   * the acting manager's own getPlanTodayFor (no materialization side
+   * effect, no Academy/sales lookups a management summary doesn't need).
+   * null means "no active manager to report on" — the section below is
+   * hidden entirely then, section 5's explicit "if the club has no active
+   * CLUB_MANAGER, do not show an assign-task action".
+   */
+  const {
+    data: taskStatus,
+    mutate: reloadTaskStatus,
+  } = useQuery(
+    isCityManager ? cacheKeys.cityClubTaskStatus(clubId) : null,
+    () => cabinetApi.clubManagerTaskStatus(clubId),
+    QUERY_POLICY.MUTABLE, // completion state changes from the manager's own actions at any time
+  );
 
   const dashboard = data?.dashboard ?? null;
   const team = data?.team ?? null;
@@ -318,6 +339,30 @@ function ClubDetail({ clubId }: { clubId: string }) {
               )}
             </motion.div>
 
+            {/* ---- Задачи — Management Round E2, sections 5/11. Entry point
+                for "Поставить задачу" AND the compact status view, folded
+                into ONE row (its subtitle already shows the status; tapping
+                it opens the assign sheet) — no separate drill-down screen
+                needed for this round's scope. Hidden entirely when the club
+                has no active manager (taskStatus is null then), exactly
+                like the IA requires. */}
+            {taskStatus && (
+              <motion.div variants={cardIn}>
+                <GlassCard variant="solid" pad="none" animateIn={false}>
+                  <ManagementListRow
+                    icon={ListChecks}
+                    title="Задачи"
+                    subtitle={
+                      taskStatus.today.total > 0
+                        ? `Сегодня: ${taskStatus.today.total} ${pluralRu(taskStatus.today.total, "задача", "задачи", "задач")} · ${taskStatus.today.completed} ${pluralRu(taskStatus.today.completed, "выполнена", "выполнено", "выполнено")}`
+                        : "Сегодня задач нет"
+                    }
+                    onClick={() => setAssigningTask(true)}
+                  />
+                </GlassCard>
+              </motion.div>
+            )}
+
             {/* ---- Сотрудники — Round D adds the employee drill-down tap
                 (/team/employee, the SAME shared, independently-authorized
                 screen /team's own roster already links to) that this
@@ -405,6 +450,22 @@ function ClubDetail({ clubId }: { clubId: string }) {
           invalidateAfterClubRoleChange();
         }}
       />
+
+      {taskStatus && (
+        <AssignTaskSheet
+          open={assigningTask}
+          clubId={clubId}
+          clubName={dashboard?.clubName ?? null}
+          managerName={taskStatus.manager.displayName}
+          onClose={() => setAssigningTask(false)}
+          onAssigned={() => {
+            setAssigningTask(false);
+            // Section 14 — invalidate only this club's own task status; no
+            // city/home/academy/ranking invalidation, no full reload hack.
+            reloadTaskStatus();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -547,6 +608,169 @@ function AssignManagerSheet({
               <Button variant="secondary" block onClick={onClose}>Отмена</Button>
               <Button block disabled={busy || !selected} onClick={submit}>
                 <UserCog className="size-4" /> {busy ? "…" : "Назначить"}
+              </Button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+/**
+ * Section 2 — the SAME business-timezone "today" the desktop /control/plan
+ * portal's own date picker already uses (src/lib/app-day.ts's own doc
+ * comment: "so client date pickers ... don't drift to a different day for
+ * users outside Moscow — the plan is keyed to the business day, not the
+ * browser's local day"). Reused here verbatim rather than a device-local
+ * `Date` default, which would silently disagree with the server's own
+ * appDay() (city-plan.ts) for a manager/CITY_MANAGER outside Moscow. The
+ * server independently re-derives and is the sole authority regardless —
+ * this only keeps the DEFAULT suggestion honest.
+ */
+function businessTodayInputValue(): string {
+  return appDateString();
+}
+
+/**
+ * Management Round E2, section 6 — the focused assign-task sheet. The
+ * target manager/club are READ-ONLY display fields (resolved server-side
+ * already, by clubId, before this sheet ever opens — see city-plan.ts's
+ * own doc comment) — this form submits only clubId/date/title, exactly
+ * what cityManagerAssignTaskSchema accepts; there is no userId field here
+ * for a client to tamper with even if it wanted to. Mirrors
+ * AssignManagerSheet's own structure (same backdrop/sheet motion, same
+ * VIEW_AS_READ_ONLY retry affordance) for visual/behavioral consistency.
+ */
+function AssignTaskSheet({
+  open,
+  clubId,
+  clubName,
+  managerName,
+  onClose,
+  onAssigned,
+}: {
+  open: boolean;
+  clubId: string;
+  clubName: string | null;
+  managerName: string;
+  onClose: () => void;
+  onAssigned: () => void;
+}) {
+  const [date, setDate] = useState(businessTodayInputValue());
+  const [title, setTitle] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [errCode, setErrCode] = useState<string | null>(null);
+  const [endingPreview, setEndingPreview] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setDate(businessTodayInputValue());
+    setTitle("");
+    setErr(null);
+    setErrCode(null);
+  }, [open]);
+
+  const submit = async () => {
+    if (!title.trim()) {
+      setErr("Введите текст задачи.");
+      setErrCode(null);
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    setErrCode(null);
+    try {
+      await cabinetApi.assignCityManagerTask({ clubId, date, title: title.trim() });
+      onAssigned();
+    } catch (e) {
+      const code = e instanceof ApiError ? e.code : null;
+      console.error(`[assign-task-error] ${JSON.stringify({ code, status: e instanceof ApiError ? e.status : null })}`);
+      setErrCode(code);
+      setErr(describeRoleAssignmentError(code));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const endPreviewAndRetry = async () => {
+    setEndingPreview(true);
+    try {
+      await viewAsApi.end();
+      setErr(null);
+      setErrCode(null);
+    } catch {
+      setErr(describeRoleAssignmentError(null));
+    } finally {
+      setEndingPreview(false);
+    }
+  };
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <div className="fixed inset-0 z-50">
+          <motion.div className="absolute inset-0 bg-black/45" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} />
+          <motion.div
+            className="absolute inset-x-0 bottom-0 max-h-[85dvh] overflow-y-auto rounded-t-3xl border-t border-border bg-card p-6 pb-[calc(env(safe-area-inset-bottom)+24px)]"
+            initial={{ y: "100%" }}
+            animate={{ y: 0 }}
+            exit={{ y: "100%" }}
+            transition={springSoft}
+          >
+            <div className="mx-auto mb-5 h-1 w-10 rounded-full bg-border" />
+            <h2 className="text-lg font-bold">Поставить задачу</h2>
+
+            <div className="mt-4 flex items-center gap-3 rounded-2xl bg-muted p-3">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-2xl bg-card">
+                <UserCog className="size-4.5 text-muted-foreground" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs text-muted-foreground">Управляющий</p>
+                <p className="truncate font-semibold">{managerName}</p>
+                {clubName && <p className="truncate text-xs text-muted-foreground">{clubName}</p>}
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <label className="text-xs font-semibold text-muted-foreground">Дата</label>
+              <input
+                type="date"
+                value={date}
+                min={businessTodayInputValue()}
+                onChange={(e) => setDate(e.target.value)}
+                className="mt-1.5 w-full rounded-2xl border border-border bg-card px-3 py-2.5 text-sm text-foreground outline-none focus:border-brand"
+              />
+            </div>
+
+            <div className="mt-4">
+              <label className="text-xs font-semibold text-muted-foreground">Задача</label>
+              <textarea
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                rows={3}
+                maxLength={300}
+                placeholder="Например: подготовить зал к проверке"
+                className="mt-1.5 w-full resize-none rounded-2xl border border-border bg-card px-3 py-2.5 text-sm text-foreground outline-none focus:border-brand"
+              />
+            </div>
+
+            {err && (
+              <div className="mt-3">
+                <p className="text-sm text-red-500">{err}</p>
+                {errCode === "VIEW_AS_READ_ONLY" && (
+                  <Button size="sm" variant="secondary" className="mt-2" onClick={endPreviewAndRetry} disabled={endingPreview}>
+                    {endingPreview ? "…" : "Завершить предпросмотр"}
+                  </Button>
+                )}
+              </div>
+            )}
+
+            <div className="mt-5 flex gap-3">
+              <Button variant="secondary" block onClick={onClose}>Отмена</Button>
+              <Button block disabled={busy || !title.trim()} onClick={submit}>
+                <ListChecks className="size-4" /> {busy ? "…" : "Назначить"}
               </Button>
             </div>
           </motion.div>
