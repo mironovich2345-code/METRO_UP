@@ -92,6 +92,10 @@ export const cacheKeys = {
   cityClub: (clubId: string) => key("city-club", clubId),
   cityManagers: () => key("city-managers"),
   cityTraining: () => key("city-training"),
+  /** Management Round E2 — one club's active-manager task status, read on
+   * /city/club's "Задачи" row and invalidated right after a successful
+   * assignment to that same club. */
+  cityClubTaskStatus: (clubId: string) => key("city-club-task-status", clubId),
 
   /** Published, shareable knowledge-base content — no per-user data at all
    * (section 5's own named "knowledge-base metadata/content" candidate). */

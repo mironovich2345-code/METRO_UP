@@ -71,3 +71,18 @@ export const templateUpdateSchema = z.object({
 });
 
 export const templateReorderSchema = z.object({ ids: z.array(z.string().uuid()).min(1).max(50) });
+
+/**
+ * Management Round E2 — CITY_MANAGER -> CLUB_MANAGER Daily Plan delegation
+ * (src/lib/server/city-plan.ts). Deliberately NOT managerTaskSchema above
+ * (that one's `target` union is CLUB_MANAGER-scoped-to-own-club shaped);
+ * this caller only ever has ONE possible target per request — the active
+ * manager of the given clubId, server-resolved, never client-supplied —
+ * so there is no `target` field here at all, by construction, not by
+ * convention: the client cannot submit a userId even if it wanted to.
+ */
+export const cityManagerAssignTaskSchema = z.object({
+  clubId: z.string().min(1),
+  date: dateStr,
+  title: z.string().trim().min(1).max(300),
+});

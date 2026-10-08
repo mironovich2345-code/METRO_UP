@@ -296,3 +296,28 @@ export interface ManagementEmployeeCardDTO {
     history: ManagementEmployeeMysteryResultDTO[];
   };
 }
+
+/* ============================================================================
+ * Management Round E2 — CITY_MANAGER -> CLUB_MANAGER Daily Plan delegation
+ * (src/lib/server/city-plan.ts). The target CLUB_MANAGER and club are
+ * ALWAYS server-resolved from an authorized clubId — neither DTO below
+ * carries a client-suppliable userId/createdByUserId/source field.
+ * ============================================================================
+ */
+
+export interface AssignCityManagerTaskResultDTO {
+  taskId: string;
+  assignedToUserId: string;
+  assignedToName: string;
+  clubName: string | null;
+  date: string;
+}
+
+/** Section 11 — the compact "Задачи" status for one club's active manager.
+ * `today` counts ONLY DailyTask rows for the app-timezone current date —
+ * never a materializing read (no Academy/sales side effect), just a plain
+ * count. */
+export interface ClubManagerTaskStatusDTO {
+  manager: { userId: string; displayName: string };
+  today: { total: number; completed: number };
+}

@@ -1,9 +1,11 @@
 import { ApiError } from "./client";
 import type { ClubSummaryDTO } from "./roles-client";
 import type {
+  AssignCityManagerTaskResultDTO,
   CityManagerDashboardDTO,
   CityManagerTrainingClubRowDTO,
   ClubManagerDashboardDTO,
+  ClubManagerTaskStatusDTO,
   ClubManagerTeamDTO,
   ManagementEmployeeCardDTO,
   OperationsDirectorDashboardDTO,
@@ -49,15 +51,29 @@ export const cabinetApi = {
    * CLUB_MANAGER alike, future OPERATIONS_DIRECTOR reuses the same shape).
    * Same URL as before Round E1 — only the response got richer. */
   employeeTraining: (userId: string) => request<ManagementEmployeeCardDTO>(`/api/control/cabinet/employee-training${qs({ userId })}`),
+  /** Management Round E2 — CITY_MANAGER -> CLUB_MANAGER Daily Plan
+   * delegation. Body carries only clubId/date/title; the server resolves
+   * and validates the target, scope, and every other field itself. */
+  assignCityManagerTask: (body: { clubId: string; date: string; title: string }) =>
+    request<AssignCityManagerTaskResultDTO>(`/api/control/cabinet/city-manager/assign-task`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  /** The compact "Задачи" status for one club's active manager — null when
+   * the club has no active manager to report on. */
+  clubManagerTaskStatus: (clubId: string) =>
+    request<ClubManagerTaskStatusDTO | null>(`/api/control/cabinet/city-manager/club-task-status${qs({ clubId })}`),
 };
 
 export type {
+  AssignCityManagerTaskResultDTO,
   AttentionItemDTO,
   CityManagerDashboardDTO,
   CityManagerClubSummaryDTO,
   CityManagerTrainingClubRowDTO,
   ClubManagerAssignmentDTO,
   ClubManagerDashboardDTO,
+  ClubManagerTaskStatusDTO,
   ClubManagerTeamDTO,
   CabinetTeamMemberDTO,
   ManagementEmployeeCardDTO,
