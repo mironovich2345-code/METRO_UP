@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronRight, Clock, Eye, GraduationCap, ListChecks, RotateCw, ShieldOff, UserCog, Users } from "lucide-react";
+import { CheckCircle2, ChevronRight, Circle, Clock, Eye, GraduationCap, ListChecks, RotateCw, ShieldOff, UserCog, Users } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
 import { AttentionItem, ManagementListRow, ManagementSummary } from "@/components/management/management-primitives";
 import { GlassCard } from "@/components/ui/glass-card";
@@ -14,7 +14,7 @@ import { ApiError } from "@/lib/api/client";
 import { cabinetApi } from "@/lib/api/cabinet-client";
 import { rolesApi, viewAsApi } from "@/lib/api/roles-client";
 import { fetchProfileManagementRoles } from "@/lib/api/home-client";
-import type { CabinetTeamMemberDTO } from "@/lib/api/cabinet-client";
+import type { CabinetTeamMemberDTO, ManagerDelegatedTaskDTO } from "@/lib/api/cabinet-client";
 import { useQuery, QUERY_POLICY, invalidatePrefix } from "@/lib/client/query-cache";
 import { cacheKeys, cacheKeyPrefixes } from "@/lib/client/cache-keys";
 import { canRestoreAssignment, describeRoleAssignmentError, pluralRu, resolveCityClubPageStatus } from "@/lib/cabinet-ui";
@@ -66,6 +66,7 @@ function ClubDetail({ clubId }: { clubId: string }) {
   const [assigning, setAssigning] = useState(false);
   const [startingPreview, setStartingPreview] = useState(false);
   const [assigningTask, setAssigningTask] = useState(false);
+  const [viewingTasks, setViewingTasks] = useState(false);
 
   // The SAME three independent, already-scope-checked reads as before,
   // bundled under one cache key/fetcher — MUTABLE: pendingApprovalCount,
@@ -129,6 +130,24 @@ function ClubDetail({ clubId }: { clubId: string }) {
     isCityManager ? cacheKeys.cityClubTaskStatus(clubId) : null,
     () => cabinetApi.clubManagerTaskStatus(clubId),
     QUERY_POLICY.MUTABLE, // completion state changes from the manager's own actions at any time
+  );
+
+  /**
+   * Management Round E2.1 — the actual gap: the REAL rows (text/date/
+   * completion) THIS CITY_MANAGER assigned, not just the total count
+   * taskStatus carries. Fetched eagerly alongside taskStatus (same gate —
+   * no point loading it before we know there's an active manager at all)
+   * so the drill-down sheet below opens instantly on already-cached data,
+   * same MUTABLE policy — completion state changes from the manager's own
+   * actions at any time.
+   */
+  const {
+    data: delegatedTasks,
+    mutate: reloadDelegatedTasks,
+  } = useQuery(
+    isCityManager ? cacheKeys.cityClubDelegatedTasks(clubId) : null,
+    () => cabinetApi.cityManagerDelegatedTasks(clubId),
+    QUERY_POLICY.MUTABLE,
   );
 
   const dashboard = data?.dashboard ?? null;
@@ -339,13 +358,18 @@ function ClubDetail({ clubId }: { clubId: string }) {
               )}
             </motion.div>
 
-            {/* ---- Задачи — Management Round E2, sections 5/11. Entry point
-                for "Поставить задачу" AND the compact status view, folded
-                into ONE row (its subtitle already shows the status; tapping
-                it opens the assign sheet) — no separate drill-down screen
-                needed for this round's scope. Hidden entirely when the club
-                has no active manager (taskStatus is null then), exactly
-                like the IA requires. */}
+            {/* ---- Задачи — Management Round E2, sections 5/11; relabeled
+                and given a real drill-down in Round E2.1. The subtitle is
+                now explicitly the manager's WHOLE Daily Plan total ("Весь
+                план") — never relabeled as "assigned by you", since this
+                count still includes the manager's own/system tasks too
+                (section "Separation from total Daily Plan"'s own
+                instruction: distinguish A from B, never label one as the
+                other). Tapping the row now opens the drill-down
+                (ManagerTasksSheet) showing the ACTUAL rows this
+                CITY_MANAGER assigned; "Поставить задачу" moved inside that
+                sheet as a secondary action. Hidden entirely when the club
+                has no active manager (taskStatus is null then). */}
             {taskStatus && (
               <motion.div variants={cardIn}>
                 <GlassCard variant="solid" pad="none" animateIn={false}>
@@ -354,10 +378,10 @@ function ClubDetail({ clubId }: { clubId: string }) {
                     title="Задачи"
                     subtitle={
                       taskStatus.today.total > 0
-                        ? `Сегодня: ${taskStatus.today.total} ${pluralRu(taskStatus.today.total, "задача", "задачи", "задач")} · ${taskStatus.today.completed} ${pluralRu(taskStatus.today.completed, "выполнена", "выполнено", "выполнено")}`
-                        : "Сегодня задач нет"
+                        ? `Весь план сегодня: ${taskStatus.today.total} ${pluralRu(taskStatus.today.total, "задача", "задачи", "задач")} · ${taskStatus.today.completed} ${pluralRu(taskStatus.today.completed, "выполнена", "выполнено", "выполнено")}`
+                        : "Весь план на сегодня пуст"
                     }
-                    onClick={() => setAssigningTask(true)}
+                    onClick={() => setViewingTasks(true)}
                   />
                 </GlassCard>
               </motion.div>
@@ -452,19 +476,36 @@ function ClubDetail({ clubId }: { clubId: string }) {
       />
 
       {taskStatus && (
-        <AssignTaskSheet
-          open={assigningTask}
-          clubId={clubId}
-          clubName={dashboard?.clubName ?? null}
-          managerName={taskStatus.manager.displayName}
-          onClose={() => setAssigningTask(false)}
-          onAssigned={() => {
-            setAssigningTask(false);
-            // Section 14 — invalidate only this club's own task status; no
-            // city/home/academy/ranking invalidation, no full reload hack.
-            reloadTaskStatus();
-          }}
-        />
+        <>
+          <ManagerTasksSheet
+            open={viewingTasks}
+            managerName={taskStatus.manager.displayName}
+            clubName={dashboard?.clubName ?? null}
+            tasks={delegatedTasks ?? null}
+            onClose={() => setViewingTasks(false)}
+            onAssignNew={() => {
+              setViewingTasks(false);
+              setAssigningTask(true);
+            }}
+          />
+          <AssignTaskSheet
+            open={assigningTask}
+            clubId={clubId}
+            clubName={dashboard?.clubName ?? null}
+            managerName={taskStatus.manager.displayName}
+            onClose={() => setAssigningTask(false)}
+            onAssigned={() => {
+              setAssigningTask(false);
+              // Section 14 — invalidate only this club's own task status; no
+              // city/home/academy/ranking invalidation, no full reload hack.
+              // Round E2.1 — the drill-down's own list is a separate cache
+              // entry (createdByUserId-filtered rows, not the total count),
+              // so it needs its own invalidation here too.
+              reloadTaskStatus();
+              reloadDelegatedTasks();
+            }}
+          />
+        </>
       )}
     </div>
   );
@@ -630,6 +671,152 @@ function AssignManagerSheet({
  */
 function businessTodayInputValue(): string {
   return appDateString();
+}
+
+/**
+ * Management Round E2.1 — the drill-down this round actually adds: the
+ * REAL DailyTask rows (text/date/completion) this CITY_MANAGER personally
+ * assigned to the club's active manager, grouped the way the brief's own
+ * mockup lays out ("Сегодня" / "Предстоящие"). Manager name and club live
+ * once in the header, not repeated per row (brief's own instruction).
+ * Read-only — no edit/delete/reassign control exists here at all, by
+ * construction (every row below renders text + a status icon, nothing
+ * else is clickable). `tasks === null` is "still loading" (useQuery's own
+ * undefined-until-first-response convention, normalized to null by the
+ * caller); `tasks.length === 0` is the real empty state.
+ */
+function ManagerTasksSheet({
+  open,
+  managerName,
+  clubName,
+  tasks,
+  onClose,
+  onAssignNew,
+}: {
+  open: boolean;
+  managerName: string;
+  clubName: string | null;
+  tasks: ManagerDelegatedTaskDTO[] | null;
+  onClose: () => void;
+  onAssignNew: () => void;
+}) {
+  const todayStr = appDateString();
+  const today = tasks?.filter((t) => t.date === todayStr) ?? [];
+  const upcoming = tasks?.filter((t) => t.date !== todayStr) ?? [];
+
+  // The server already sorts date-ascending/incomplete-first
+  // (city-plan-core.ts's sortDelegatedTasks) — group upcoming rows by date
+  // while preserving that order, a plain Map (insertion order mirrors the
+  // already-sorted order), never a second client-side sort.
+  const upcomingByDate = new Map<string, ManagerDelegatedTaskDTO[]>();
+  for (const t of upcoming) {
+    const bucket = upcomingByDate.get(t.date);
+    if (bucket) bucket.push(t);
+    else upcomingByDate.set(t.date, [t]);
+  }
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <div className="fixed inset-0 z-50">
+          <motion.div className="absolute inset-0 bg-black/45" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} />
+          <motion.div
+            className="absolute inset-x-0 bottom-0 max-h-[85dvh] overflow-y-auto rounded-t-3xl border-t border-border bg-card p-6 pb-[calc(env(safe-area-inset-bottom)+24px)]"
+            initial={{ y: "100%" }}
+            animate={{ y: 0 }}
+            exit={{ y: "100%" }}
+            transition={springSoft}
+          >
+            <div className="mx-auto mb-5 h-1 w-10 rounded-full bg-border" />
+            <h2 className="text-lg font-bold">Задачи управляющего</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {managerName}
+              {clubName ? ` · ${clubName}` : ""}
+            </p>
+
+            {tasks === null && <p className="mt-6 text-sm text-muted-foreground">Загрузка…</p>}
+
+            {tasks !== null && tasks.length === 0 && (
+              <p className="mt-6 text-sm text-muted-foreground">Вы ещё не назначали задачи управляющему.</p>
+            )}
+
+            {tasks !== null && tasks.length > 0 && (
+              <div className="mt-5 flex flex-col gap-5">
+                {today.length > 0 && (
+                  <div className="flex flex-col gap-2">
+                    <p className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Сегодня</p>
+                    <div className="flex flex-col gap-1.5">
+                      {today.map((t) => (
+                        <DelegatedTaskRow key={t.id} task={t} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {upcomingByDate.size > 0 && (
+                  <div className="flex flex-col gap-3">
+                    <p className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Предстоящие</p>
+                    {Array.from(upcomingByDate.entries()).map(([date, rows]) => (
+                      <div key={date} className="flex flex-col gap-1.5">
+                        <p className="px-1 text-xs font-medium text-muted-foreground">{formatUpcomingDateHeader(date)}</p>
+                        {rows.map((t) => (
+                          <DelegatedTaskRow key={t.id} task={t} />
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="mt-6 flex gap-3">
+              <Button variant="secondary" block onClick={onClose}>
+                Закрыть
+              </Button>
+              <Button block onClick={onAssignNew}>
+                <ListChecks className="size-4" /> Поставить задачу
+              </Button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+/**
+ * One delegated-task row — text, a completion marker, nothing clickable
+ * (brief: "No edit/delete/reassign"). SKIPPED mirrors PlanTaskRow's own
+ * "done || skipped -> muted + line-through" treatment (home's own task
+ * row), but with a distinct, neutral marker rather than reusing the same
+ * checkmark a genuine completion gets — calm, not alarming.
+ */
+function DelegatedTaskRow({ task }: { task: ManagerDelegatedTaskDTO }) {
+  const done = task.status === "COMPLETED";
+  const skipped = task.status === "SKIPPED";
+  return (
+    <div className="flex items-center gap-3 rounded-2xl border border-border px-4 py-2.5">
+      {done ? (
+        <CheckCircle2 className="size-4.5 shrink-0 text-emerald-500" />
+      ) : (
+        <Circle className={cn("size-4.5 shrink-0", skipped ? "text-muted-foreground/50" : "text-muted-foreground")} />
+      )}
+      <p className={cn("min-w-0 flex-1 truncate text-sm", (done || skipped) && "text-muted-foreground line-through")}>{task.title}</p>
+    </div>
+  );
+}
+
+/**
+ * The brief's own mockup ("10 октября") — ru-RU day+month, no year (every
+ * delegated task is inherently near-term; a past-dated row can never
+ * exist, per createCityManagerTaskForClubManager's own past-date
+ * validation). UTC is deliberate: `date` is a YYYY-MM-DD app-day string
+ * (the exact convention appDay()/DailyPlanDTO already use) — parsing it
+ * as UTC-midnight and formatting in UTC avoids a viewer-timezone
+ * day-shift a device-local parse would risk.
+ */
+function formatUpcomingDateHeader(dateStr: string): string {
+  return new Date(`${dateStr}T00:00:00Z`).toLocaleDateString("ru-RU", { day: "numeric", month: "long", timeZone: "UTC" });
 }
 
 /**

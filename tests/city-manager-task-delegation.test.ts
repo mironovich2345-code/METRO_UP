@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { cityManagerAssignTaskSchema } from "../src/lib/server/club-plan-schemas";
+import { sortDelegatedTasks } from "../src/lib/server/city-plan-core";
 
 const read = (p: string) => readFileSync(path.join(process.cwd(), p), "utf8");
 const skip = { skip: "integration: requires Postgres + running server" } as const;
@@ -184,12 +185,13 @@ test("CLIENT-A: assignCityManagerTask's request body type is exactly {clubId, da
   assert.doesNotMatch(fnSrc, /userId|createdByUserId|source/);
 });
 
-test("CACHE-A: a successful assignment invalidates ONLY the city-club-task-status query (reloadTaskStatus) — no invalidatePrefix call for Academy/Ranking/Profile, no full page reload", () => {
+test("CACHE-A: a successful assignment invalidates the city-club-task-status query (reloadTaskStatus) AND, as of Round E2.1, the separate delegated-tasks list (reloadDelegatedTasks) — no invalidatePrefix call for Academy/Ranking/Profile, no full page reload", () => {
   const src = read("src/app/city/club/page.tsx");
-  const onAssignedIdx = src.indexOf("onAssigned={() => {\n            setAssigningTask(false);");
+  const onAssignedIdx = src.indexOf("onAssigned={() => {\n              setAssigningTask(false);");
   assert.ok(onAssignedIdx > 0);
-  const block = src.slice(onAssignedIdx, onAssignedIdx + 250);
+  const block = src.slice(onAssignedIdx, onAssignedIdx + 550);
   assert.match(block, /reloadTaskStatus\(\);/);
+  assert.match(block, /reloadDelegatedTasks\(\);/);
   assert.doesNotMatch(block, /invalidatePrefix|location\.reload/);
 });
 
@@ -202,11 +204,12 @@ test("UI-A: the 'Задачи' row is rendered ONLY when taskStatus is non-null 
   assert.match(src, /\{taskStatus && \(\s*\n\s*<motion\.div variants=\{cardIn\}>\s*\n\s*<GlassCard variant="solid" pad="none" animateIn=\{false\}>\s*\n\s*<ManagementListRow\s*\n\s*icon=\{ListChecks\}\s*\n\s*title="Задачи"/);
 });
 
-test("UI-B: the compact status subtitle never shows a meaningless 0 — the zero-task case renders the honest 'Сегодня задач нет', only a non-zero total shows counts", () => {
+test("UI-B: the compact status subtitle never shows a meaningless 0 — the zero-task case renders the honest 'Весь план на сегодня пуст', only a non-zero total shows counts. Round E2.1 relabels this to 'Весь план' explicitly, so it is never confused with the drill-down's own assigned-by-you list below", () => {
   const src = read("src/app/city/club/page.tsx");
   const fnSrc = src.slice(src.indexOf('title="Задачи"'), src.indexOf('title="Задачи"') + 500);
   assert.match(fnSrc, /taskStatus\.today\.total > 0/);
-  assert.match(fnSrc, /Сегодня задач нет/);
+  assert.match(fnSrc, /Весь план сегодня:/);
+  assert.match(fnSrc, /Весь план на сегодня пуст/);
 });
 
 test("UI-C: AssignTaskSheet's submit call sends only clubId/date/title — the manager/club NAME shown in the sheet are read-only display props, never part of the request body", () => {
@@ -275,3 +278,157 @@ test("E2-VIEWAS-A: while a MANAGER/CLUB_MANAGER View-As preview is active for th
 
 test("E2-STATUS-A: a CITY_MANAGER can read the in-scope target manager's today total/completed counts via club-task-status", skip, () => {});
 test("E2-STATUS-B: the SAME endpoint for a club outside scope 403s — status is never visible for a foreign manager", skip, () => {});
+
+/* ===================================================================== *
+ *  Management Round E2.1 — the gap: the ACTUAL delegated-task rows
+ *  (text/date/completion), not just a total count. getCityManagerDelegatedTasks
+ *  (city-plan.ts), sortDelegatedTasks (city-plan-core.ts, pure — real
+ *  coverage below), GET /api/control/cabinet/city-manager/delegated-tasks,
+ *  ManagerTasksSheet (src/app/city/club/page.tsx).
+ * ===================================================================== */
+
+function delegatedFnSrc(): string {
+  const src = cityPlanSrc();
+  return src.slice(src.indexOf("export async function getCityManagerDelegatedTasks"));
+}
+
+/* --------------------- sortDelegatedTasks — pure, real coverage --------------------- */
+
+test("E21-SORT-A: rows are ordered by date ascending first", () => {
+  const rows = [
+    { id: "b", title: "B", date: "2026-06-02", status: "TODO" as const },
+    { id: "a", title: "A", date: "2026-06-01", status: "TODO" as const },
+  ];
+  assert.deepEqual(sortDelegatedTasks(rows).map((r) => r.id), ["a", "b"]);
+});
+
+test("E21-SORT-B: within the SAME date, an incomplete (TODO) row sorts before a COMPLETED or SKIPPED one", () => {
+  const rows = [
+    { id: "done", title: "Done", date: "2026-06-01", status: "COMPLETED" as const },
+    { id: "todo", title: "Todo", date: "2026-06-01", status: "TODO" as const },
+    { id: "skipped", title: "Skipped", date: "2026-06-01", status: "SKIPPED" as const },
+  ];
+  assert.deepEqual(sortDelegatedTasks(rows).map((r) => r.id), ["todo", "done", "skipped"]);
+});
+
+test("E21-SORT-C: a future date with an incomplete task still sorts strictly after today's completed ones — date is always the primary key, completion is only a tiebreaker within the same date", () => {
+  const rows = [
+    { id: "future", title: "Future", date: "2026-06-05", status: "TODO" as const },
+    { id: "today-done", title: "Today done", date: "2026-06-01", status: "COMPLETED" as const },
+  ];
+  assert.deepEqual(sortDelegatedTasks(rows).map((r) => r.id), ["today-done", "future"]);
+});
+
+test("E21-SORT-D: sortDelegatedTasks does not mutate its input array — returns a new sorted copy, same defensive convention as the rest of this codebase's pure helpers", () => {
+  const rows = [
+    { id: "b", title: "B", date: "2026-06-02", status: "TODO" as const },
+    { id: "a", title: "A", date: "2026-06-01", status: "TODO" as const },
+  ];
+  const original = [...rows];
+  sortDelegatedTasks(rows);
+  assert.deepEqual(rows, original);
+});
+
+/* ------------------- getCityManagerDelegatedTasks — structural ------------------- */
+
+test("E21-READMODEL-A: the target manager is resolved server-side from clubId via the SAME resolveActiveClubManagerForClub union the create path already uses — the function's only inputs are actorUserId and clubId, never a userId read from a caller", () => {
+  const fnSrc = delegatedFnSrc();
+  assert.match(fnSrc, /export async function getCityManagerDelegatedTasks\(actorUserId: string, clubId: string\)/);
+  assert.match(fnSrc, /const manager = await resolveActiveClubManagerForClub\(clubId\);/);
+});
+
+test("E21-READMODEL-B: when the club has no active manager, the function returns an empty array immediately — no DailyTask query is ever issued", () => {
+  const fnSrc = delegatedFnSrc();
+  const earlyReturnIdx = fnSrc.indexOf("if (!manager) return [];");
+  const queryIdx = fnSrc.indexOf("prisma.dailyTask.findMany");
+  assert.ok(earlyReturnIdx > 0 && earlyReturnIdx < queryIdx);
+});
+
+test("E21-READMODEL-C: exactly ONE prisma.dailyTask query — both userId AND createdByUserId are filtered in the SAME findMany call, never a second query, never a separate filter pass that would make this N+1", () => {
+  const fnSrc = delegatedFnSrc();
+  const matches = fnSrc.match(/prisma\.dailyTask\.(findMany|findFirst|findUnique)/g) ?? [];
+  assert.equal(matches.length, 1, `expected exactly one DailyTask query, found ${matches.length}`);
+  assert.match(fnSrc, /where: \{ userId: manager\.userId, createdByUserId: actorUserId \}/);
+});
+
+test("E21-ISOLATION-STRUCT-A: the createdByUserId filter is the ONLY isolation the read relies on — this alone is why a CLUB_MANAGER's own self-created tasks, another CITY_MANAGER's assignments, and SYSTEM/template rows (none of which ever have createdByUserId = this actor's id) can never leak into the result, with no extra `source` branch needed", () => {
+  const fnSrc = delegatedFnSrc();
+  assert.match(fnSrc, /createdByUserId: actorUserId/);
+});
+
+/* --------------------------- Route wiring --------------------------- */
+
+test("E21-ROUTE-A: the GET delegated-tasks route re-validates BOTH the CITY_MANAGER role AND club.read scope before calling the service — identical shape to club-task-status's own route, never exempting a read endpoint from the same scope check", () => {
+  const src = read("src/app/api/control/cabinet/city-manager/delegated-tasks/route.ts");
+  assert.match(src, /hasActiveRole\(actor\.grants, "CITY_MANAGER"\)/);
+  assert.match(src, /authorize\(actor, \{ action: "club\.read", targetClubId: clubId, targetClubCityId \}\)/);
+  assert.match(src, /getCityManagerDelegatedTasks\(user\.id, clubId\)/);
+});
+
+test("E21-ROUTE-B: the route reads clubId ONLY from the query string — no userId query parameter is ever read; the real actor's id comes solely from requireUser()'s own authenticated session (user.id), never from client input", () => {
+  const src = read("src/app/api/control/cabinet/city-manager/delegated-tasks/route.ts");
+  assert.match(src, /searchParams\.get\("clubId"\)/);
+  assert.doesNotMatch(src, /searchParams\.get\("userId"\)/);
+});
+
+/* --------------------------- Client wiring --------------------------- */
+
+test("E21-CLIENT-A: cityManagerDelegatedTasks's client wrapper takes only a clubId — no userId parameter exists on the function signature for a caller to tamper with", () => {
+  const src = read("src/lib/api/cabinet-client.ts");
+  const fnSrc = src.slice(src.indexOf("cityManagerDelegatedTasks:"), src.indexOf("cityManagerDelegatedTasks:") + 200);
+  assert.match(fnSrc, /cityManagerDelegatedTasks: \(clubId: string\) =>/);
+});
+
+/* ------------------------------ UI wiring ------------------------------ */
+
+test("E21-UI-TAP-A: the 'Задачи' row now opens the drill-down (setViewingTasks) — the direct-to-assign-sheet tap behavior from Round E2 is gone; assigning is reached only from inside the drill-down", () => {
+  const src = read("src/app/city/club/page.tsx");
+  const fnSrc = src.slice(src.indexOf('title="Задачи"'), src.indexOf('title="Задачи"') + 500);
+  assert.match(fnSrc, /onClick=\{\(\) => setViewingTasks\(true\)\}/);
+});
+
+test("E21-UI-EMPTY-A: ManagerTasksSheet's own empty state is the exact copy the brief specifies, shown only when the fetched list is genuinely empty (not during loading)", () => {
+  const src = read("src/app/city/club/page.tsx");
+  const fnSrc = src.slice(src.indexOf("function ManagerTasksSheet"), src.indexOf("function DelegatedTaskRow"));
+  assert.match(fnSrc, /tasks !== null && tasks\.length === 0/);
+  assert.match(fnSrc, /Вы ещё не назначали задачи управляющему\./);
+});
+
+test("E21-UI-GROUP-A: ManagerTasksSheet buckets rows into 'Сегодня' (date === appDateString()) and 'Предстоящие' (everything else), grouped by date — exactly the brief's own mockup layout, never a flat undifferentiated list", () => {
+  const src = read("src/app/city/club/page.tsx");
+  const fnSrc = src.slice(src.indexOf("function ManagerTasksSheet"), src.indexOf("function DelegatedTaskRow"));
+  assert.match(fnSrc, /Сегодня<\/p>/);
+  assert.match(fnSrc, /Предстоящие<\/p>/);
+  assert.match(fnSrc, /t\.date === todayStr/);
+});
+
+test("E21-UI-NOEDIT-A: DelegatedTaskRow renders text and a completion marker ONLY — no onClick, no button, no edit/delete/reassign control exists on this row at all", () => {
+  const src = read("src/app/city/club/page.tsx");
+  const fnSrc = src.slice(src.indexOf("function DelegatedTaskRow"), src.indexOf("function formatUpcomingDateHeader"));
+  assert.doesNotMatch(fnSrc, /onClick|<button/);
+});
+
+test("E21-UI-SEPARATION-A: the compact row's subtitle is explicitly labeled 'Весь план' (the manager's WHOLE Daily Plan total) while the drill-down is titled 'Задачи управляющего' and only ever lists rows this actor assigned — the two surfaces are never worded as if they were the same count", () => {
+  const src = read("src/app/city/club/page.tsx");
+  assert.match(src, /Весь план сегодня:/);
+  assert.match(src, /<h2 className="text-lg font-bold">Задачи управляющего<\/h2>/);
+});
+
+test("E21-UI-ASSIGNNEW-A: the drill-down's 'Поставить задачу' button closes the drill-down and opens AssignTaskSheet — never both sheets rendered open at once", () => {
+  const src = read("src/app/city/club/page.tsx");
+  const fnSrc = src.slice(src.indexOf("onAssignNew={() => {"), src.indexOf("onAssignNew={() => {") + 150);
+  assert.match(fnSrc, /setViewingTasks\(false\);/);
+  assert.match(fnSrc, /setAssigningTask\(true\);/);
+});
+
+/* --------------------------- AUTH — DB-backed (skip stubs) --------------------------- */
+
+test("E21-DATA-A: a task this CITY_MANAGER assigned to the club's active manager appears in getCityManagerDelegatedTasks's result, with the exact title/date/status it was created with", skip, () => {});
+test("E21-DATA-B: a FUTURE-dated assigned task (date after appDay()) appears in the result — it must remain visible to the assigning CITY_MANAGER before its own day arrives, even though it is invisible on the manager's own /plan/today until then", skip, () => {});
+test("E21-DATA-C: once the manager marks an assigned task COMPLETED (or it is SKIPPED), the SAME row reflects that real status here — never a stale/recomputed value", skip, () => {});
+test("E21-ISOLATION-A: a DailyTask the CLUB_MANAGER created for themselves (createdByUserId = their own id, source = MANAGER) never appears in the CITY_MANAGER's delegated list for that same manager", skip, () => {});
+test("E21-ISOLATION-B: a DailyTask created by a DIFFERENT CITY_MANAGER for the same club's manager never appears in THIS CITY_MANAGER's list", skip, () => {});
+test("E21-ISOLATION-C: a SYSTEM/template DailyTask (source=SYSTEM, createdByUserId=null) never appears regardless of which CITY_MANAGER queries", skip, () => {});
+test("E21-AUTH-A: a foreign club (outside the caller's scope) is rejected with 403 from GET delegated-tasks, identical failure mode to club-task-status", skip, () => {});
+test("E21-AUTH-B: a revoked/suspended CITY_MANAGER grant is rejected immediately from GET delegated-tasks — hasActiveRole re-derived fresh, never cached", skip, () => {});
+test("E21-AUTH-C: View As preview for this CITY_MANAGER's own session cannot mutate via this surface — GET delegated-tasks has no write path at all, and the drill-down itself offers no edit/delete/reassign control for a preview session (or any session) to invoke", skip, () => {});
