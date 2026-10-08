@@ -81,7 +81,7 @@ import type {
 
 const EMPLOYEE_WHERE = { role: "EMPLOYEE" as const };
 
-interface EmployeeRow {
+export interface EmployeeRow {
   userId: string;
   clubId: string;
   displayName: string;
@@ -91,8 +91,12 @@ interface EmployeeRow {
 }
 
 /** The one query every dashboard's employee-shaped numbers derive from —
- * batched, never re-run per club/city. */
-async function loadEmployees(clubIds?: string[]): Promise<EmployeeRow[]> {
+ * batched, never re-run per club/city. Exported (Management Round E3) so
+ * mystery-shopper.ts can reuse the SAME truthful "current team" source
+ * Team/Employee Card already use, rather than inventing a second
+ * interpretation of club membership (round brief section 13's explicit
+ * instruction). */
+export async function loadEmployees(clubIds?: string[]): Promise<EmployeeRow[]> {
   const rows = await prisma.employeeProfile.findMany({
     where: { user: EMPLOYEE_WHERE, ...(clubIds ? { clubId: { in: clubIds } } : {}) },
     select: {

@@ -101,6 +101,16 @@ export const cacheKeys = {
    * the same "Задачи" row), invalidated alongside cityClubTaskStatus
    * right after a successful assignment. */
   cityClubDelegatedTasks: (clubId: string) => key("city-club-delegated-tasks", clubId),
+  /** Management Round E3 — the Mystery Shopper workspace. `clubId` null =
+   * CITY_MANAGER root scope, matching `team`'s own "own"-sentinel
+   * convention above. `isPreviewing` is embedded for the SAME reason
+   * `team`'s key embeds it: an active View-As CLUB_MANAGER preview makes
+   * resolveClubManagerCabinetAccess IGNORE whatever clubId was requested
+   * and return the previewed club's data instead — without this tag, a
+   * cache entry fetched while requesting one club during a preview could
+   * be misread as that club's real data after the preview ends. */
+  mysteryShopper: (clubId: string | null, month: number | null, year: number | null, isPreviewing: boolean) =>
+    key("mystery-shopper", clubId ?? "city", String(month ?? "latest"), String(year ?? "latest"), previewTag(isPreviewing)),
 
   /** Published, shareable knowledge-base content — no per-user data at all
    * (section 5's own named "knowledge-base metadata/content" candidate). */

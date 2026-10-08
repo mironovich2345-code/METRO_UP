@@ -337,3 +337,99 @@ export interface ManagerDelegatedTaskDTO {
   date: string;
   status: DailyTaskStatusDTO;
 }
+
+/* ============================================================================
+ * Management Round E3 — Mystery Shopper management workspace, shared by
+ * CLUB_MANAGER (own club) and CITY_MANAGER (effective scope, including a
+ * drill-down into one scoped club). ONE read model for ALL three shapes
+ * (CLUB_MANAGER's own view, CITY_MANAGER's root view, CITY_MANAGER's club
+ * drill-down) — `scope.kind` is what the client renders from, never a
+ * client-side role guess.
+ *
+ * HISTORICAL ATTRIBUTION TRUTH (round brief, sections 2/14): MysteryShopperResult
+ * carries only employeeUserId + period — no clubId/cityId snapshot at all
+ * (verified against prisma/schema.prisma). A result therefore always
+ * reflects the employee's CURRENT club/team membership, never the club
+ * they may have actually worked at during that historical period. Every
+ * DTO/copy here is written as "results of employees currently on this
+ * team", never "this club's historical performance" — see
+ * mystery-shopper.ts's own header comment for the full reasoning.
+ *
+ * NO THRESHOLD (section 4): there is still no approved good/bad/pass-fail
+ * rule for a score. Nothing here classifies one — no color, no icon, no
+ * "низкий результат" copy, anywhere in this DTO family or its consumers.
+ * ============================================================================
+ */
+
+/** One real period with at least one PUBLISHED result somewhere in the
+ * caller's authorized scope — never a fabricated "current month" entry.
+ * `label` is the same ruMonthYear(month, year) convention
+ * ManagementEmployeeMysteryResultDTO.periodLabel already uses. */
+export interface MysteryShopperPeriodDTO {
+  month: number;
+  year: number;
+  label: string;
+}
+
+/** `averageScore` is the arithmetic mean of real PUBLISHED scores only,
+ * rounded to the same one-decimal convention this codebase already uses
+ * for every other aggregate (rating-formula.ts's round1) — null only when
+ * resultCount is 0 (never a fabricated 0). `resultCount` is the number of
+ * real PUBLISHED rows actually included — never an employee-without-a-
+ * result counted as a zero. */
+export interface ManagementMysteryShopperSummaryDTO {
+  averageScore: number | null;
+  resultCount: number;
+}
+
+/** `score` is null when this CURRENT team member has no PUBLISHED result
+ * for the selected period — never a fabricated 0%. No `comment` field
+ * here by design (round brief section 15: no separate, more broadly
+ * authorized comment surface) — a comment remains reachable only through
+ * the existing, independently-authorized /team/employee Employee Card. */
+export interface ManagementMysteryShopperEmployeeRowDTO {
+  userId: string;
+  displayName: string;
+  position: string | null;
+  score: number | null;
+}
+
+/** One row per club in a CITY_MANAGER's scope — `summary` is THIS club's
+ * own average/count, computed independently from its own current
+ * employees' results. Never fed back into, or derived from, the parent
+ * city-wide summary (which is computed separately, directly over every
+ * individual result in scope — see mystery-shopper.ts's own doc comment
+ * on why "average of club averages" would be wrong). */
+export interface ManagementMysteryShopperClubRowDTO {
+  clubId: string;
+  clubName: string;
+  summary: ManagementMysteryShopperSummaryDTO;
+}
+
+export type ManagementMysteryShopperScopeDTO =
+  | { kind: "CLUB"; clubId: string; clubName: string | null; isPreviewing: boolean }
+  | { kind: "CITY"; scopeLabel: string };
+
+export interface ManagementMysteryShopperDTO {
+  scope: ManagementMysteryShopperScopeDTO;
+  /** Sorted newest first. Empty when there is genuinely no PUBLISHED
+   * result anywhere in scope — the client then shows one honest
+   * "Результатов пока нет" empty state, never a fabricated period list. */
+  periods: MysteryShopperPeriodDTO[];
+  /** The period `summary`/`employees`/`clubs` below are computed for.
+   * Defaults server-side to the latest entry in `periods`; null only when
+   * `periods` is empty. */
+  selectedPeriod: MysteryShopperPeriodDTO | null;
+  /** Always present (never DTO-null) so the client never needs a second
+   * null-check cascade just to render the compact summary row — see its
+   * own field comments for when its two fields are null/0. */
+  summary: ManagementMysteryShopperSummaryDTO;
+  /** Present only when scope.kind === "CITY" — every club in scope, even
+   * one with zero results for the selected period (section 9's explicit
+   * "if club has zero result ... Нет результатов", never simply omitted). */
+  clubs?: ManagementMysteryShopperClubRowDTO[];
+  /** Present only when scope.kind === "CLUB" — every CURRENT employee of
+   * that club (section 8's explicit "YES, if part of the current managed
+   * team"), even one with no result for the selected period. */
+  employees?: ManagementMysteryShopperEmployeeRowDTO[];
+}

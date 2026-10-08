@@ -8,6 +8,7 @@ import type {
   ClubManagerTaskStatusDTO,
   ClubManagerTeamDTO,
   ManagementEmployeeCardDTO,
+  ManagementMysteryShopperDTO,
   ManagerDelegatedTaskDTO,
   OperationsDirectorDashboardDTO,
 } from "./cabinet-types";
@@ -70,6 +71,20 @@ export const cabinetApi = {
    * manager's total today count across their whole Daily Plan. */
   cityManagerDelegatedTasks: (clubId: string) =>
     request<ManagerDelegatedTaskDTO[]>(`/api/control/cabinet/city-manager/delegated-tasks${qs({ clubId })}`),
+  /** Management Round E3 — ONE shared read model for the Mystery Shopper
+   * management workspace. `clubId` omitted = CITY_MANAGER root scope;
+   * `clubId` given = that club's own view (CLUB_MANAGER's own club, or a
+   * CITY_MANAGER drill-down) — `scope.kind` on the response is what the
+   * caller renders from, never a client-side role guess. `month`/`year`
+   * omitted = server default (latest available period in scope). */
+  mysteryShopper: (params: { clubId?: string; month?: number; year?: number }) =>
+    request<ManagementMysteryShopperDTO>(
+      `/api/control/cabinet/mystery-shopper${qs({
+        clubId: params.clubId,
+        month: params.month != null ? String(params.month) : undefined,
+        year: params.year != null ? String(params.year) : undefined,
+      })}`,
+    ),
 };
 
 export type {
@@ -88,7 +103,13 @@ export type {
   ManagementEmployeeMysteryResultDTO,
   ManagementEmployeeProfileDTO,
   ManagementEmployeeTestSummaryDTO,
+  ManagementMysteryShopperClubRowDTO,
+  ManagementMysteryShopperDTO,
+  ManagementMysteryShopperEmployeeRowDTO,
+  ManagementMysteryShopperScopeDTO,
+  ManagementMysteryShopperSummaryDTO,
   ManagerDelegatedTaskDTO,
+  MysteryShopperPeriodDTO,
   OperationsDirectorDashboardDTO,
   TrainingSummaryDTO,
 } from "./cabinet-types";
