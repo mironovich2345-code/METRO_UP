@@ -21,6 +21,7 @@ import {
   ListChecks,
   Lock,
   MessageSquare,
+  Search,
   Sparkles,
   Trophy,
   UserCog,
@@ -888,6 +889,17 @@ function CityManagerHomeSection({ block, router }: { block: CityManagerHomeBlock
         </GlassCard>
       </motion.div>
 
+      {/* Management Round E3 — compact entry point into the new Mystery
+          Shopper workspace. No live count fetched here (round brief
+          section 6's "compact" entry point — the workspace itself, not
+          Home, owns the summary); static copy only. No clubId — this is
+          the CITY_MANAGER root scope (every club their grants cover). */}
+      <motion.div variants={cardIn}>
+        <GlassCard variant="solid" pad="none" animateIn={false}>
+          <ManagementListRow icon={Search} title="Тайный покупатель" subtitle="Результаты по клубам" onClick={() => router.push("/mystery-shopper")} />
+        </GlassCard>
+      </motion.div>
+
       <motion.div variants={cardIn}>
         <GlassCard variant="solid" pad="none" animateIn={false}>
           {/* METRO UP ROUND 1, Milestone 4, section 9 — the unread-notification
@@ -1070,6 +1082,22 @@ function ClubManagerHomeSection({
       <motion.div variants={cardIn}>
         <GlassCard variant="solid" pad="none" animateIn={false}>
           <ManagementListRow icon={GraduationCap} title="Обучение команды" subtitle={trainingSubtitle} onClick={() => router.push("/team")} />
+        </GlassCard>
+      </motion.div>
+
+      {/* Management Round E3 — the club-level indicator this section's own
+          header comment (above) said would return once Mystery Shopper
+          existed. block.clubId is always this manager's own, single club
+          (same invariant that comment documents) — passed explicitly so
+          the shared /mystery-shopper route resolves straight to it. */}
+      <motion.div variants={cardIn}>
+        <GlassCard variant="solid" pad="none" animateIn={false}>
+          <ManagementListRow
+            icon={Search}
+            title="Тайный покупатель"
+            subtitle="Результаты сотрудников"
+            onClick={() => router.push(`/mystery-shopper?clubId=${block.clubId}`)}
+          />
         </GlassCard>
       </motion.div>
     </>

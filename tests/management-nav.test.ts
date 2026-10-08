@@ -706,9 +706,12 @@ test("ROUND-C-E: Клубы -> /city, Обучение -> /city/training, Воп
   assert.match(fnSrc, /onClick=\{\(\) => router\.push\("\/questions"\)\}/);
 });
 
-test("ROUND-C-F: no fake KPI labels anywhere in the rebuilt section — no Реклама/Тайный покупатель/Рейтинг/Operations Plan/Бизнес-план text", () => {
+test("ROUND-C-F: no fake KPI labels anywhere in the rebuilt section — no Реклама/Рейтинг/Operations Plan/Бизнес-план text. Тайный покупатель is EXEMPT as of Management Round E3: it is no longer a fake placeholder — it is a real, working entry point into the real /mystery-shopper workspace (ENTRY-B, tests/mystery-shopper.test.ts), reusing real PUBLISHED MysteryShopperResult data", () => {
   const fnSrc = cityManagerHomeFnSrc();
-  assert.doesNotMatch(fnSrc, /Реклама|Тайный покупатель|Рейтинг|Operations Plan|Бизнес-план/);
+  assert.doesNotMatch(fnSrc, /Реклама|Рейтинг|Operations Plan|Бизнес-план/);
+  // The round brief's own "compact entry point" instruction (section 6) —
+  // confirm it actually navigates to the real route, never a dead link.
+  assert.match(fnSrc, /router\.push\("\/mystery-shopper"\)/);
 });
 
 test("ROUND-C-G: no 'Показатели' nav entry exists anywhere — not in either management nav set, not as a placeholder route (nav-items.ts's own doc comment explaining its deliberate absence is not itself a route and is excluded from this check)", () => {

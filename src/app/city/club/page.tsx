@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { CheckCircle2, ChevronRight, Circle, Clock, Eye, GraduationCap, ListChecks, RotateCw, ShieldOff, UserCog, Users } from "lucide-react";
+import { CheckCircle2, ChevronRight, Circle, Clock, Eye, GraduationCap, ListChecks, RotateCw, Search, ShieldOff, UserCog, Users } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
 import { AttentionItem, ManagementListRow, ManagementSummary } from "@/components/management/management-primitives";
 import { GlassCard } from "@/components/ui/glass-card";
@@ -432,6 +432,23 @@ function ClubDetail({ clubId }: { clubId: string }) {
                   title="Обучение"
                   subtitle={trainingSubtitle}
                   onClick={() => router.push(`/team?clubId=${clubId}`)}
+                />
+              </GlassCard>
+            </motion.div>
+
+            {/* ---- Тайный покупатель — Management Round E3, section 6.
+                Drills into the SAME shared /mystery-shopper workspace a
+                CITY_MANAGER's own Home row opens, with this club already
+                selected (clubId passed through, re-validated server-side
+                against this exact club.read scope — section 11). No live
+                count fetched here; the workspace itself owns the summary. ---- */}
+            <motion.div variants={cardIn}>
+              <GlassCard variant="solid" pad="none" animateIn={false}>
+                <ManagementListRow
+                  icon={Search}
+                  title="Тайный покупатель"
+                  subtitle="Результаты сотрудников"
+                  onClick={() => router.push(`/mystery-shopper?clubId=${clubId}`)}
                 />
               </GlassCard>
             </motion.div>
