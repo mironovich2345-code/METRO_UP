@@ -3,6 +3,8 @@ import type { AppRole } from "@prisma/client";
 import type { CurrentUser } from "../session";
 import { resolveViewContext, type ViewContext } from "./view-as";
 import { cityIdForClub } from "./context";
+import { isManagerPersonaPreview } from "./scope-core";
+import { AuthError } from "../authz";
 
 /**
  * Sprint 1 / Phase 2D — the single centralized "what should this request
@@ -138,4 +140,32 @@ async function buildSyntheticPersona(ctx: ViewContext & { previewRole: PersonaRo
       updatedAt: epoch,
     },
   };
+}
+
+/**
+ * Sprint: REMEDIATION R2.2 — the one shared guard for every PERSONA-
+ * SENSITIVE management read (Employee Card already applied the same
+ * predicate inline in R2.1 — kept inline there per that round's own
+ * "don't rewrite the already-working fix" instruction; every route found
+ * in this round's inventory calls this instead of repeating the same
+ * three lines). Throws 403 the moment a genuine View-As MANAGER persona
+ * preview is active — BEFORE the caller resolves ANY authorization
+ * decision from the real actor's own grants (resolveClubManagerCabinetAccess,
+ * authorize({action:"club.read"}), hasActiveRole(actor.grants,
+ * "CITY_MANAGER"), etc.). This has to run first: every one of those
+ * functions answers "can the REAL actor do this", which is a YES for a
+ * CITY_MANAGER previewing MANAGER of a club inside their own real scope —
+ * their own broader authority, not the lower MANAGER persona's, would
+ * otherwise leak through. A CLUB_MANAGER persona preview is UNAFFECTED
+ * (isManagerPersonaPreview is MANAGER-only by design — resolveClubManagerCabinetAccess's
+ * own tier 1 already pins that one correctly). A CITY_MANAGER's own self-
+ * preview never sets isPreviewing (isPersonaPreview above excludes it), so
+ * real CITY_MANAGER screens (/city, /city/club, /city/managers,
+ * /city/training — none of which call this) are completely unaffected.
+ */
+export async function requireNoManagerPersonaPreview(realUser: CurrentUser): Promise<void> {
+  const effective = await resolveEffectiveReadContext(realUser);
+  if (isManagerPersonaPreview(effective.isPreviewing, effective.viewContext?.previewRole ?? null)) {
+    throw new AuthError(403, "forbidden", "Недостаточно прав для просмотра управленческих данных");
+  }
 }

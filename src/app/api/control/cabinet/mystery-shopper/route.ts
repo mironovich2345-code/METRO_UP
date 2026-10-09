@@ -4,6 +4,7 @@ import { jsonOk, handleError } from "@/lib/server/http";
 import { resolveClubManagerCabinetAccess } from "@/lib/server/rbac/cabinet-dashboards";
 import { getActorContext, resolveCityManagerClubs } from "@/lib/server/rbac/context";
 import { hasActiveRole } from "@/lib/server/rbac/scope-core";
+import { requireNoManagerPersonaPreview } from "@/lib/server/rbac/effective-context";
 import { getClubMysteryShopper, getCityMysteryShopper } from "@/lib/server/mystery-shopper";
 import { parsePeriodQuery } from "@/lib/server/mystery-shopper-core";
 
@@ -28,10 +29,23 @@ export const dynamic = "force-dynamic";
  * NO clubId was supplied AT ALL does this fall through to the
  * CITY_MANAGER root scope (section 9) — never for OPERATIONS_DIRECTOR or
  * any other role this round deliberately excludes.
+ *
+ * Sprint: REMEDIATION R2.2 — traced (not assumed) TWO distinct leaks for a
+ * View-As MANAGER preview, both now closed by requireNoManagerPersonaPreview
+ * running BEFORE either path below: (1) the same tier-4 fallthrough R2.1
+ * found in Employee Card — a clubId hint resolves via resolveClubManagerCabinetAccess's
+ * tier 4 (club.read, the REAL actor's own scope), leaking that club's
+ * management Mystery Shopper data; (2) a SECOND, independent leak with NO
+ * clubId at all — the root CITY_MANAGER fallback below checks the REAL
+ * actor's own active grant membership with ZERO preview awareness,
+ * leaking the entire city-wide (both clubs) management workspace. A
+ * View-As CLUB_MANAGER preview (tier 1) and a real, non-previewing
+ * CITY_MANAGER (root scope or drill-down) are both unaffected.
  */
 export async function GET(req: NextRequest) {
   try {
     const user = await requireUser();
+    await requireNoManagerPersonaPreview(user);
     const clubIdParam = req.nextUrl.searchParams.get("clubId");
     const period = parsePeriodQuery(req.nextUrl.searchParams.get("month"), req.nextUrl.searchParams.get("year"));
 

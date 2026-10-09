@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { requireUser, AuthError } from "@/lib/server/authz";
 import { jsonOk, handleError } from "@/lib/server/http";
 import { getClubManagerTeam, resolveClubManagerCabinetAccess } from "@/lib/server/rbac/cabinet-dashboards";
+import { requireNoManagerPersonaPreview } from "@/lib/server/rbac/effective-context";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,10 +23,17 @@ export const dynamic = "force-dynamic";
  * Daily-Plan-materialization side effect for every employee — a write this
  * read-only roster must never trigger) NOR its DTO shape (different fields:
  * no planCompleted/planTotal here, Academy progress + latest test instead).
+ *
+ * Sprint: REMEDIATION R2.2 — same tier-4 fallthrough fix as the dashboard
+ * route above (see that file's header comment for the full trace):
+ * requireNoManagerPersonaPreview denies a genuine View-As MANAGER preview
+ * BEFORE resolveClubManagerCabinetAccess runs, so a CITY_MANAGER previewing
+ * MANAGER can no longer pull a club's full roster via their own real scope.
  */
 export async function GET(req: NextRequest) {
   try {
     const user = await requireUser();
+    await requireNoManagerPersonaPreview(user);
     const clubIdParam = req.nextUrl.searchParams.get("clubId");
     const access = await resolveClubManagerCabinetAccess(user, clubIdParam);
     if (!access) {

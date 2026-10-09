@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { requireUser, AuthError } from "@/lib/server/authz";
 import { jsonOk, handleError } from "@/lib/server/http";
 import { getClubManagerDashboard, resolveClubManagerCabinetAccess } from "@/lib/server/rbac/cabinet-dashboards";
+import { requireNoManagerPersonaPreview } from "@/lib/server/rbac/effective-context";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,10 +14,23 @@ export const dynamic = "force-dynamic";
  * resolveClubManagerCabinetAccess's doc comment for the full three-tier
  * access/scope resolution — the same function backs the /team sibling
  * route below, so the two can never disagree about who may see what).
+ *
+ * Sprint: REMEDIATION R2.2 — traced (not assumed) that a View-As MANAGER
+ * preview reached this cabinet via the exact same tier-4 fallthrough R2.1
+ * found in Employee Card: resolveClubManagerCabinetAccess's tier 1 is
+ * CLUB_MANAGER-preview-only, so a MANAGER preview fell through to tier 4
+ * (club.read, the REAL actor's own grants) — a CITY_MANAGER previewing
+ * MANAGER of a club inside their own real scope got that club's full
+ * management dashboard. requireNoManagerPersonaPreview denies this BEFORE
+ * resolveClubManagerCabinetAccess ever runs — its return value alone
+ * cannot distinguish a fallen-through MANAGER preview from no preview at
+ * all. A View-As CLUB_MANAGER preview (tier 1) and a real, non-previewing
+ * CITY_MANAGER's drill-down (tier 4) are both unaffected.
  */
 export async function GET(req: NextRequest) {
   try {
     const user = await requireUser();
+    await requireNoManagerPersonaPreview(user);
     const clubIdParam = req.nextUrl.searchParams.get("clubId");
     const access = await resolveClubManagerCabinetAccess(user, clubIdParam);
     if (!access) {
