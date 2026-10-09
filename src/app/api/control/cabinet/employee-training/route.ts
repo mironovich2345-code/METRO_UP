@@ -3,8 +3,8 @@ import { prisma } from "@/lib/server/db";
 import { requireUser, AuthError } from "@/lib/server/authz";
 import { jsonOk, jsonError, handleError } from "@/lib/server/http";
 import { getManagementEmployeeCard } from "@/lib/server/rbac/employee-card";
-import { getActorContext, cityIdForClub } from "@/lib/server/rbac/context";
-import { authorize } from "@/lib/server/rbac/authorize-core";
+import { resolveClubManagerCabinetAccess } from "@/lib/server/rbac/cabinet-dashboards";
+import { cabinetAccessCoversClub } from "@/lib/server/rbac/scope-core";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,21 +14,40 @@ export const dynamic = "force-dynamic";
  * manual-test-round-3, sections 5C/5D. ONE role-agnostic endpoint reused by
  * BOTH CITY_MANAGER (clubs -> employees -> this detail) and CLUB_MANAGER
  * (employees -> this detail directly) — no parallel analytics system per
- * role. Authorization: resolve the TARGET employee's own club, then the
- * existing club.read authority decides — the exact same predicate
- * (canReadClub, authorize-core.ts) that already scopes /team and the
- * club-manager cabinet routes to "a CITY_MANAGER/CLUB_MANAGER grant covering
- * this club, or network-wide access" — never a new, parallel scope rule. A
- * plain MANAGER (no such grant) is rejected the same way it already is
- * everywhere else in this file.
+ * role. Authorization: resolve the TARGET employee's own club, then ask
+ * resolveClubManagerCabinetAccess "may this actor act on THIS club" and
+ * confirm the answer actually covers it (cabinetAccessCoversClub) — never a
+ * new, parallel scope rule. A plain MANAGER (no grant/preview at all) is
+ * rejected the same way it already is everywhere else in this file.
  *
  * Management Round E1 — the response is now the fuller
  * ManagementEmployeeCardDTO (profile/employment/learning/tests/mystery
- * shopper), composed by getManagementEmployeeCard; the URL, the route name,
- * and every authorization check below are UNCHANGED from Round E0 — this is
- * still the one endpoint behind /team/employee, never a second role-specific
- * one (section 3's explicit "do not create duplicate role-specific employee
- * pages").
+ * shopper), composed by getManagementEmployeeCard; the URL and the route
+ * name are UNCHANGED from Round E0 — this is still the one endpoint behind
+ * /team/employee, never a second role-specific one (section 3's explicit
+ * "do not create duplicate role-specific employee pages").
+ *
+ * Sprint: REMEDIATION R2, F-04 — authorization now goes through
+ * resolveClubManagerCabinetAccess (cabinet-dashboards.ts), the SAME 4-tier
+ * "which club may this actor act on" resolver /control/cabinet's
+ * dashboard/team routes already use, rather than this route's own parallel
+ * club.read + legacy-club check. That parallel check never consulted an
+ * active View-As CLUB_MANAGER preview at all: a CITY_MANAGER previewing as
+ * CLUB_MANAGER of Club A could still open an employee's card in Club B,
+ * because their own REAL, broader scope still satisfied club.read directly —
+ * the real actor's wider authority was leaking through a persona-substituted
+ * read. resolveClubManagerCabinetAccess's tier 1 pins an active CLUB_MANAGER
+ * preview to EXACTLY the previewed club (ignores the requested club
+ * entirely), so cabinetAccessCoversClub (scope-core.ts — pure, directly
+ * unit-tested) now rejects the cross-club read. A View-As MANAGER preview
+ * never matches tier 1 (CLUB_MANAGER-only) and falls through to the real
+ * actor's own tiers unchanged —
+ * it grants nothing extra. A real (non-previewing) CITY_MANAGER is
+ * UNCHANGED: tier 4 still grants every club their real scope covers — this
+ * must NOT become CLUB_MANAGER-only for them. Legacy AppRole=CLUB_MANAGER
+ * (tier 2) and a real CLUB_MANAGER RoleAssignment grant (tier 3) are also
+ * unchanged, just now resolved by the shared helper instead of a
+ * second, divergent inline copy of the same rule.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -42,22 +61,8 @@ export async function GET(req: NextRequest) {
     });
     if (!target) return jsonError(404, "user_not_found");
 
-    const actor = await getActorContext(user);
-    const targetClubCityId = await cityIdForClub(target.clubId);
-    // Management Round E0, section 1 — found while tracing the SAME P0 Team
-    // bug one click deeper: this route's generic club.read (canReadClub,
-    // authorize-core.ts) is deliberately grant-only (Round B.1's own
-    // reasoning for leaving it untouched: its OTHER callers, e.g. CITY_MANAGER
-    // scope reads, are correctly grant-only) — so a real LEGACY
-    // AppRole=CLUB_MANAGER (EmployeeProfile.clubId, no RoleAssignment row)
-    // clicking from their OWN roster into one of their OWN employees' training
-    // detail 403'd here, the exact same identity-source gap
-    // resolveClubManagerCabinetAccess's own tier 2 already fixed for the
-    // roster/dashboard routes. A View-As CLUB_MANAGER preview is unaffected
-    // (the real actor underneath is the CITY_MANAGER, whose own grant already
-    // satisfies club.read) — this is scenario A only.
-    const isOwnLegacyClub = user.role === "CLUB_MANAGER" && user.employeeProfile?.clubId === target.clubId;
-    if (!isOwnLegacyClub && !authorize(actor, { action: "club.read", targetClubId: target.clubId, targetClubCityId })) {
+    const access = await resolveClubManagerCabinetAccess(user, target.clubId);
+    if (!cabinetAccessCoversClub(access, target.clubId)) {
       // Sprint: manual-test-round-3, section 10 — safe observability.
       console.warn(
         `[employee-training-denied] ${JSON.stringify({

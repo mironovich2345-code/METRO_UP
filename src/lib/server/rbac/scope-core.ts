@@ -166,3 +166,23 @@ export function resolveAllowedAcademySectionsForPersona(
   if (previewRole === "CLUB_MANAGER") return ["MANAGER", "CLUB_MANAGER"];
   return resolveAllowedAcademySections(actor);
 }
+
+/**
+ * Sprint: REMEDIATION R2, F-04 — the one new decision GET /api/control/
+ * cabinet/employee-training's fix reduces to: cabinet-dashboards.ts's
+ * resolveClubManagerCabinetAccess (reused UNCHANGED — not re-implemented
+ * here) may resolve access to SOME club, or none at all; this is the pure
+ * equality guard that turns that result into "does the resolved access
+ * actually cover THIS target employee's club". The one case this closes: an
+ * active View-As CLUB_MANAGER-of-Club-A preview's tier 1 unconditionally
+ * resolves to clubId=A, ignoring whatever OTHER club the real actor's
+ * broader scope would otherwise read — so a request for an employee in
+ * Club B must be denied even though the real actor (a CITY_MANAGER) could
+ * read Club B directly outside the preview. Kept as its own pure, DB-free
+ * function — resolveClubManagerCabinetAccess itself needs Prisma/cookies
+ * and cannot run outside a request, so this is the only part of the fix
+ * that can have a real, non-structural test.
+ */
+export function cabinetAccessCoversClub(access: { clubId: string } | null, targetClubId: string): boolean {
+  return access !== null && access.clubId === targetClubId;
+}

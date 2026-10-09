@@ -6,6 +6,7 @@ import {
   grantCoversCityOrItsClubs,
   anyGrantCoversCityOrItsClubs,
   anyGrantCoversClub,
+  cabinetAccessCoversClub,
 } from "../src/lib/server/rbac/scope-core";
 import type { RoleGrant } from "../src/lib/server/rbac/types";
 
@@ -386,28 +387,67 @@ test("CLM-DASH-WIRE-D: tier 3's RoleAssignment-grant check still requires status
   assert.match(src, /g\.role === "CLUB_MANAGER" && g\.status === "ACTIVE" && g\.clubId === requestedClubId/);
 });
 
+/*
+ * Sprint: REMEDIATION R2, F-04 — employee-training's own authorization is now
+ * resolveClubManagerCabinetAccess + cabinetAccessCoversClub (the generic
+ * club.read + isOwnLegacyClub pair TEAM-E0-A/B/WIRE used to describe was
+ * replaced outright, not layered on top of). The old parallel check never
+ * consulted an active View-As CLUB_MANAGER preview at all — a CITY_MANAGER
+ * previewing as CLUB_MANAGER of Club A could still open an employee's card
+ * in Club B via their own real, broader club.read scope. Legacy
+ * AppRole=CLUB_MANAGER's "own club" recognition (the original P0 TEAM-E0
+ * fix) is preserved, just via resolveClubManagerCabinetAccess's own tier 2
+ * (already proven by CLM-DASH-H/I/J above) instead of a second, divergent
+ * inline copy of the same rule.
+ */
+
+test("CABACCESS-A: cabinetAccessCoversClub is false for a null access (resolveClubManagerCabinetAccess found no applicable tier) — never treated as an open allow", () => {
+  assert.equal(cabinetAccessCoversClub(null, "club-1"), false);
+});
+
+test("CABACCESS-B: cabinetAccessCoversClub is true when the resolved access's clubId matches the requested target club exactly", () => {
+  assert.equal(cabinetAccessCoversClub({ clubId: "club-1" }, "club-1"), true);
+});
+
+test("CABACCESS-C: THE F-04 FIX — cabinetAccessCoversClub is false when the resolved access's clubId does NOT match the target club, even though access is non-null. This is the exact View-As-pinning scenario: an active View-As CLUB_MANAGER-of-Club-A preview makes resolveClubManagerCabinetAccess's tier 1 unconditionally return clubId='club-A' — requesting an employee in 'club-B' must be denied, never silently allowed because SOME access was resolved", () => {
+  assert.equal(cabinetAccessCoversClub({ clubId: "club-A" }, "club-B"), false);
+});
+
 test(
   "TEAM-E0-A: a legacy AppRole=CLUB_MANAGER clicking from their OWN roster " +
     "into one of their OWN employees' training detail (GET /api/control/" +
-    "cabinet/employee-training?userId=<own employee>) now succeeds via the " +
-    "new isOwnLegacyClub branch — found while re-tracing the SAME P0 'Team " +
-    "access' bug one click deeper than the roster list itself",
+    "cabinet/employee-training?userId=<own employee>) succeeds via " +
+    "resolveClubManagerCabinetAccess's tier 2 (legacy identity) — the P0 'Team " +
+    "access' fix, now resolved by the shared helper instead of a second inline copy",
   { skip: "integration: requires Postgres + running server" },
   () => {},
 );
 
 test(
   "TEAM-E0-B: the SAME legacy manager requesting a DIFFERENT club's employee " +
-    "(not their own) still 403s — isOwnLegacyClub matches EmployeeProfile." +
-    "clubId EXACTLY, never any other club; club.read's generic grant-only " +
-    "check is also unweakened for everyone else (CITY_MANAGER scope reads, " +
-    "etc.)",
+    "(not their own) still 403s — tier 2 matches EmployeeProfile.clubId " +
+    "EXACTLY, never any other club; a real (non-previewing) CITY_MANAGER's " +
+    "own broader club.read authority (tier 4) is unweakened for every other " +
+    "club in their real scope",
   { skip: "integration: requires Postgres + running server" },
   () => {},
 );
 
-test("TEAM-E0-WIRE: employee-training's new legacy-identity branch mirrors resolveClubManagerCabinetAccess's own tier-2 comparison exactly (user.role===\"CLUB_MANAGER\" matched against EmployeeProfile.clubId, never a broader fallback), and only SHORT-CIRCUITS the generic club.read check — it never replaces or weakens authorize()'s own grant-based result for every other caller", () => {
+test(
+  "TEAM-E0-C: Sprint: REMEDIATION R2, F-04 — a CITY_MANAGER with real scope " +
+    "covering Club A + Club B, previewing as View-As CLUB_MANAGER of Club A, " +
+    "requesting GET employee-training?userId=<an employee of Club B> now " +
+    "gets 403 — tier 1 pins to Club A regardless of the real actor's broader " +
+    "scope, and cabinetAccessCoversClub (CABACCESS-C above) rejects the " +
+    "mismatch; the SAME request with NO preview active still succeeds " +
+    "(tier 4, real scope, unchanged)",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
+test("TEAM-E0-WIRE: employee-training resolves access via resolveClubManagerCabinetAccess (cabinet-dashboards.ts's reused, unmodified 4-tier resolver) and gates on cabinetAccessCoversClub (scope-core.ts, pure, directly unit-tested above) — never a parallel, divergent authorization rule", () => {
   const src = read("src/app/api/control/cabinet/employee-training/route.ts");
-  assert.match(src, /const isOwnLegacyClub = user\.role === "CLUB_MANAGER" && user\.employeeProfile\?\.clubId === target\.clubId;/);
-  assert.match(src, /if \(!isOwnLegacyClub && !authorize\(actor, \{ action: "club\.read", targetClubId: target\.clubId, targetClubCityId \}\)\) \{/);
+  assert.match(src, /resolveClubManagerCabinetAccess\(user, target\.clubId\)/);
+  assert.match(src, /cabinetAccessCoversClub\(access, target\.clubId\)/);
+  assert.doesNotMatch(src, /isOwnLegacyClub/, "the old parallel legacy-club check must be fully removed, not layered on top of the new one");
 });

@@ -225,11 +225,23 @@ test("ROUTE-A: the route now composes the fuller ManagementEmployeeCardDTO via g
   assert.match(src, /return jsonOk\(await getManagementEmployeeCard\(targetUserId, target\)\);/);
 });
 
-test("ROUTE-B: Round E0's legacy-identity authorization fix (isOwnLegacyClub) is still present, unweakened, after extending the route's response — the initial query now also selects cityId/positionId for the new profile fields, alongside the SAME clubId the auth check already used", () => {
+/**
+ * Sprint: REMEDIATION R2, F-04 — Round E0's legacy-identity fix
+ * (isOwnLegacyClub, asserted here before this round) was replaced, not
+ * layered on top of, by resolveClubManagerCabinetAccess +
+ * cabinetAccessCoversClub (cabinet-dashboards.ts / scope-core.ts) — the
+ * SAME 4-tier resolver already proven by the other /control/cabinet
+ * routes, whose tier 2 covers the exact legacy-identity case this test
+ * used to assert inline. See tests/cabinet-dashboards.test.ts's
+ * CABACCESS-A/B/C (real pure tests) and TEAM-E0-WIRE (updated structural
+ * check) for the current coverage of this fix.
+ */
+test("ROUTE-B: the route still selects cityId/positionId for the new profile fields, alongside the SAME clubId resolveClubManagerCabinetAccess is given, and now resolves authorization through that shared helper instead of a parallel inline legacy-identity check", () => {
   const src = read("src/app/api/control/cabinet/employee-training/route.ts");
   assert.match(src, /select: \{ clubId: true, cityId: true, positionId: true \}/);
-  assert.match(src, /const isOwnLegacyClub = user\.role === "CLUB_MANAGER" && user\.employeeProfile\?\.clubId === target\.clubId;/);
-  assert.match(src, /if \(!isOwnLegacyClub && !authorize\(actor, \{ action: "club\.read", targetClubId: target\.clubId, targetClubCityId \}\)\) \{/);
+  assert.match(src, /resolveClubManagerCabinetAccess\(user, target\.clubId\)/);
+  assert.match(src, /cabinetAccessCoversClub\(access, target\.clubId\)/);
+  assert.doesNotMatch(src, /isOwnLegacyClub/);
 });
 
 /* ===================================================================== *
