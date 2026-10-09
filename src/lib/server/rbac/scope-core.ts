@@ -186,3 +186,27 @@ export function resolveAllowedAcademySectionsForPersona(
 export function cabinetAccessCoversClub(access: { clubId: string } | null, targetClubId: string): boolean {
   return access !== null && access.clubId === targetClubId;
 }
+
+/**
+ * Sprint: REMEDIATION R2.1 — a genuine View-As MANAGER persona preview has
+ * NO management Employee Card access at all, even when the REAL actor
+ * underneath (a CITY_MANAGER) has legitimate club.read authority over the
+ * target's club. Root cause this closes: resolveClubManagerCabinetAccess's
+ * tier 1 (the preview-pinning tier) is deliberately CLUB_MANAGER-preview-
+ * only — a MANAGER preview never matches it and falls all the way through
+ * to the REAL actor's own tiers 2-4, which have no awareness a persona
+ * substitution is active at all. Checked by the caller BEFORE calling
+ * resolveClubManagerCabinetAccess (its return value alone cannot
+ * distinguish "real actor, no preview" from "MANAGER preview that fell
+ * through to real authority" — both resolve isPreviewing:false). `false`
+ * for a CITY_MANAGER's own self-preview (previewRole:"CITY_MANAGER") and
+ * for no preview at all — neither is persona substitution, so real
+ * CITY_MANAGER screens (/city, /city/club, ...) are unaffected by this
+ * predicate entirely.
+ */
+export function isManagerPersonaPreview(
+  isPreviewing: boolean,
+  previewRole: "MANAGER" | "CLUB_MANAGER" | "CITY_MANAGER" | null,
+): boolean {
+  return isPreviewing && previewRole === "MANAGER";
+}
