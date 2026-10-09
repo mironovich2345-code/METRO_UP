@@ -115,14 +115,35 @@ test("ACAD-PERSONA-WIRE: every Academy GET route that computes allowedSections n
   }
 });
 
-test("ACAD-PERSONA-WIRE-MUTATIONS: the three Academy mutation routes (complete/quiz/start) deliberately still use the bare, real-actor-only resolveAllowedAcademySections — a MANAGER/CLUB_MANAGER persona preview can never reach them at all (src/middleware.ts blocks every mutating method under an active persona preview, before any route handler runs), so there is nothing for a persona-aware check to fix there", () => {
+/**
+ * Sprint: REMEDIATION R2, F-02 — the three Academy mutation routes now ALSO
+ * use the persona-aware resolver, matching their GET sibling
+ * (lessons/[slug]/route.ts, asserted by ACAD-PERSONA-WIRE above). This was
+ * previously asserted the OTHER way (deliberately still bare) on the
+ * reasoning that src/middleware.ts's VIEW_AS_READ_ONLY block already
+ * rejects every mutating request during an active MANAGER/CLUB_MANAGER
+ * persona preview before any route handler runs — true, and still true
+ * (middleware.test.ts's MW-D runs the real middleware function against
+ * exactly one of these three paths and is UNCHANGED by this fix). The
+ * persona-aware swap is Layer 2, defense-in-depth: it has no effect on any
+ * request that reaches a correctly-configured middleware, and only matters
+ * if Layer 1 is ever bypassed or misconfigured for one path — a mutation
+ * route's own authorization should never be silently built on the real
+ * actor's broader, un-substituted grant set.
+ */
+test("ACAD-PERSONA-WIRE-MUTATIONS: the three Academy mutation routes (complete/quiz/start) now use the persona-aware resolveAllowedAcademySectionsForPersona, deriving previewRole from resolveEffectiveReadContext exactly like their GET sibling — Layer 1 (middleware, MW-D) is untouched and independently still blocks every one of these paths during a genuine persona preview", () => {
   for (const file of [
     "src/app/api/academy/lessons/[slug]/complete/route.ts",
     "src/app/api/academy/lessons/[slug]/quiz/route.ts",
     "src/app/api/academy/lessons/[slug]/start/route.ts",
   ]) {
     const src = read(file);
-    assert.match(src, /resolveAllowedAcademySections\(actor\)/, `${file} should still use the real-actor resolver`);
+    assert.match(src, /resolveAllowedAcademySectionsForPersona/, `${file} should use the persona-aware resolver`);
+    assert.doesNotMatch(src, /resolveAllowedAcademySections\(actor\)/, `${file} should not call the bare real-actor-only resolver directly`);
+    assert.match(src, /effective\.isPreviewing \? \(effective\.viewContext!\.previewRole as "MANAGER" \| "CLUB_MANAGER"\) : null/, `${file} should derive previewRole exactly like the GET sibling`);
+    // The actual mutation (startLesson/completeLesson/submitQuiz) must still
+    // be audited/recorded against the REAL actor, never the synthetic persona.
+    assert.doesNotMatch(src, /(startLesson|completeLesson|submitQuiz)\(effectiveUser\.id/, `${file} must mutate against the real actor's id, never effectiveUser.id`);
   }
 });
 

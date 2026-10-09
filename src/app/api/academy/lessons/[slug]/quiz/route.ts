@@ -6,7 +6,8 @@ import { quizSubmitSchema } from "@/lib/server/content-schemas";
 import { submitQuiz } from "@/lib/server/progress";
 import { isAcademyContentAllowed } from "@/lib/server/academy";
 import { getActorContext } from "@/lib/server/rbac/context";
-import { resolveAllowedAcademySections } from "@/lib/server/rbac/scope-core";
+import { resolveAllowedAcademySectionsForPersona } from "@/lib/server/rbac/scope-core";
+import { resolveEffectiveReadContext } from "@/lib/server/rbac/effective-context";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,6 +18,12 @@ export const dynamic = "force-dynamic";
  * onboarding-only restriction as start/complete/GET.
  * Sprint: manual-test-round-2, section 4 — LIMITED/FULL are ALSO checked
  * against the real actor's allowed Academy sections.
+ * Sprint: REMEDIATION R2, F-02 — persona-aware section check
+ * (resolveAllowedAcademySectionsForPersona), matching GET
+ * /api/academy/lessons/[slug] and start/complete's sibling fix — see
+ * start/route.ts's comment for the full rationale. submitQuiz below still
+ * takes user.id (the REAL actor); Layer 1 (middleware's VIEW_AS_READ_ONLY
+ * block) is untouched.
  */
 export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: string }> }) {
   try {
@@ -28,7 +35,9 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ slug: stri
     });
     if (!lesson || lesson.status !== "PUBLISHED") return jsonError(404, "lesson_not_found");
     const actor = await getActorContext(user);
-    const allowedSections = resolveAllowedAcademySections(actor);
+    const effective = await resolveEffectiveReadContext(user);
+    const previewRole = effective.isPreviewing ? (effective.viewContext!.previewRole as "MANAGER" | "CLUB_MANAGER") : null;
+    const allowedSections = resolveAllowedAcademySectionsForPersona(actor, previewRole);
     if (!(await isAcademyContentAllowed(user.employeeProfile!.accessStatus, { lessonProgramId: lesson.course.programId }, allowedSections))) {
       return jsonError(404, "lesson_not_found");
     }
