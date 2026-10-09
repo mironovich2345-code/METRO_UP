@@ -1,5 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
   scriptContentSchema,
   scriptHasContent,
@@ -58,7 +60,11 @@ test("scriptContentSchema strips unknown keys and defaults sections", () => {
   assert.equal("evil" in parsed, false);
 });
 
-/* Position gating — scripts only for sales-facing positions. */
+/* Position gating — scripts only for sales-facing positions. This exact
+ * matrix is what BOTH the list (GET /api/knowledge/scripts) and detail
+ * (GET /api/knowledge/scripts/[slug]) routes feed the SAME effective
+ * position into (see KNOW-SCRIPTS-PARITY below) — one eligibility rule,
+ * never two. */
 test("scripts access is limited to CLIENT_MANAGER / NIGHT_MANAGER", () => {
   assert.deepEqual([...SCRIPT_POSITIONS].sort(), ["CLIENT_MANAGER", "NIGHT_MANAGER"]);
   assert.equal(canAccessScripts("CLIENT_MANAGER"), true);
@@ -67,6 +73,38 @@ test("scripts access is limited to CLIENT_MANAGER / NIGHT_MANAGER", () => {
   assert.equal(canAccessScripts(null), false);
   assert.equal(canAccessScripts(undefined), false);
 });
+
+/**
+ * Sprint: REMEDIATION R2, F-03 — the detail route had fallen out of sync
+ * with its list sibling: it gated on the REAL actor's own
+ * user.employeeProfile?.positionId instead of the effective (persona-aware)
+ * one resolveEffectiveReadContext produces, so a View-As preview of a
+ * sales-eligible position still 403'd on open (the list showed the script,
+ * the detail route then refused it). canAccessScripts's own eligibility
+ * matrix is real-tested above for both routes equally (it's one shared pure
+ * function) — what's verified here is that both routes feed it the SAME
+ * kind of input.
+ */
+test("KNOW-SCRIPTS-PARITY: GET /api/knowledge/scripts and GET /api/knowledge/scripts/[slug] both resolve canAccessScripts's input from resolveEffectiveReadContext's effectiveUser, never from the real actor's own user.employeeProfile — list/detail can no longer disagree about who scripts are for", () => {
+  const read = (p: string) => readFileSync(path.join(process.cwd(), p), "utf8");
+  for (const file of ["src/app/api/knowledge/scripts/route.ts", "src/app/api/knowledge/scripts/[slug]/route.ts"]) {
+    const src = read(file);
+    assert.match(src, /resolveEffectiveReadContext/, `${file} should resolve the effective read context`);
+    assert.match(src, /canAccessScripts\(effectiveUser\.employeeProfile\?\.positionId\)/, `${file} should gate on effectiveUser's position, not the real actor's own`);
+    assert.doesNotMatch(src, /canAccessScripts\(user\.employeeProfile\?\.positionId\)/, `${file} should not gate on the real actor's own position directly`);
+  }
+});
+
+test(
+  "KNOW-SCRIPTS-VIEWAS: GET /api/knowledge/scripts/[slug] during a MANAGER " +
+    "preview with previewPositionId=CLIENT_MANAGER or NIGHT_MANAGER returns " +
+    "the script (canAccessScripts is position-eligible); previewPositionId=" +
+    "ADMINISTRATOR returns 403 forbidden — the exact same matrix EFFCTX-E " +
+    "(view-as-effective-context.test.ts) already covers for the LIST route, " +
+    "now true for the detail route too",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
 
 test("category schema requires a real title", () => {
   assert.equal(categoryCreateSchema.safeParse({ title: "Возражения" }).success, true);
