@@ -255,7 +255,7 @@ test(
 );
 
 test(
-  "EMPCARD-AUTH-B: the SAME CLUB_MANAGER requesting an employee from a DIFFERENT club still 403s — isOwnLegacyClub/club.read are both scoped to the actor's own club, exactly as Round E0 left them",
+  "EMPCARD-AUTH-B: the SAME CLUB_MANAGER requesting an employee from a DIFFERENT club still 403s — resolveClubManagerCabinetAccess's tier 2 (legacy)/tier 3 (grant) are both scoped to the actor's own club, exactly as Round E0 left them, now resolved via the shared helper (Sprint: REMEDIATION R2, F-04)",
   { skip: "integration: requires Postgres + running server" },
   () => {},
 );
@@ -274,6 +274,12 @@ test(
 
 test(
   "EMPCARD-AUTH-E: a revoked/suspended CITY_MANAGER or CLUB_MANAGER grant denies access to this endpoint the moment it's no longer ACTIVE — getActorContext is never cached, re-derived fresh on every request",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
+test(
+  "EMPCARD-AUTH-F: Sprint: REMEDIATION R2.1 — a real CITY_MANAGER with scope covering clubs A and B, previewing as View-As MANAGER of club A, gets 403 for EITHER club's employee card — isManagerPersonaPreview denies before the real actor's own club.read authority is ever consulted. The pure decision logic is real-tested (cabinet-dashboards.test.ts's MGRPERSONA-A..F); this names the full HTTP-level claim",
   { skip: "integration: requires Postgres + running server" },
   () => {},
 );
