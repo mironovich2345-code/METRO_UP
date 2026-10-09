@@ -1,5 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
   isGrantActive,
   grantCoversClub,
@@ -8,6 +10,7 @@ import {
   hasActiveRole,
   hasOperationsDirectorCapacity,
   OPERATIONS_DIRECTOR_MAX_ACTIVE,
+  isManagerPersonaPreview,
 } from "../src/lib/server/rbac/scope-core";
 import {
   hasSystemAccess,
@@ -806,14 +809,90 @@ test(
   () => {},
 );
 
+/**
+ * Sprint: REMEDIATION R2.2 — VIEWAS-J previously asserted a MANAGER preview
+ * returning club X's team roster as CORRECT, intentional behavior. That
+ * was the exact "sibling hole" disclosed while investigating R2.1's
+ * Employee Card fix: control/team/route.ts's branch 1 used to explicitly
+ * include previewRole==="MANAGER" alongside "CLUB_MANAGER", and even after
+ * removing that, a MANAGER preview fell through to branch 3's
+ * authorize({action:"club.read"}) against the REAL actor's own grants —
+ * the SAME tier-4-style fallthrough pattern R2.1 closed for Employee Card.
+ * A genuine MANAGER persona has NO management authority (this round's
+ * product rule) — the roster is now denied, not served. A CLUB_MANAGER
+ * preview (branch 1, unchanged) is the ONLY preview that still returns
+ * getClubTeamForClub, exactly matching VIEWAS-CAB-A/TEAM-E0-C's existing
+ * CLUB_MANAGER-preview-pinning claims elsewhere in this file.
+ */
 test(
   "VIEWAS-J: GET /api/control/team with an active View-As-MANAGER-of-club-X " +
-    "context returns club X's team data (getClubTeamForClub) regardless of the " +
-    "real CITY_MANAGER's own broader scope — the effective read context, not the " +
-    "real one, drives what this specific endpoint returns",
+    "context is DENIED (403) — a genuine MANAGER persona has no management " +
+    "roster access, even though the real CITY_MANAGER's own club.read would " +
+    "otherwise authorize club X directly (requireNoManagerPersonaPreview runs " +
+    "before any of the three branches). A View-As CLUB_MANAGER preview of " +
+    "club X is UNCHANGED — it still returns club X's team data via branch 1",
   { skip: "integration: requires Postgres + running server" },
   () => {},
 );
+
+/**
+ * Sprint: REMEDIATION R2.2, section 15 — "the specific sibling hole
+ * disclosed by R2.1": proves a MANAGER preview cannot obtain the manager
+ * roster EVEN WHEN the real actor has club.read. controlTeamDecision below
+ * is a pure re-statement of control/team/route.ts's actual three-branch
+ * dispatch order, composed from real functions (isManagerPersonaPreview)
+ * plus booleans standing in for exactly what each branch's own real check
+ * (canManageClub(user.role), authorize({action:"club.read"})) would
+ * resolve — proven elsewhere (club-manager.test.ts's canManageClub
+ * matrix, this file's own canReadClub/authorize coverage), not
+ * re-implemented here.
+ */
+function controlTeamDecision(
+  effective: { isPreviewing: boolean; previewRole: "MANAGER" | "CLUB_MANAGER" | "CITY_MANAGER" | null },
+  viewContextPreviewRole: "MANAGER" | "CLUB_MANAGER" | "CITY_MANAGER" | null,
+  canManageClubReal: boolean,
+  clubReadReal: boolean,
+): "preview-club" | "legacy" | "rbac" | "denied" {
+  if (isManagerPersonaPreview(effective.isPreviewing, effective.previewRole)) return "denied";
+  if (viewContextPreviewRole === "CLUB_MANAGER") return "preview-club";
+  if (canManageClubReal) return "legacy";
+  if (clubReadReal) return "rbac";
+  return "denied";
+}
+
+test("TEAM-MGRPERSONA-A: THE R2.2 FIX — real CITY_MANAGER, View-As MANAGER of club X, with clubReadReal=true (the real actor's own scope DOES cover club X) — still denied, never reaching branch 3's authorize(club.read) at all", () => {
+  const effective = { isPreviewing: true, previewRole: "MANAGER" as const };
+  assert.equal(controlTeamDecision(effective, "MANAGER", false, true), "denied");
+});
+
+test("TEAM-MGRPERSONA-B: View-As CLUB_MANAGER of club X is unaffected — branch 1 still wins", () => {
+  const effective = { isPreviewing: true, previewRole: "CLUB_MANAGER" as const };
+  assert.equal(controlTeamDecision(effective, "CLUB_MANAGER", false, true), "preview-club");
+});
+
+test("TEAM-MGRPERSONA-C: no preview, real legacy CLUB_MANAGER/ADMIN (canManageClub) — branch 2, unchanged", () => {
+  const effective = { isPreviewing: false, previewRole: null };
+  assert.equal(controlTeamDecision(effective, null, true, false), "legacy");
+});
+
+test("TEAM-MGRPERSONA-D: no preview, real CITY_MANAGER drill-down via club.read — branch 3, unchanged", () => {
+  const effective = { isPreviewing: false, previewRole: null };
+  assert.equal(controlTeamDecision(effective, null, false, true), "rbac");
+});
+
+test("TEAM-MGRPERSONA-E: no preview, no legacy identity, no club.read authority — denied, unchanged", () => {
+  const effective = { isPreviewing: false, previewRole: null };
+  assert.equal(controlTeamDecision(effective, null, false, false), "denied");
+});
+
+test("TEAM-MGRPERSONA-WIRE: control/team/route.ts calls requireNoManagerPersonaPreview BEFORE resolving any branch, and branch 1's condition no longer includes previewRole===\"MANAGER\" — the exact two changes this round made", () => {
+  const src = readFileSync(path.join(process.cwd(), "src/app/api/control/team/route.ts"), "utf8");
+  const guardIdx = src.indexOf("requireNoManagerPersonaPreview(user)");
+  const branch1Idx = src.indexOf("viewContext.previewRole ===");
+  assert.ok(guardIdx > 0, "requireNoManagerPersonaPreview must be called");
+  assert.ok(branch1Idx > guardIdx, "the guard must run before branch 1 is even reached");
+  assert.doesNotMatch(src, /previewRole === "MANAGER" \|\| .*previewRole === "CLUB_MANAGER"/, "branch 1 must no longer treat MANAGER and CLUB_MANAGER previews identically");
+});
 
 test(
   "VIEWAS-K: starting and ending a preview writes VIEW_AS_STARTED/VIEW_AS_ENDED " +

@@ -350,17 +350,37 @@ test(
   () => {},
 );
 
+/**
+ * Sprint: REMEDIATION R2.2 — this test previously predicted (hedged as
+ * "correctly 403 UNLESS...") exactly the leak R2.2 found and closed:
+ * resolveClubManagerCabinetAccess's tier 1 is CLUB_MANAGER-preview-only, so
+ * a MANAGER preview fell through to tier 4 (club.read), which a real
+ * CITY_MANAGER's own scope satisfies for any club they manage — including
+ * club X itself. requireNoManagerPersonaPreview (effective-context.ts) now
+ * denies BEFORE resolveClubManagerCabinetAccess runs, so the hedge no
+ * longer applies: this is unconditionally 403 now, regardless of the real
+ * actor's own authority. Pure decision coverage: MGRPERSONA-A..F
+ * (cabinet-dashboards.test.ts, same file, above).
+ */
 test(
   "VIEWAS-CAB-C: a CITY_MANAGER with an active View-As-MANAGER-of-club-X " +
     "preview reading the SAME club-manager cabinet endpoint does NOT get club " +
-    "X's management data via that preview — resolveClubManagerCabinetAccess's " +
-    "tier 1 is CLUB_MANAGER-preview-only by design (Sprint: role-cabinets, " +
-    "step 4, section 13/22); it falls through to tiers 2/3, which check the " +
-    "REAL actor's own authority and correctly 403 unless that real actor " +
-    "separately also holds a real grant/club.read authority for club X",
+    "X's management data via that preview — UNCONDITIONALLY denied now " +
+    "(requireNoManagerPersonaPreview, R2.2), even when the real actor's own " +
+    "scope would otherwise satisfy tier 4's club.read for club X",
   { skip: "integration: requires Postgres + running server" },
   () => {},
 );
+
+test("VIEWAS-CAB-C-WIRE: both club-manager/route.ts and club-manager/team/route.ts call requireNoManagerPersonaPreview BEFORE resolveClubManagerCabinetAccess — the exact fix VIEWAS-CAB-C above now relies on", () => {
+  for (const file of ["src/app/api/control/cabinet/club-manager/route.ts", "src/app/api/control/cabinet/club-manager/team/route.ts"]) {
+    const src = read(file);
+    const guardIdx = src.indexOf("requireNoManagerPersonaPreview(user)");
+    const tierIdx = src.indexOf("resolveClubManagerCabinetAccess(user, clubIdParam)");
+    assert.ok(guardIdx > 0, `${file}: requireNoManagerPersonaPreview must be called`);
+    assert.ok(tierIdx > guardIdx, `${file}: the guard must run before resolveClubManagerCabinetAccess`);
+  }
+});
 
 test(
   "VIEWAS-CAB-D: during any View As preview, the cabinet endpoints remain " +

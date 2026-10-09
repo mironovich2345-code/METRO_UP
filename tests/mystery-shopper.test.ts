@@ -10,6 +10,7 @@ import {
   parsePeriodQuery,
   pickSelectedPeriod,
 } from "../src/lib/server/mystery-shopper-core";
+import { isManagerPersonaPreview } from "../src/lib/server/rbac/scope-core";
 
 const read = (p: string) => readFileSync(path.join(process.cwd(), p), "utf8");
 const skip = { skip: "integration: requires Postgres + running server" } as const;
@@ -297,6 +298,16 @@ test("SEC-D: the route resolution reuses resolveClubManagerCabinetAccess unchang
   assert.match(src, /resolveClubManagerCabinetAccess\(user, clubIdParam\)/);
 });
 
+test("SEC-E: Sprint: REMEDIATION R2.2 — requireNoManagerPersonaPreview is called BEFORE resolveClubManagerCabinetAccess AND before the root CITY_MANAGER fallback (hasActiveRole), so a MANAGER persona preview is denied regardless of which of the two paths would otherwise have served it", () => {
+  const src = read("src/app/api/control/cabinet/mystery-shopper/route.ts");
+  const guardIdx = src.indexOf("requireNoManagerPersonaPreview(user)");
+  const tierIdx = src.indexOf("resolveClubManagerCabinetAccess(user, clubIdParam)");
+  const rootIdx = src.indexOf('hasActiveRole(actor.grants, "CITY_MANAGER")');
+  assert.ok(guardIdx > 0, "requireNoManagerPersonaPreview must be called");
+  assert.ok(tierIdx > guardIdx, "the guard must run before resolveClubManagerCabinetAccess");
+  assert.ok(rootIdx > guardIdx, "the guard must also run before the root CITY_MANAGER fallback");
+});
+
 /* ===================================================================== *
  *  UI wiring — one shared route, dispatched by scope.kind (section 5/9/10)
  * ===================================================================== */
@@ -368,6 +379,77 @@ test("E3-AUTH-F: a plain EMPLOYEE (no CLUB_MANAGER/CITY_MANAGER grant, no legacy
 
 test("E3-VIEWAS-A: a CITY_MANAGER with an active View-As CLUB_MANAGER preview sees scope.kind CLUB for the PREVIEWED club regardless of any clubId query param — resolveClubManagerCabinetAccess's own tier-1 behavior, reused unmodified", skip, () => {});
 test("E3-VIEWAS-B: the response carries scope.isPreviewing: true during that preview, and the surface offers no mutation regardless (read-only by construction — no POST/PUT/DELETE route exists for this feature at all)", skip, () => {});
+
+/**
+ * Sprint: REMEDIATION R2.2 — traced (not assumed) TWO distinct leaks for a
+ * View-As MANAGER preview on this exact route: (1) a clubId hint resolved
+ * via resolveClubManagerCabinetAccess's tier 4 (club.read, the REAL actor's
+ * own scope) — the same tier-4 fallthrough R2.1 found in Employee Card;
+ * (2) with NO clubId at all, a SECOND, independent leak via the root
+ * CITY_MANAGER fallback (hasActiveRole(actor.grants, "CITY_MANAGER")
+ * against the REAL actor, zero preview awareness) — leaking the entire
+ * city-wide workspace. requireNoManagerPersonaPreview now denies BOTH,
+ * unconditionally, before either path runs.
+ *
+ * mysteryShopperDecision below is a pure re-statement of the route's own
+ * dispatch order (resolveClubManagerCabinetAccess -> clubId-hint-but-no-
+ * access -> root CITY_MANAGER fallback), composed from real, already-pure
+ * functions (isManagerPersonaPreview) plus constructed inputs representing
+ * exactly what each upstream call would resolve — not a re-implementation
+ * of resolveClubManagerCabinetAccess's own tier logic, which stays
+ * untouched and is covered elsewhere (cabinet-dashboards.test.ts).
+ */
+function mysteryShopperDecision(
+  effective: { isPreviewing: boolean; previewRole: "MANAGER" | "CLUB_MANAGER" | "CITY_MANAGER" | null },
+  access: { clubId: string } | null,
+  clubIdParam: string | null,
+  realActorIsCityManager: boolean,
+): "club" | "city" | "denied" {
+  if (isManagerPersonaPreview(effective.isPreviewing, effective.previewRole)) return "denied";
+  if (access) return "club";
+  if (clubIdParam) return "denied"; // foreign club / revoked grant — never falls back to root
+  if (!realActorIsCityManager) return "denied";
+  return "city";
+}
+
+test("E3-MGRPERSONA-A: THE R2.2 FIX, leak 1 — real CITY_MANAGER (scope A+B), View-As MANAGER of A, clubId=A or clubId=B — BOTH denied, even though tier 4's club.read would otherwise resolve access for either (constructed access objects below are exactly what that tier would have returned)", () => {
+  const effective = { isPreviewing: true, previewRole: "MANAGER" as const };
+  assert.equal(mysteryShopperDecision(effective, { clubId: "club-A" }, "club-A", true), "denied");
+  assert.equal(mysteryShopperDecision(effective, { clubId: "club-B" }, "club-B", true), "denied");
+});
+
+test("E3-MGRPERSONA-B: THE R2.2 FIX, leak 2 — real CITY_MANAGER, View-As MANAGER, NO clubId at all — denied, not the city-wide root fallback, even though the real actor genuinely holds an active CITY_MANAGER grant", () => {
+  const effective = { isPreviewing: true, previewRole: "MANAGER" as const };
+  assert.equal(mysteryShopperDecision(effective, null, null, true), "denied");
+});
+
+test("E3-MGRPERSONA-C: View-As CLUB_MANAGER of A is unaffected — tier 1 pins to A regardless of a forged clubId=B query hint (tier 1 ignores the requested clubId entirely), so the composed decision is 'club' using access.clubId='A', never 'B'", () => {
+  const effective = { isPreviewing: true, previewRole: "CLUB_MANAGER" as const };
+  const result = mysteryShopperDecision(effective, { clubId: "club-A" }, "club-B", true);
+  assert.equal(result, "club");
+});
+
+test("E3-MGRPERSONA-D: no preview, real CITY_MANAGER — root (no clubId) is 'city' (allowed), a valid scoped club is 'club' (allowed), a foreign club is 'denied' — all three unchanged by this round", () => {
+  const effective = { isPreviewing: false, previewRole: null };
+  assert.equal(mysteryShopperDecision(effective, null, null, true), "city");
+  assert.equal(mysteryShopperDecision(effective, { clubId: "club-A" }, "club-A", true), "club");
+  assert.equal(mysteryShopperDecision(effective, null, "club-foreign", true), "denied");
+});
+
+test("E3-MGRPERSONA-E: MANAGER persona + real NETWORK/system authority (OPERATIONS_DIRECTOR/PROJECT_ADMIN, simulated here as an access object a network-wide club.read would resolve) is STILL denied — the persona check runs first and never inspects how broad the underlying real authority is", () => {
+  const effective = { isPreviewing: true, previewRole: "MANAGER" as const };
+  // A network-wide authority would resolve access for ANY club, including
+  // one outside any normal CITY_MANAGER scope — the persona gate denies
+  // before this is ever consulted, so the breadth of the real grant is
+  // irrelevant.
+  assert.equal(mysteryShopperDecision(effective, { clubId: "club-anywhere-in-the-network" }, "club-anywhere-in-the-network", true), "denied");
+});
+
+test(
+  "E3-MGRPERSONA-HTTP: Sprint: REMEDIATION R2.2 — the full HTTP-level claim: GET /api/control/cabinet/mystery-shopper during a View-As MANAGER preview returns 403 for no clubId, clubId=A, and clubId=B alike, for a real CITY_MANAGER with scope covering both — the pure decision logic above is real-tested (E3-MGRPERSONA-A..E); this names the end-to-end scenario Postgres + a running server would be needed to execute directly",
+  skip,
+  () => {},
+);
 
 /* --------------------------- DATA (section 25) --------------------------- */
 
