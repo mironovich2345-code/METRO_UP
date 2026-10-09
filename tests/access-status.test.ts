@@ -6,6 +6,7 @@ import {
   hasLimitedOrFullAccess,
   hasFullAccess,
   resolveAccessAuditAction,
+  canUseViewAs,
 } from "../src/lib/server/access-status-logic";
 
 /**
@@ -75,6 +76,30 @@ test("ACCESS-H: SUSPENDED — denied at every tier, including the most permissiv
   assert.equal(isAccessSuspended("SUSPENDED"), true); // requireActiveAccess -> denied
   assert.equal(hasLimitedOrFullAccess("SUSPENDED"), false); // requireLimitedOrFullAccess -> denied
   assert.equal(hasFullAccess("SUSPENDED"), false); // requireFullAccess -> denied
+});
+
+/* --------- canUseViewAs (Sprint: REMEDIATION R2, F-07) --------- */
+
+test("VIEWAS-ACCESS-A: canUseViewAs is true for FULL", () => {
+  assert.equal(canUseViewAs("FULL"), true);
+});
+
+test("VIEWAS-ACCESS-B: canUseViewAs is false for SUSPENDED/PENDING_APPROVAL/LIMITED — only FULL may start or continue a preview", () => {
+  assert.equal(canUseViewAs("SUSPENDED"), false);
+  assert.equal(canUseViewAs("PENDING_APPROVAL"), false);
+  assert.equal(canUseViewAs("LIMITED"), false);
+});
+
+test("VIEWAS-ACCESS-C: canUseViewAs is true for a null/undefined status — a network-tier actor (CITY_MANAGER via RoleAssignment, no EmployeeProfile at all) is not restricted by a status that doesn't apply to them", () => {
+  assert.equal(canUseViewAs(null), true);
+  assert.equal(canUseViewAs(undefined), true);
+});
+
+test("VIEWAS-ACCESS-D: exhaustive matrix matches the exact predicate startViewAs used inline before extraction — present && (suspended || pending || !full) must deny, everything else must allow", () => {
+  for (const s of ALL_STATUSES) {
+    const oldInlineDenies = Boolean(s) && (isAccessSuspended(s) || isAccessPending(s) || !hasFullAccess(s));
+    assert.equal(canUseViewAs(s), !oldInlineDenies, `status=${s}`);
+  }
 });
 
 /* ------- resolveAccessAuditAction (Sprint 1 / Phase 2B section 10) --------- */

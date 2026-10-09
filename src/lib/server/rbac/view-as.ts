@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { prisma } from "../db";
 import { getServerEnv, isProduction } from "../env";
 import { AuthError } from "../authz";
-import { isAccessSuspended, isAccessPending, hasFullAccess } from "../access-status-logic";
+import { canUseViewAs } from "../access-status-logic";
 import type { CurrentUser } from "../session";
 import {
   VIEW_AS_COOKIE,
@@ -56,8 +56,11 @@ export async function startViewAs(realUser: CurrentUser, input: StartViewAsInput
   // action. Network-tier roles (CITY_MANAGER via RoleAssignment) commonly
   // have no EmployeeProfile at all (they're not floor employees) — that's
   // not a restriction, so only a PRESENT, non-FULL profile blocks this.
-  const ownStatus = realUser.employeeProfile?.accessStatus;
-  if (ownStatus && (isAccessSuspended(ownStatus) || isAccessPending(ownStatus) || !hasFullAccess(ownStatus))) {
+  // canUseViewAs is the single shared predicate — resolveViewContext below
+  // re-runs the identical check on every subsequent read (Sprint:
+  // REMEDIATION R2, F-07) so starting and continuing a preview can never
+  // disagree about what status permits it.
+  if (!canUseViewAs(realUser.employeeProfile?.accessStatus)) {
     throw new AuthError(403, "ACCESS_LIMITED", "Просмотр недоступен при вашем текущем статусе доступа");
   }
 
@@ -127,12 +130,24 @@ export async function endViewAs(realUser: CurrentUser): Promise<void> {
  * valid now (it may have been revoked mid-preview by a PROJECT_ADMIN). A
  * token that doesn't belong to this exact realUserId (cookie survived a
  * logout/login as someone else in the same browser) is never honored.
+ *
+ * Sprint: REMEDIATION R2, F-07 — every call also RE-VALIDATES the real
+ * actor's own accessStatus (canUseViewAs, shared with startViewAs below),
+ * not just role/scope. Without this, a preview begun while FULL stayed
+ * live for the rest of the cookie's TTL straight through a mid-preview
+ * transition to SUSPENDED/PENDING_APPROVAL/LIMITED — canStartViewAs alone
+ * never looks at accessStatus at all, so a suspended actor could keep
+ * reading as their previewed persona until the cookie simply expired.
+ * realUser is re-fetched fresh from the DB on every request
+ * (getCurrentUser()), so this check reflects the actor's CURRENT status,
+ * not a stale snapshot from when the preview started.
  */
 export async function resolveViewContext(realUser: CurrentUser): Promise<ViewContext | null> {
   const store = await cookies();
   const payload = await verifyViewAsToken(store.get(VIEW_AS_COOKIE)?.value, getServerEnv().AUTH_SECRET);
   if (!payload) return null;
   if (payload.realUserId !== realUser.id) return null;
+  if (!canUseViewAs(realUser.employeeProfile?.accessStatus)) return null;
 
   const actor = await getActorContext(realUser);
   let targetClubCityId: string | null = null;

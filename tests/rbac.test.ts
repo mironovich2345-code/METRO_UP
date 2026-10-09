@@ -748,6 +748,47 @@ test(
   () => {},
 );
 
+/**
+ * Sprint: REMEDIATION R2, F-07 — resolveViewContext re-validated scope
+ * (canStartViewAs, VIEWAS-H above) on every call but never the real actor's
+ * OWN accessStatus, even though startViewAs already required FULL to START
+ * one (EFFCTX-A, access-status.test.ts's old inline check). A real actor
+ * suspended/limited/pending mid-preview kept reading as the previewed
+ * persona for the rest of the cookie's 30-minute TTL. canUseViewAs
+ * (access-status-logic.ts) is now the ONE shared predicate both
+ * startViewAs and resolveViewContext call — real, DB-free coverage of the
+ * predicate itself is VIEWAS-ACCESS-A..D in access-status.test.ts; the
+ * scenarios below need a live cookie + Postgres to exercise the full
+ * request path end-to-end.
+ */
+test(
+  "VIEWAS-N: resolveViewContext returns null the moment the REAL actor's own " +
+    "EmployeeProfile.accessStatus becomes SUSPENDED mid-preview — an active " +
+    "MANAGER/CLUB_MANAGER preview ends on the VERY NEXT request (realUser is " +
+    "re-fetched fresh from the DB every request via getCurrentUser(), so this " +
+    "needs no extra invalidation step), symmetric with the eligibility " +
+    "startViewAs already required to START one",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
+test(
+  "VIEWAS-O: the same invalidation applies to PENDING_APPROVAL and LIMITED, " +
+    "not only SUSPENDED — canUseViewAs denies all three, exactly like " +
+    "startViewAs's own pre-existing gate on starting a NEW preview",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
+test(
+  "VIEWAS-P: a CITY_MANAGER real actor with NO EmployeeProfile at all " +
+    "(network-tier-only, the common case) is unaffected by this check — " +
+    "canUseViewAs(undefined) is true, so a preview is never invalidated " +
+    "because of a status that doesn't apply to this actor",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
 test(
   "VIEWAS-I: POST /api/control/roles (and .../revoke, .../restore) return 403 " +
     "VIEW_AS_READ_ONLY while a genuine MANAGER/CLUB_MANAGER persona-substitution " +

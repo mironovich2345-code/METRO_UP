@@ -37,6 +37,23 @@ export function hasFullAccess(status: AccessStatus | null | undefined): boolean 
 }
 
 /**
+ * Whether this accessStatus permits starting OR continuing a View-As preview
+ * — the same FULL-access bar as any other FULL-gated action (Sprint:
+ * REMEDIATION R2, F-07). A present, non-FULL profile blocks (SUSPENDED,
+ * PENDING_APPROVAL, LIMITED); an absent profile (network-tier roles such as
+ * CITY_MANAGER via RoleAssignment, who have no EmployeeProfile at all) does
+ * NOT block — that's not a restriction, only the normal shape of a
+ * non-floor role. Shared by startViewAs (gates starting a NEW preview) and
+ * resolveViewContext (re-validates an ALREADY-ACTIVE preview on every read,
+ * so a real actor suspended mid-preview loses it immediately) so the two
+ * can never drift out of sync with each other.
+ */
+export function canUseViewAs(status: AccessStatus | null | undefined): boolean {
+  if (!status) return true;
+  return !isAccessSuspended(status) && !isAccessPending(status) && hasFullAccess(status);
+}
+
+/**
  * Which UserAuditLog action name a before -> after accessStatus transition
  * gets (Sprint 1 / Phase 2B section 10's approved event vocabulary):
  * SUSPENDED is always ACCESS_SUSPENDED regardless of what it came from;
