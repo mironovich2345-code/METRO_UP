@@ -15,6 +15,13 @@ interface CardCtx {
   hasSystemAccess: boolean;
   isCityManager: boolean;
   isOperationsDirector: boolean;
+  /** Sprint: REMEDIATION R4.1 — an active CLUB_MANAGER RoleAssignment grant,
+   * independent of the legacy canManageClub(role) check below (which only
+   * sees legacy AppRole=CLUB_MANAGER/ADMIN). Mirrors ControlShell's own
+   * sidebar nav condition exactly (canManageClub(role) || isClubManager) —
+   * computed once server-side (control/(portal)/page.tsx), never
+   * re-derived from `role` alone here. */
+  isClubManager: boolean;
 }
 
 interface CardDef {
@@ -34,8 +41,8 @@ const CARDS: CardDef[] = [
   { key: "users", title: "Сотрудники", description: "Роли, должности и клубы сотрудников", href: "/control/users", cta: "Открыть сотрудников", icon: UserCog, can: (c) => c.hasSystemAccess },
   { key: "roles", title: "Роли", description: "Назначение и отзыв ролей новой RBAC-иерархии", href: "/control/roles", cta: "Открыть роли", icon: UserCog, can: (c) => c.hasSystemAccess },
   { key: "metric", title: "Метрик", description: "Статус синхронизации базы знаний с ИИ-помощником", href: "/control/metric", cta: "Открыть Метрик", icon: Bot, can: (c) => c.hasSystemAccess },
-  { key: "plan", title: "План дня", description: "Операционные задачи сотрудников вашего клуба", href: "/control/plan", cta: "Открыть план дня", icon: ListChecks, can: (c) => canManageClub(c.role) },
-  { key: "team", title: "Команда", description: "Сотрудники клуба и их прогресс", href: "/control/team", cta: "Открыть команду", icon: Users, can: (c) => canManageClub(c.role) },
+  { key: "plan", title: "План дня", description: "Операционные задачи сотрудников вашего клуба", href: "/control/plan", cta: "Открыть план дня", icon: ListChecks, can: (c) => canManageClub(c.role) || c.isClubManager },
+  { key: "team", title: "Команда", description: "Сотрудники клуба и их прогресс", href: "/control/team", cta: "Открыть команду", icon: Users, can: (c) => canManageClub(c.role) || c.isClubManager },
   { key: "city", title: "Мои клубы", description: "Клубы вашего города: управляющие и команды", href: "/control/city", cta: "Открыть клубы", icon: Building2, can: (c) => c.isCityManager },
   { key: "network", title: "Сеть", description: "Города и клубы сети METRO UP", href: "/control/network", cta: "Открыть сеть", icon: Globe2, can: (c) => c.isOperationsDirector },
   { key: "sales", title: "Продажи", description: "Личные планы и фактические продажи менеджеров", href: "/spm/sales", cta: "Открыть продажи", icon: BarChart3, can: (c) => canAccessSpm(c.role) },
@@ -51,12 +58,14 @@ export function ControlDashboard({
   hasSystemAccess,
   isCityManager = false,
   isOperationsDirector = false,
+  isClubManager = false,
 }: {
   displayName: string;
   role: AppRole;
   hasSystemAccess: boolean;
   isCityManager?: boolean;
   isOperationsDirector?: boolean;
+  isClubManager?: boolean;
 }) {
   const [dash, setDash] = useState<AdminDashboard | null>(null);
 
@@ -64,7 +73,7 @@ export function ControlDashboard({
     if (hasSystemAccess) adminApi.dashboard().then(setDash).catch(() => setDash(null));
   }, [hasSystemAccess]);
 
-  const cards = CARDS.filter((c) => c.can({ role, hasSystemAccess, isCityManager, isOperationsDirector }));
+  const cards = CARDS.filter((c) => c.can({ role, hasSystemAccess, isCityManager, isOperationsDirector, isClubManager }));
 
   return (
     <div>

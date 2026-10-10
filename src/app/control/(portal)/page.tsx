@@ -14,6 +14,12 @@ export default async function ControlHomePage() {
   const actor = await getActorContext(user);
   const isCityManager = hasActiveRole(actor.grants, "CITY_MANAGER");
   const isOperationsDirector = hasActiveRole(actor.grants, "OPERATIONS_DIRECTOR");
+  // Sprint: REMEDIATION R4.1 — the SAME server-derived boolean
+  // control/(portal)/layout.tsx and ControlShell's sidebar already use to
+  // admit an active CLUB_MANAGER RoleAssignment grant, not just the
+  // legacy AppRole (canManageClub(role) alone, ControlDashboard's own
+  // pre-existing check). Reused, not re-derived: no new RBAC logic here.
+  const isClubManager = hasActiveRole(actor.grants, "CLUB_MANAGER");
   return (
     <ControlDashboard
       displayName={user.displayName}
@@ -21,6 +27,7 @@ export default async function ControlHomePage() {
       hasSystemAccess={systemAccess}
       isCityManager={isCityManager}
       isOperationsDirector={isOperationsDirector}
+      isClubManager={isClubManager}
     />
   );
 }

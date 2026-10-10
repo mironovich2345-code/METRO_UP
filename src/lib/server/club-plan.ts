@@ -114,6 +114,22 @@ async function listActiveClubs(): Promise<ManagerScopeDTO["clubs"]> {
  * EmployeeProfile.clubId) found nothing — a legacy CLUB_MANAGER or ADMIN
  * is completely unaffected, since `clubId` is already non-null for them
  * by this point.
+ *
+ * Sprint: REMEDIATION R4.1 — traced PAGE -> API -> here and found the R4
+ * bridge above was unreachable in practice: control/(portal)/plan/page.tsx
+ * only ever sends a non-null clubId via ClubScopePicker, which renders
+ * ONLY when scope.canSwitch (ADMIN) is true — a non-admin CLUB_MANAGER
+ * (legacy or grant-only) has no client-side mechanism to supply one, so a
+ * grant-only manager with NO EmployeeProfile.clubId got an empty plan
+ * forever, even with exactly one active CLUB_MANAGER grant: the gate
+ * admitted them (R4), but the scope resolver still had nothing to resolve
+ * without a requestedClubId nobody could send. Fix: when there is EXACTLY
+ * ONE active CLUB_MANAGER grant and no explicit clubId, default to it —
+ * deterministic and unambiguous (there is only one choice), mirroring the
+ * legacy own-EmployeeProfile.clubId default directly above. Multiple
+ * active grants without an explicit clubId are deliberately UNCHANGED
+ * (still resolve to no club) — see this function's test coverage and the
+ * R4.1 report for why that ambiguous case is reported, not solved, here.
  */
 export async function getManagerScope(user: CurrentUser, requestedClubId?: string | null): Promise<ManagerScopeDTO> {
   const isAdmin = canSwitchClub(user.role);
@@ -124,11 +140,16 @@ export async function getManagerScope(user: CurrentUser, requestedClubId?: strin
     clubId = club ? club.id : user.employeeProfile?.clubId ?? null;
   } else {
     clubId = user.employeeProfile?.clubId ?? null;
-    if (!clubId && requestedClubId) {
+    if (!clubId) {
       const actor = await getActorContext(user);
-      const hasGrant = actor.grants.some((g) => g.role === "CLUB_MANAGER" && g.status === "ACTIVE" && g.clubId === requestedClubId);
-      if (hasGrant) {
-        const club = await prisma.club.findFirst({ where: { id: requestedClubId, isActive: true }, select: { id: true } });
+      const clubManagerGrants = actor.grants.filter((g) => g.role === "CLUB_MANAGER" && g.status === "ACTIVE");
+      if (requestedClubId) {
+        if (clubManagerGrants.some((g) => g.clubId === requestedClubId)) {
+          const club = await prisma.club.findFirst({ where: { id: requestedClubId, isActive: true }, select: { id: true } });
+          if (club) clubId = club.id;
+        }
+      } else if (clubManagerGrants.length === 1 && clubManagerGrants[0].clubId) {
+        const club = await prisma.club.findFirst({ where: { id: clubManagerGrants[0].clubId, isActive: true }, select: { id: true } });
         if (club) clubId = club.id;
       }
     }
