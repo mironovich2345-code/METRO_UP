@@ -20,6 +20,7 @@ function user(partial: Partial<AppUserDTO>): AppUserDTO {
     avatarUrl: null,
     onboardingCompleted: false,
     profile: null,
+    hasSystemAccess: false,
     ...partial,
   };
 }

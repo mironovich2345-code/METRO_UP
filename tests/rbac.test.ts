@@ -24,6 +24,8 @@ import {
 import type { ActorContext, RoleGrant } from "../src/lib/server/rbac/types";
 import { startViewAsSchema } from "../src/lib/server/rbac/view-as-schemas";
 
+const read = (p: string) => readFileSync(path.join(process.cwd(), p), "utf8");
+
 /**
  * RBAC foundation — pure domain logic (scope-core.ts / authorize-core.ts).
  * No DB, no server-only import, so every scenario here runs for real (no
@@ -152,6 +154,91 @@ test("SYSTEM-C: a SUSPENDED PROJECT_ADMIN grant does not grant system access", (
 
 test("SYSTEM-D: an ordinary employee has no system access", () => {
   assert.equal(hasSystemAccess(actor()), false);
+});
+
+/**
+ * Sprint: REMEDIATION R3, F-06 — Profile's "Панель управления" entry now
+ * reads a server-derived hasSystemAccess boolean (meDTO/hasSystemAccessForUser)
+ * instead of re-deriving `role === "ADMIN"` client-side. hasSystemAccess()
+ * itself is already exhaustively covered above (SYSTEM-A..D, reused per the
+ * brief's own instruction) — these extend that SAME real, pure function
+ * with every other role the brief's section 9 matrix names explicitly, so
+ * the one decision Profile's admin entry now depends on is proven false
+ * for every role that must NOT see it, not just the generic "ordinary
+ * employee" case SYSTEM-D already covers.
+ */
+test("SYSTEM-ROLE-A: a plain CITY_MANAGER (active grant, no PROJECT_ADMIN) has no system access — hidden from Profile's admin entry", () => {
+  const a = actor({ appRole: "EMPLOYEE", grants: [grant({ role: "CITY_MANAGER", scopeType: "CITY", cityId: "voronezh" })] });
+  assert.equal(hasSystemAccess(a), false);
+});
+
+test("SYSTEM-ROLE-B: a plain CLUB_MANAGER (active grant, no PROJECT_ADMIN) has no system access", () => {
+  const a = actor({ appRole: "EMPLOYEE", grants: [grant({ role: "CLUB_MANAGER", scopeType: "CLUB", clubId: "club-1" })] });
+  assert.equal(hasSystemAccess(a), false);
+});
+
+test("SYSTEM-ROLE-C: a plain MANAGER (active grant, no PROJECT_ADMIN) has no system access", () => {
+  const a = actor({ appRole: "EMPLOYEE", grants: [grant({ role: "MANAGER", scopeType: "CLUB", clubId: "club-1" })] });
+  assert.equal(hasSystemAccess(a), false);
+});
+
+test("SYSTEM-ROLE-D: an OPERATIONS_DIRECTOR grant alone (no PROJECT_ADMIN) has no system access — per section 9's 'unless current real system-access rules explicitly say otherwise', and they do not: hasSystemAccess checks appRole===\"ADMIN\" or a PROJECT_ADMIN/SYSTEM grant specifically, never OPERATIONS_DIRECTOR", () => {
+  const a = actor({ appRole: "EMPLOYEE", grants: [grant({ role: "OPERATIONS_DIRECTOR", scopeType: "NETWORK" })] });
+  assert.equal(hasSystemAccess(a), false);
+});
+
+test("SYSTEM-ROLE-E: legacy AppRole=SPM alone has no system access — Profile's separate 'Панель СПМ' entry (canAccessSpm) is an independent, unchanged check, never a path to the admin entry", () => {
+  assert.equal(hasSystemAccess(actor({ appRole: "SPM" })), false);
+});
+
+test("SYSTEM-ROLE-F: legacy AppRole=ADMIN AND an active PROJECT_ADMIN grant together still resolve to a single true — the admin entry is a boolean, never rendered twice", () => {
+  const a = actor({ appRole: "ADMIN", grants: [grant({ role: "PROJECT_ADMIN", scopeType: "SYSTEM" })] });
+  assert.equal(hasSystemAccess(a), true);
+});
+
+/**
+ * Sprint: REMEDIATION R3, F-06 — Profile deliberately does NOT
+ * persona-substitute: a real PROJECT_ADMIN's admin entry must stay visible
+ * even while a View-As MANAGER/CLUB_MANAGER preview is active, and must
+ * never be derived from previewRole. meDTO itself has "server-only" at its
+ * top (dto.ts) and cannot run outside a Next.js build, so this is wiring
+ * verification, not the sole proof — the underlying decision (hasSystemAccess)
+ * is the real, pure, exhaustively-tested function above (SYSTEM-A..K).
+ */
+test("SYSTEM-WIRE-A: GET /api/auth/me computes hasSystemAccess from the REAL session user (getCurrentUser's own return value) BEFORE resolving the effective (possibly synthetic persona) read context, and passes it to meDTO alongside — never derived from effective.effectiveUser or from previewRole", () => {
+  const src = read("src/app/api/auth/me/route.ts");
+  const hasSystemAccessIdx = src.indexOf("const hasSystemAccess = await hasSystemAccessForUser(user)");
+  const effectiveIdx = src.indexOf("const effective = await resolveEffectiveReadContext(user)");
+  const meDtoIdx = src.indexOf("meDTO(effective.effectiveUser, hasSystemAccess, viewContext)");
+  assert.ok(hasSystemAccessIdx > 0, "hasSystemAccessForUser(user) must be called against the real user");
+  assert.ok(effectiveIdx > hasSystemAccessIdx, "hasSystemAccess must be computed BEFORE resolving the effective context");
+  assert.ok(meDtoIdx > effectiveIdx, "meDTO must receive the already-computed real hasSystemAccess value");
+  assert.doesNotMatch(src, /hasSystemAccessForUser\(effective\.effectiveUser\)/, "must never be computed from the effective/persona user");
+});
+
+test("SYSTEM-WIRE-B: meDTO requires hasSystemAccess as an explicit parameter (not optional, not defaulted) and includes it verbatim in the returned AppUserDTO shape — every call site must make an explicit, real choice", () => {
+  const src = read("src/lib/server/dto.ts");
+  assert.match(src, /export function meDTO\(user: CurrentUser, hasSystemAccess: boolean, viewContext\?: ViewContextDTO \| null\): AppUserDTO/);
+  assert.match(src, /hasSystemAccess,\s*\n\s*\};/);
+});
+
+test("SYSTEM-WIRE-C: every meDTO call site across the auth/onboarding surface passes a real, computed hasSystemAccess — none pass a hardcoded true/false literal or omit the argument", () => {
+  for (const file of [
+    "src/app/api/auth/me/route.ts",
+    "src/app/api/profile/onboarding/route.ts",
+    "src/app/api/auth/telegram-web/route.ts",
+    "src/app/api/auth/telegram/route.ts",
+  ]) {
+    const src = read(file);
+    assert.match(src, /hasSystemAccessForUser\(/, `${file} should compute hasSystemAccess via the real primitive`);
+    assert.doesNotMatch(src, /meDTO\([^,]+,\s*(true|false)\s*[,)]/, `${file} should not pass a hardcoded boolean literal to meDTO`);
+  }
+});
+
+test("SYSTEM-WIRE-D: Profile's admin entry reads serverUser?.hasSystemAccess, never the legacy role check this round replaces", () => {
+  const src = read("src/app/profile/page.tsx");
+  assert.match(src, /const isAdmin = serverUser\?\.hasSystemAccess \?\? false;/);
+  assert.doesNotMatch(src, /serverUser\?\.role === "ADMIN"/, "the old legacy-role-only check must be fully removed, not layered on top of the new one");
 });
 
 /* -------- isValidGrantShape (Sprint 1 / Phase 2B — role/scope shape) ------- */

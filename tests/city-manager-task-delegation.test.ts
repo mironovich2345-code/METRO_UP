@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { cityManagerAssignTaskSchema } from "../src/lib/server/club-plan-schemas";
 import { sortDelegatedTasks } from "../src/lib/server/city-plan-core";
+import { groupDelegatedTasksByDate } from "../src/lib/cabinet-ui";
 
 const read = (p: string) => readFileSync(path.join(process.cwd(), p), "utf8");
 const skip = { skip: "integration: requires Postgres + running server" } as const;
@@ -329,6 +330,108 @@ test("E21-SORT-D: sortDelegatedTasks does not mutate its input array — returns
   assert.deepEqual(rows, original);
 });
 
+/* --------------- groupDelegatedTasksByDate — pure, real coverage (R3, F-08) --------------- */
+/*
+ * Sprint: REMEDIATION R3, F-08 — ManagerTasksSheet's old two-way split
+ * (date === today -> "Сегодня", everything else -> "Предстоящие")
+ * silently mislabeled a past, still-TODO task as upcoming. Product
+ * decision (final): a past incomplete task must remain visible as
+ * "Просроченные", never dropped or mislabeled. Every case named in the
+ * brief's own matrix is exercised below with REAL execution — no
+ * readFileSync/regex stands in for this logic anywhere.
+ */
+
+const TODAY = "2026-06-10";
+const YESTERDAY = "2026-06-09";
+const TOMORROW = "2026-06-11";
+
+function task(id: string, date: string, status: "TODO" | "COMPLETED" | "SKIPPED") {
+  return { id, title: id, date, status };
+}
+
+test("GROUP-A: yesterday + TODO -> overdue", () => {
+  const groups = groupDelegatedTasksByDate([task("a", YESTERDAY, "TODO")], TODAY);
+  assert.deepEqual(groups.overdue.map((t) => t.id), ["a"]);
+  assert.deepEqual(groups.today, []);
+  assert.deepEqual(groups.upcoming, []);
+  assert.deepEqual(groups.past, []);
+});
+
+test("GROUP-B: yesterday + COMPLETED -> past", () => {
+  const groups = groupDelegatedTasksByDate([task("a", YESTERDAY, "COMPLETED")], TODAY);
+  assert.deepEqual(groups.past.map((t) => t.id), ["a"]);
+  assert.deepEqual(groups.overdue, []);
+});
+
+test("GROUP-C: yesterday + SKIPPED -> past", () => {
+  const groups = groupDelegatedTasksByDate([task("a", YESTERDAY, "SKIPPED")], TODAY);
+  assert.deepEqual(groups.past.map((t) => t.id), ["a"]);
+  assert.deepEqual(groups.overdue, []);
+});
+
+test("GROUP-D: today + TODO -> today, regardless of status", () => {
+  const groups = groupDelegatedTasksByDate([task("a", TODAY, "TODO")], TODAY);
+  assert.deepEqual(groups.today.map((t) => t.id), ["a"]);
+  assert.deepEqual(groups.overdue, []);
+  assert.deepEqual(groups.past, []);
+});
+
+test("GROUP-E: today + COMPLETED -> today", () => {
+  const groups = groupDelegatedTasksByDate([task("a", TODAY, "COMPLETED")], TODAY);
+  assert.deepEqual(groups.today.map((t) => t.id), ["a"]);
+});
+
+test("GROUP-F: today + SKIPPED -> today", () => {
+  const groups = groupDelegatedTasksByDate([task("a", TODAY, "SKIPPED")], TODAY);
+  assert.deepEqual(groups.today.map((t) => t.id), ["a"]);
+});
+
+test("GROUP-G: tomorrow + TODO -> upcoming", () => {
+  const groups = groupDelegatedTasksByDate([task("a", TOMORROW, "TODO")], TODAY);
+  assert.deepEqual(groups.upcoming.map((t) => t.id), ["a"]);
+  assert.deepEqual(groups.overdue, []);
+  assert.deepEqual(groups.past, []);
+});
+
+test("GROUP-H: tomorrow + COMPLETED -> upcoming — the existing product does not prevent future completion, and this round invents no new status semantics to forbid it", () => {
+  const groups = groupDelegatedTasksByDate([task("a", TOMORROW, "COMPLETED")], TODAY);
+  assert.deepEqual(groups.upcoming.map((t) => t.id), ["a"]);
+});
+
+test("GROUP-I: multiple dates across all four buckets at once, preserving input order within each bucket", () => {
+  const tasks = [
+    task("overdue-1", YESTERDAY, "TODO"),
+    task("today-1", TODAY, "TODO"),
+    task("past-1", YESTERDAY, "COMPLETED"),
+    task("upcoming-1", TOMORROW, "TODO"),
+    task("overdue-2", "2026-06-01", "TODO"),
+    task("today-2", TODAY, "COMPLETED"),
+  ];
+  const groups = groupDelegatedTasksByDate(tasks, TODAY);
+  assert.deepEqual(groups.overdue.map((t) => t.id), ["overdue-1", "overdue-2"]);
+  assert.deepEqual(groups.today.map((t) => t.id), ["today-1", "today-2"]);
+  assert.deepEqual(groups.upcoming.map((t) => t.id), ["upcoming-1"]);
+  assert.deepEqual(groups.past.map((t) => t.id), ["past-1"]);
+});
+
+test("GROUP-J: empty input returns all four buckets empty, never throws", () => {
+  const groups = groupDelegatedTasksByDate([], TODAY);
+  assert.deepEqual(groups, { overdue: [], today: [], upcoming: [], past: [] });
+});
+
+test("GROUP-K: does not mutate the source array or its elements", () => {
+  const tasks = [task("a", YESTERDAY, "TODO"), task("b", TODAY, "TODO"), task("c", TOMORROW, "TODO")];
+  const original = JSON.parse(JSON.stringify(tasks));
+  groupDelegatedTasksByDate(tasks, TODAY);
+  assert.deepEqual(tasks, original);
+});
+
+test("GROUP-L: every returned bucket is a NEW array, never the same reference as the input array", () => {
+  const tasks = [task("a", TODAY, "TODO")];
+  const groups = groupDelegatedTasksByDate(tasks, TODAY);
+  assert.notEqual(groups.today as unknown, tasks as unknown);
+});
+
 /* ------------------- getCityManagerDelegatedTasks — structural ------------------- */
 
 test("E21-READMODEL-A: the target manager is resolved server-side from clubId via the SAME resolveActiveClubManagerForClub union the create path already uses — the function's only inputs are actorUserId and clubId, never a userId read from a caller", () => {
@@ -394,12 +497,44 @@ test("E21-UI-EMPTY-A: ManagerTasksSheet's own empty state is the exact copy the 
   assert.match(fnSrc, /Вы ещё не назначали задачи управляющему\./);
 });
 
-test("E21-UI-GROUP-A: ManagerTasksSheet buckets rows into 'Сегодня' (date === appDateString()) and 'Предстоящие' (everything else), grouped by date — exactly the brief's own mockup layout, never a flat undifferentiated list", () => {
+/**
+ * Sprint: REMEDIATION R3, F-08 — this test previously asserted the OLD,
+ * buggy two-way split (date === today -> "Сегодня", everything else ->
+ * "Предстоящие") as the correct, intentional design. That is exactly the
+ * bug this round fixes: a past, still-TODO task fell into "everything
+ * else" and was silently mislabeled upcoming. Updated to assert the real
+ * fix — the four-way classification now comes from groupDelegatedTasksByDate
+ * (cabinet-ui.ts, pure, real-tested above: GROUP-A..L), never an inline
+ * two-way filter.
+ */
+test("E21-UI-GROUP-A: ManagerTasksSheet renders all four section labels ('Просроченные', 'Сегодня', 'Предстоящие', 'Прошедшие') and resolves its buckets via groupDelegatedTasksByDate, never an inline two-way date filter", () => {
   const src = read("src/app/city/club/page.tsx");
   const fnSrc = src.slice(src.indexOf("function ManagerTasksSheet"), src.indexOf("function DelegatedTaskRow"));
+  assert.match(fnSrc, /Просроченные<\/p>/);
   assert.match(fnSrc, /Сегодня<\/p>/);
   assert.match(fnSrc, /Предстоящие<\/p>/);
-  assert.match(fnSrc, /t\.date === todayStr/);
+  assert.match(fnSrc, /Прошедшие<\/p>/);
+  assert.match(fnSrc, /groupDelegatedTasksByDate\(tasks \?\? \[\], todayStr\)/);
+  assert.doesNotMatch(fnSrc, /t\.date === todayStr/, "the old inline two-way filter must be fully removed, not layered on top of the new classification");
+});
+
+test("E21-UI-GROUP-B: the four sections render in the brief's own recommended visual priority — Просроченные first, Сегодня second, Предстоящие third, Прошедшие last", () => {
+  const src = read("src/app/city/club/page.tsx");
+  const fnSrc = src.slice(src.indexOf("function ManagerTasksSheet"), src.indexOf("function DelegatedTaskRow"));
+  const idxOverdue = fnSrc.indexOf("Просроченные</p>");
+  const idxToday = fnSrc.indexOf("Сегодня</p>");
+  const idxUpcoming = fnSrc.indexOf("Предстоящие</p>");
+  const idxPast = fnSrc.indexOf("Прошедшие</p>");
+  assert.ok(idxOverdue > 0 && idxToday > idxOverdue && idxUpcoming > idxToday && idxPast > idxUpcoming);
+});
+
+test("E21-UI-GROUP-C: every section is hidden when its own bucket is empty — each of the four render blocks is guarded by its own `.length > 0` (or `.size > 0` for the date-grouped Предстоящие map), never rendered unconditionally", () => {
+  const src = read("src/app/city/club/page.tsx");
+  const fnSrc = src.slice(src.indexOf("function ManagerTasksSheet"), src.indexOf("function DelegatedTaskRow"));
+  assert.match(fnSrc, /overdue\.length > 0/);
+  assert.match(fnSrc, /today\.length > 0/);
+  assert.match(fnSrc, /upcomingByDate\.size > 0/);
+  assert.match(fnSrc, /past\.length > 0/);
 });
 
 test("E21-UI-NOEDIT-A: DelegatedTaskRow renders text and a completion marker ONLY — no onClick, no button, no edit/delete/reassign control exists on this row at all", () => {

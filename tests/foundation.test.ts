@@ -300,6 +300,7 @@ test("J: server profile overrides localStorage", () => {
       careerLevel: "NEWCOMER",
       accessStatus: "LIMITED",
     },
+    hasSystemAccess: false,
   };
   assert.equal(resolveProfileSource(serverUser, true), "server");
   assert.equal(resolveProfileSource(null, true), "local");
@@ -349,6 +350,7 @@ test("C: server user without profile → onboarding, not server source", () => {
     avatarUrl: null,
     onboardingCompleted: false,
     profile: null,
+    hasSystemAccess: false,
   };
   assert.equal(resolveProfileSource(noProfile, false), "none");
   assert.equal(resolveProfileSource(noProfile, true), "local"); // prefill only
