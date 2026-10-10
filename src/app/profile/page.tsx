@@ -49,7 +49,14 @@ export default function ProfileScreen() {
   // Role comes ONLY from the server-backed session user — never from localStorage.
   const { user: serverUser, refresh: refreshAppUser } = useAppUser();
   const [cropOpen, setCropOpen] = useState(false);
-  const isAdmin = serverUser?.role === "ADMIN";
+  // Sprint: REMEDIATION R3, F-06 — server-derived (hasSystemAccessForUser,
+  // the SAME primitive /admin's own layout/routes gate on), not re-derived
+  // from the legacy role alone: a grant-only PROJECT_ADMIN (no legacy
+  // AppRole=ADMIN) now sees this entry too, matching their real /admin
+  // authority exactly. ALWAYS the real actor's own value (never
+  // persona-substituted, per meDTO's own doc comment) — View As cannot
+  // widen or hide it.
+  const isAdmin = serverUser?.hasSystemAccess ?? false;
   const canSpm = serverUser ? canAccessSpm(serverUser.role) : false; // SPM or ADMIN
   const router = useRouter();
 

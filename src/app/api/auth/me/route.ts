@@ -2,6 +2,7 @@ import { getCurrentUser } from "@/lib/server/session";
 import { jsonOk, jsonError, handleError } from "@/lib/server/http";
 import { meDTO } from "@/lib/server/dto";
 import { isAccessSuspended } from "@/lib/server/access-status-logic";
+import { hasSystemAccessForUser } from "@/lib/server/authz";
 import { resolveEffectiveReadContext } from "@/lib/server/rbac/effective-context";
 import { getClubById } from "@/content/cities";
 
@@ -37,6 +38,11 @@ export async function GET() {
     if (isAccessSuspended(user.employeeProfile?.accessStatus)) {
       return jsonError(403, "APP_TEMPORARILY_UNAVAILABLE");
     }
+    // Sprint: REMEDIATION R3, F-06 — computed from the REAL user, never
+    // from the effective (possibly synthetic persona) context below —
+    // Profile displays the real actor's own identity/roles and is
+    // deliberately NOT persona-substituted.
+    const hasSystemAccess = await hasSystemAccessForUser(user);
     const effective = await resolveEffectiveReadContext(user);
     // Sprint: manual-test-round-2, section 3 — "club scope visible" during a
     // preview: MANAGER/CLUB_MANAGER previews are always club-scoped
@@ -49,7 +55,7 @@ export async function GET() {
           scopeLabel: effective.viewContext!.previewClubId ? getClubById(effective.viewContext!.previewClubId)?.name ?? null : null,
         }
       : null;
-    return jsonOk({ user: meDTO(effective.effectiveUser, viewContext) });
+    return jsonOk({ user: meDTO(effective.effectiveUser, hasSystemAccess, viewContext) });
   } catch (error) {
     return handleError(error);
   }

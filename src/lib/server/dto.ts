@@ -14,8 +14,15 @@ import { avatarUrlForKey } from "./avatar";
  * Only GET /api/auth/me ever passes a non-null viewContext; every other
  * caller (auth/telegram, auth/telegram-web, profile/onboarding) always
  * renders the real user with no preview, by construction.
+ *
+ * `hasSystemAccess` (Sprint: REMEDIATION R3, F-06) is REQUIRED, deliberately
+ * separate from `user` above: every caller must compute it from the REAL
+ * actor (hasSystemAccessForUser, authz.ts), never from `user` when `user`
+ * is the synthetic preview persona — a required parameter, rather than an
+ * optional one defaulting to false, so a future call site can't silently
+ * under-report real system access by omission.
  */
-export function meDTO(user: CurrentUser, viewContext?: ViewContextDTO | null): AppUserDTO {
+export function meDTO(user: CurrentUser, hasSystemAccess: boolean, viewContext?: ViewContextDTO | null): AppUserDTO {
   const p = user.employeeProfile;
   return {
     displayName: user.displayName,
@@ -41,6 +48,7 @@ export function meDTO(user: CurrentUser, viewContext?: ViewContextDTO | null): A
         }
       : null,
     viewContext: viewContext ?? null,
+    hasSystemAccess,
   };
 }
 

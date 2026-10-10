@@ -53,6 +53,18 @@ export interface AppUserDTO {
   /** Non-null only while previewing (see ViewContextDTO). Absent/null under
    * normal (non-preview) use. */
   viewContext?: ViewContextDTO | null;
+  /**
+   * Sprint: REMEDIATION R3, F-06 — legacy AppRole=ADMIN OR an active
+   * PROJECT_ADMIN/SYSTEM RoleAssignment grant (the exact same
+   * hasSystemAccess/hasSystemAccessForUser primitive /admin's own layout
+   * and every /api/admin route already gate on — never re-derived
+   * client-side). ALWAYS the REAL actor's own authority, even while a
+   * View-As MANAGER/CLUB_MANAGER preview is active and every OTHER field
+   * on this DTO reflects the synthetic persona: Profile displays the real
+   * user's identity/roles and is deliberately NOT persona-substituted —
+   * View As must never widen or hide the real actor's own system access.
+   */
+  hasSystemAccess: boolean;
 }
 
 export interface OnboardingInputDTO {

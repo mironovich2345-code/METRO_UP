@@ -12,6 +12,7 @@ import { jsonOk, jsonError, handleError } from "@/lib/server/http";
 import { meDTO } from "@/lib/server/dto";
 import { getRateLimiter } from "@/lib/server/rate-limit";
 import { hasTelegramMetadataChanged } from "@/lib/server/telegram-identity";
+import { hasSystemAccessForUser } from "@/lib/server/authz";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -193,7 +194,10 @@ export async function POST(req: NextRequest) {
       writePath = "create";
     }
 
-    const res = jsonOk({ user: meDTO(user) });
+    // Sprint: REMEDIATION R3, F-06 — an EXISTING user signing back in may
+    // already hold a real PROJECT_ADMIN grant; computed via the real
+    // primitive, same as every other meDTO call site.
+    const res = jsonOk({ user: meDTO(user, await hasSystemAccessForUser(user)) });
     res.cookies.set(
       SESSION_COOKIE,
       createSessionToken(user.id),

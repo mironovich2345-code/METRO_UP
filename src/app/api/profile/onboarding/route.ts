@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/server/db";
-import { requireUser } from "@/lib/server/authz";
+import { requireUser, hasSystemAccessForUser } from "@/lib/server/authz";
 import { isOnboardingLocked } from "@/lib/server/onboarding-logic";
 import { onboardingSchema, zodFieldErrors } from "@/lib/server/schemas";
 import {
@@ -168,7 +168,10 @@ export async function POST(req: NextRequest) {
       include: { employeeProfile: true },
     });
 
-    return jsonOk({ user: meDTO(updated!) });
+    // Sprint: REMEDIATION R3, F-06 — a brand-new/freshly-onboarded user is
+    // never a PROJECT_ADMIN by construction, but computed via the real
+    // primitive regardless, same as every other meDTO call site.
+    return jsonOk({ user: meDTO(updated!, await hasSystemAccessForUser(updated!)) });
   } catch (error) {
     return handleError(error);
   }
