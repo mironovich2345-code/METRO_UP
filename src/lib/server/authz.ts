@@ -137,19 +137,30 @@ export async function hasSystemAccessForUser(user: CurrentUser): Promise<boolean
   return hasSystemAccess(await getActorContext(user));
 }
 
+/** Legacy-only gate: AppRole=CLUB_MANAGER/ADMIN. No remaining callers as of
+ * Sprint: REMEDIATION R4 (its last 6 call sites — control/plan, control/
+ * plan/tasks, control/plan/tasks/[id], control/templates, control/
+ * templates/[id], control/templates/reorder — all moved to
+ * requireClubManagerAccess below, closing F-05). Kept, not removed: a
+ * genuinely legacy-only surface may still need exactly this narrower gate
+ * in the future, and this round's own instruction is to fix the six call
+ * sites, not to change requireClubManager's semantics or retire it. */
 export const requireClubManager = () => requireRole("CLUB_MANAGER", "ADMIN");
 
 /**
  * Sprint: role-cabinets, step 6 — the SAME bridge pattern as
  * hasSystemAccess() (legacy ADMIN OR an active PROJECT_ADMIN/SYSTEM grant),
- * applied to CLUB_MANAGER: legacy AppRole=CLUB_MANAGER/ADMIN (requireClubManager,
- * unchanged) OR an active CLUB_MANAGER RoleAssignment grant for ANY club (the
- * new RBAC hierarchy — a CITY_MANAGER-assigned CLUB_MANAGER commonly has no
- * elevated legacy AppRole at all, so requireClubManager() alone would 403
- * their own core management action). Used ONLY by the two routes that need
- * it (control/team/[id]/approve, control/team/[id]/access) — NOT swapped
- * into requireClubManager itself, which 7 other routes (templates, control/
- * plan) also depend on and are out of this step's scope to touch.
+ * applied to CLUB_MANAGER: legacy AppRole=CLUB_MANAGER/ADMIN OR an active
+ * CLUB_MANAGER RoleAssignment grant for ANY club (the new RBAC hierarchy —
+ * a CITY_MANAGER-assigned CLUB_MANAGER commonly has no elevated legacy
+ * AppRole at all, so requireClubManager() alone would 403 their own core
+ * management action). Originally used only by control/team/[id]/approve
+ * and .../access; Sprint: REMEDIATION R4, F-05 — the exhaustive audit
+ * confirmed this same gap in the sibling Plan/Templates surface (6 more
+ * routes, listed on requireClubManager's own comment above), so those six
+ * call sites were swapped to this function too, closing the
+ * inconsistency "a grant-only CLUB_MANAGER could manage employee access
+ * but not use Plan/Templates in the same portal."
  *
  * Does not itself decide WHICH club — that is resolveScopedClubId's job
  * (club-plan.ts), which independently re-verifies the requested clubId

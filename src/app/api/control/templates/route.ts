@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { requireClubManager } from "@/lib/server/authz";
+import { requireClubManagerAccess } from "@/lib/server/authz";
 import { jsonOk, handleError, readJson } from "@/lib/server/http";
 import { createClubTemplate } from "@/lib/server/club-plan";
 import { templateCreateSchema } from "@/lib/server/club-plan-schemas";
@@ -7,10 +7,16 @@ import { templateCreateSchema } from "@/lib/server/club-plan-schemas";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** POST — create a recurring club task template (own club, server-scoped). */
+/**
+ * POST — create a recurring club task template (own club, server-scoped).
+ * Sprint: REMEDIATION R4, F-05 — gate swapped to requireClubManagerAccess
+ * (see control/plan/route.ts's header comment). createClubTemplate ->
+ * resolveScopedClubId (already grant-aware, unchanged) re-verifies the
+ * requested clubId against a real active grant.
+ */
 export async function POST(req: NextRequest) {
   try {
-    const manager = await requireClubManager();
+    const manager = await requireClubManagerAccess();
     const input = templateCreateSchema.parse(await readJson(req));
     const clubId = req.nextUrl.searchParams.get("clubId");
     const template = await createClubTemplate(manager, input, clubId);

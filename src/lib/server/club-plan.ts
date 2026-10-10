@@ -98,6 +98,22 @@ async function listActiveClubs(): Promise<ManagerScopeDTO["clubs"]> {
  * Non-throwing scope for READ views. For ADMIN returns the switchable club list;
  * an invalid requested club falls back to their own club (reads never error).
  * For CLUB_MANAGER always returns their own club and an empty selector.
+ *
+ * Sprint: REMEDIATION R4, F-05 — downstream legacy assumption found while
+ * tracing GET /api/control/plan one level past the route gate: this
+ * function only ever consulted user.employeeProfile?.clubId, with no
+ * RoleAssignment fallback at all, unlike resolveScopedClubId above (which
+ * already has one, from the role-cabinets step 6 bridge). A grant-only
+ * CLUB_MANAGER commonly has no EmployeeProfile.clubId set at all, so
+ * fixing the route gate alone would have swapped a 403 for a silently
+ * empty plan (clubId: null -> EMPTY_PLAN in getClubPlan) — never a data
+ * leak, but still not the real fix. Mirrors resolveScopedClubId's own
+ * bridge exactly: requestedClubId is NEVER trusted as given, only honored
+ * once independently verified against an ACTIVE CLUB_MANAGER grant for
+ * that exact club. Only activates when the legacy path above (own
+ * EmployeeProfile.clubId) found nothing — a legacy CLUB_MANAGER or ADMIN
+ * is completely unaffected, since `clubId` is already non-null for them
+ * by this point.
  */
 export async function getManagerScope(user: CurrentUser, requestedClubId?: string | null): Promise<ManagerScopeDTO> {
   const isAdmin = canSwitchClub(user.role);
@@ -108,6 +124,14 @@ export async function getManagerScope(user: CurrentUser, requestedClubId?: strin
     clubId = club ? club.id : user.employeeProfile?.clubId ?? null;
   } else {
     clubId = user.employeeProfile?.clubId ?? null;
+    if (!clubId && requestedClubId) {
+      const actor = await getActorContext(user);
+      const hasGrant = actor.grants.some((g) => g.role === "CLUB_MANAGER" && g.status === "ACTIVE" && g.clubId === requestedClubId);
+      if (hasGrant) {
+        const club = await prisma.club.findFirst({ where: { id: requestedClubId, isActive: true }, select: { id: true } });
+        if (club) clubId = club.id;
+      }
+    }
   }
   return {
     clubId,
