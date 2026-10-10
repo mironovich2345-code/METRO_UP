@@ -48,9 +48,27 @@ export function resolveClubContext(user: CurrentUser): { clubId: string | null; 
  * Club-scope resolution. Authorization stays server-side:
  * - CLUB_MANAGER is ALWAYS locked to their own EmployeeProfile.clubId — a
  *   requested clubId from the client is ignored entirely (never trusted).
+ *   Sprint: REMEDIATION R4.2, section 5 — traced, not assumed: this
+ *   `own` check runs UNCONDITIONALLY before any grant is even consulted,
+ *   so a real user who happens to hold BOTH a legacy EmployeeProfile.clubId
+ *   AND a separate active CLUB_MANAGER grant for a DIFFERENT club is
+ *   always locked to the legacy club — the grant is never reachable
+ *   through this function for them. Pre-existing precedence, left
+ *   unchanged (reported, not "fixed" — there is no bug here, only a
+ *   documented limit this round does not widen).
  * - ADMIN (superuser) may operate on any real active club: a requested clubId is
  *   validated against the DB; otherwise their own club (if any) is the default.
  * There is no client-only authorization — every switch is validated here.
+ *
+ * Sprint: REMEDIATION R4.2, F-05 — brought into parity with
+ * getManagerScope's own grant bridge (R4/R4.1): a RoleAssignment-only
+ * CLUB_MANAGER (no EmployeeProfile.clubId) with EXACTLY ONE active
+ * CLUB_MANAGER grant now resolves to it automatically, with no
+ * requestedClubId required — deterministic, since there is only one
+ * legitimate choice. Multiple active grants without an explicit
+ * requestedClubId remain UNRESOLVED (409 no_club) — never an arbitrary
+ * "first grant wins" guess; the caller (control/(portal)/plan/page.tsx)
+ * now has its own picker to supply an explicit choice in that case.
  */
 async function resolveScopedClubId(user: CurrentUser, requestedClubId?: string | null): Promise<string> {
   const honored = requestedClubForRole(user.role, requestedClubId); // manager → null
@@ -62,24 +80,31 @@ async function resolveScopedClubId(user: CurrentUser, requestedClubId?: string |
   const own = user.employeeProfile?.clubId ?? null;
   if (own) return own;
 
-  // Sprint: role-cabinets, step 6 — bridge for a CLUB_MANAGER whose authority
-  // comes ONLY from a RoleAssignment (new RBAC hierarchy), not the legacy
-  // EmployeeProfile.clubId convention this function otherwise assumes (they
-  // may have no EmployeeProfile at all). requestedClubId is NEVER trusted as
-  // given — it is only honored once independently verified against an
-  // ACTIVE CLUB_MANAGER grant the caller actually holds for that exact club,
-  // mirroring the same "claim, then re-verify against real grants" pattern
-  // authorize-core.ts's club.read uses everywhere else in this RBAC system.
+  // Bridge for a CLUB_MANAGER whose authority comes ONLY from a
+  // RoleAssignment (new RBAC hierarchy), not the legacy
+  // EmployeeProfile.clubId convention above (they may have no
+  // EmployeeProfile at all). requestedClubId is NEVER trusted as given —
+  // it is only honored once independently verified against an ACTIVE
+  // CLUB_MANAGER grant the caller actually holds for that exact club,
+  // mirroring the same "claim, then re-verify against real grants"
+  // pattern authorize-core.ts's club.read uses everywhere else in this
+  // RBAC system. With no requestedClubId at all, exactly one active
+  // grant resolves deterministically (R4.2); two or more remain
+  // unresolved, requiring an explicit choice.
+  const actor = await getActorContext(user);
+  const clubManagerGrants = actor.grants.filter((g) => g.role === "CLUB_MANAGER" && g.status === "ACTIVE");
   if (requestedClubId) {
-    const actor = await getActorContext(user);
-    const hasGrant = actor.grants.some((g) => g.role === "CLUB_MANAGER" && g.status === "ACTIVE" && g.clubId === requestedClubId);
-    if (hasGrant) {
+    if (clubManagerGrants.some((g) => g.clubId === requestedClubId)) {
       const club = await prisma.club.findFirst({ where: { id: requestedClubId, isActive: true }, select: { id: true } });
       if (club) return club.id;
     }
+  } else if (clubManagerGrants.length === 1 && clubManagerGrants[0].clubId) {
+    const club = await prisma.club.findFirst({ where: { id: clubManagerGrants[0].clubId, isActive: true }, select: { id: true } });
+    if (club) return club.id;
   }
 
-  // ADMIN without a club must pick one; a real manager simply has no club.
+  // ADMIN without a club must pick one; a real manager simply has no club
+  // (or has several and hasn't picked one yet).
   const isAdmin = canSwitchClub(user.role);
   throw new AuthError(409, isAdmin ? "select_club" : "no_club", isAdmin ? "Выберите клуб" : "Ваша учётная запись не привязана к клубу");
 }

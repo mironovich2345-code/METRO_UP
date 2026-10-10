@@ -75,7 +75,7 @@ export default function ControlTeamPage() {
           <h1 className="text-2xl font-bold">Команда</h1>
           <p className="mt-1 text-sm text-muted-foreground">{team?.clubName ?? (scope?.canSwitch ? "Выберите клуб" : "Ваш клуб")}</p>
         </div>
-        {scope?.canSwitch && <ClubScopePicker scope={scope} value={clubId ?? scope.clubId} onChange={setClubId} />}
+        {scope?.canSwitch && <ClubScopePicker clubs={scope.clubs} value={clubId ?? scope.clubId} onChange={setClubId} />}
       </div>
 
       {status === "denied" && <p className="mt-6 text-sm text-red-500">Нет доступа к управлению клубом.</p>}

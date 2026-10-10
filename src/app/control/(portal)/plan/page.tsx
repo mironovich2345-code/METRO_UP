@@ -3,16 +3,28 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, ChevronDown, Circle, Clock, Pencil, Plus, Power, Trash2, X } from "lucide-react";
 import { managerApi } from "@/lib/api/club-plan-client";
+import { cabinetApi } from "@/lib/api/cabinet-client";
 import { ApiError } from "@/lib/api/client";
 import type { ClubPlanDTO, ClubPlanEmployeeDTO, ClubTaskTarget, ClubTaskTemplateDTO } from "@/lib/api/club-plan-types";
+import type { ClubSummaryDTO } from "@/lib/api/roles-client";
 import { Field, TextArea, TextInput, fieldCls } from "@/components/admin/ui";
 import { ChecklistEditor, type ChecklistDraftItem } from "@/components/control/ChecklistEditor";
 import { ClubScopePicker } from "@/components/control/ClubScopePicker";
 import { Modal } from "@/components/control/Modal";
 import { appDateString } from "@/lib/app-day";
+import { resolvePlanScopeUiState } from "@/lib/control-plan-ui";
 
-/** ADMIN-selected club scope; null → server uses the actor's own club. Ignored
- * server-side for CLUB_MANAGER (always locked to their own club). */
+/**
+ * The club scope every scoped read/write on this page actually uses — ALWAYS
+ * the server-RESOLVED clubId (plan.clubId), never the raw, possibly-stale
+ * client-side selection. Sprint: REMEDIATION R4.2, F-05 — the exact bug this
+ * closes: writes previously read the SELECTION state directly, which stayed
+ * null for every non-admin manager (no picker ever updated it), so a
+ * RoleAssignment-only CLUB_MANAGER could read a correctly-auto-resolved plan
+ * (R4.1) yet 409 on every create/delete/template action. Null here only
+ * while no club has been resolved at all (no plan loaded yet, or genuinely
+ * no eligible club) — every scoped control on this page is itself disabled
+ * in that state (see `disabled={!plan?.clubId}` etc. below). */
 const ScopeContext = createContext<string | null>(null);
 const useScopeClubId = () => useContext(ScopeContext);
 
@@ -28,36 +40,91 @@ const todayStr = appDateString;
 
 export default function ControlPlanPage() {
   const [date, setDate] = useState(todayStr());
-  const [clubId, setClubId] = useState<string | null>(null);
+  /** The actor's own EXPLICIT choice — relevant for ADMIN (any active club)
+   * and, as of R4.2, a multi-grant RoleAssignment-only CLUB_MANAGER picking
+   * among their OWN clubs. null until a choice is made; for every other
+   * case (legacy manager, single-grant manager) the server resolves a club
+   * with no choice needed at all (see `selectedClubId` is sent as the
+   * requestedClubId — never trusted, always re-verified server-side). */
+  const [selectedClubId, setSelectedClubId] = useState<string | null>(null);
   const [plan, setPlan] = useState<ClubPlanDTO | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error" | "denied">("loading");
   const [showCreate, setShowCreate] = useState(false);
+  /** Sprint: REMEDIATION R4.2 — lazily fetched ONLY for a non-admin actor the
+   * server could not resolve a single club for (i.e. multiple active
+   * CLUB_MANAGER grants) — GET /api/control/club/clubs (resolveClubManagerClubs),
+   * the SAME existing, server-validated "clubs I personally manage" endpoint
+   * already used elsewhere, never a duplicate/new API and never trusted
+   * client-side data (every subsequent read/write still re-verifies the
+   * selection against a real active grant). null = not fetched yet. */
+  const [managedClubs, setManagedClubs] = useState<ClubSummaryDTO[] | null>(null);
 
   const load = useCallback(async () => {
     setStatus("loading");
     try {
-      setPlan(await managerApi.plan(date, clubId));
+      setPlan(await managerApi.plan(date, selectedClubId));
       setStatus("ready");
     } catch (e) {
       setStatus(e instanceof ApiError && (e.status === 403 || e.status === 401) ? "denied" : "error");
     }
-  }, [date, clubId]);
+  }, [date, selectedClubId]);
   useEffect(() => { void load(); }, [load]);
 
   const empRatio = plan && plan.totalEmployees ? plan.employeesCompleted / plan.totalEmployees : 0;
   const scope = plan?.scope;
+  const isAdmin = Boolean(scope?.canSwitch);
+  /** Sprint: REMEDIATION R4.2 — fetched for any non-admin manager, not only
+   * while unresolved: once known, the picker stays available for ongoing
+   * switching between the actor's OWN clubs, the same UX ADMIN already has
+   * (brief section 4 — the two personas "may share UI"). GET /api/control/
+   * club/clubs (resolveClubManagerClubs) — the SAME existing, server-
+   * validated "clubs I personally manage" endpoint used elsewhere, never a
+   * duplicate/new API. A legacy or single-grant manager also fetches this,
+   * harmlessly — it resolves to their own one club, and the picker below
+   * only ever renders when there is more than one real option (section 8:
+   * "ONE eligible CLUB_MANAGER club: no unnecessary picker required"). */
+  const isReadyManager = status === "ready" && !!plan && !isAdmin;
+  const uiState = status === "ready" && plan
+    ? resolvePlanScopeUiState({
+        resolvedClubId: plan.clubId,
+        isAdmin,
+        managedClubsCount: managedClubs ? managedClubs.length : null,
+      })
+    : null;
+
+  useEffect(() => {
+    if (!isReadyManager) { setManagedClubs(null); return; }
+    cabinetApi.myManagedClubs().then((r) => setManagedClubs(r.clubs)).catch(() => setManagedClubs([]));
+  }, [isReadyManager]);
+
+  // Defensive auto-select: exactly one eligible club should already have
+  // been resolved server-side with no selection at all (the R4.1/R4.2
+  // single-grant default) — reaching this with length 1 and no resolved
+  // club means something upstream (e.g. a just-revoked second grant)
+  // changed between requests; self-heal by selecting the one real option
+  // rather than showing a one-item picker for a "choice" that isn't one.
+  useEffect(() => {
+    if (!plan?.clubId && managedClubs && managedClubs.length === 1 && !selectedClubId) {
+      setSelectedClubId(managedClubs[0].id);
+    }
+  }, [plan?.clubId, managedClubs, selectedClubId]);
+
+  const canPickManagerClub = !isAdmin && managedClubs !== null && managedClubs.length > 1;
 
   return (
-    <ScopeContext.Provider value={clubId}>
+    <ScopeContext.Provider value={plan?.clubId ?? null}>
     <div>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">План дня</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{plan?.clubName ?? (scope?.canSwitch ? "Выберите клуб" : "Ваш клуб")}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{plan?.clubName ?? (isAdmin || canPickManagerClub ? "Выберите клуб" : "Ваш клуб")}</p>
         </div>
         <div className="flex flex-wrap items-end gap-3">
-          {scope?.canSwitch && (
-            <ClubScopePicker scope={scope} value={clubId ?? scope.clubId} onChange={setClubId} />
+          {isAdmin && scope && (
+            <ClubScopePicker clubs={scope.clubs} value={selectedClubId ?? scope.clubId} onChange={setSelectedClubId} />
+          )}
+          {canPickManagerClub && managedClubs && (
+            <ClubScopePicker clubs={managedClubs} value={selectedClubId ?? plan?.clubId ?? null} onChange={setSelectedClubId} label="Ваш клуб" />
           )}
           <label className="flex flex-col">
             <span className="mb-1 text-xs font-medium text-muted-foreground">Дата</span>
@@ -72,14 +139,29 @@ export default function ControlPlanPage() {
       {status === "denied" && <p className="mt-6 text-sm text-red-500">Нет доступа к управлению клубом.</p>}
       {status === "error" && <p className="mt-6 text-sm text-red-500">Не удалось загрузить план.</p>}
 
-      {status === "ready" && plan && !plan.clubId && (
+      {uiState && uiState !== "active" && (
         <div className="mt-6 rounded-3xl border border-dashed border-border bg-card/50 p-10 text-center">
-          {scope?.canSwitch ? (
+          {uiState === "admin-select-club" && (
             <>
               <p className="font-semibold">Выберите клуб</p>
               <p className="mt-1 text-sm text-muted-foreground">Как администратор выберите клуб выше, чтобы открыть его план дня.</p>
             </>
-          ) : (
+          )}
+          {uiState === "loading-manager-clubs" && (
+            // Still fetching the manager's own eligible clubs — distinct
+            // from the two settled states below so this never flashes the
+            // wrong message ("no club at all") while that request is in
+            // flight (brief section 10: never confuse "no club selected"
+            // with "selected club has zero tasks").
+            <p className="text-sm text-muted-foreground">Загрузка…</p>
+          )}
+          {uiState === "manager-select-club" && (
+            <>
+              <p className="font-semibold">Выберите клуб</p>
+              <p className="mt-1 text-sm text-muted-foreground">Вам назначено несколько клубов. Выберите клуб выше, чтобы открыть план дня.</p>
+            </>
+          )}
+          {uiState === "no-club" && (
             <>
               <p className="font-semibold">Учётная запись не привязана к клубу</p>
               <p className="mt-1 text-sm text-muted-foreground">Обратитесь к администратору, чтобы указать клуб в профиле.</p>
@@ -88,7 +170,7 @@ export default function ControlPlanPage() {
         </div>
       )}
 
-      {status === "ready" && plan && plan.clubId && (
+      {uiState === "active" && plan && (
         <>
           <div className="mt-6 grid gap-4 sm:grid-cols-3">
             <SummaryCard label="Сотрудников" value={String(plan.totalEmployees)} />
