@@ -5,6 +5,7 @@ import path from "node:path";
 import { hasActiveRole, anyGrantCoversClub } from "../src/lib/server/rbac/scope-core";
 import type { RoleGrant } from "../src/lib/server/rbac/types";
 import type { AppRole } from "@prisma/client";
+import { canManageClub } from "../src/lib/roles";
 
 const read = (p: string) => readFileSync(path.join(process.cwd(), p), "utf8");
 
@@ -116,6 +117,64 @@ test("CMACCESS-K: CITY_MANAGER + a SEPARATE active CLUB_MANAGER grant is admitte
 });
 
 /* ===================================================================== *
+ *  Dashboard visibility (R4.1, sections 1-4/8) — "План дня"/"Команда" cards
+ * ===================================================================== */
+/**
+ * Mirrors ControlDashboard's own "plan"/"team" card visibility exactly
+ * (ControlDashboard.tsx: `canManageClub(c.role) || c.isClubManager`) —
+ * reuses the SAME server-derived boolean the portal's outer gate and
+ * sidebar nav already use (hasActiveRole(actor.grants, "CLUB_MANAGER"),
+ * computed in control/(portal)/page.tsx), never a new RBAC check.
+ */
+function dashboardCardVisible(role: AppRole, isClubManager: boolean): boolean {
+  return canManageClub(role) || isClubManager;
+}
+
+test("CMDASH-A: legacy CLUB_MANAGER sees the Plan + Team dashboard cards (unchanged)", () => {
+  assert.equal(dashboardCardVisible("CLUB_MANAGER", false), true);
+});
+
+test("CMDASH-B: THE R4.1 FIX — a RoleAssignment-only CLUB_MANAGER (legacy role EMPLOYEE, isClubManager=true) now sees the Plan + Team dashboard cards, matching the sidebar nav and portal gate that already admitted them", () => {
+  assert.equal(dashboardCardVisible("EMPLOYEE", true), true);
+});
+
+test("CMDASH-C: a CITY_MANAGER with NO CLUB_MANAGER grant does NOT see the cards merely because CITY_MANAGER can read clubs", () => {
+  assert.equal(dashboardCardVisible("EMPLOYEE", false), false);
+});
+
+test("CMDASH-D: CITY_MANAGER + a separate active CLUB_MANAGER grant sees the cards, through the grant", () => {
+  assert.equal(dashboardCardVisible("EMPLOYEE", true), true);
+});
+
+test("CMDASH-E: a plain MANAGER (no CLUB_MANAGER grant) does not see the cards", () => {
+  assert.equal(dashboardCardVisible("EMPLOYEE", false), false);
+});
+
+test("CMDASH-F: SPM does not see the cards", () => {
+  assert.equal(dashboardCardVisible("SPM", false), false);
+});
+
+test("CMDASH-G: legacy ADMIN sees the cards — current behavior preserved exactly", () => {
+  assert.equal(dashboardCardVisible("ADMIN", false), true);
+});
+
+test("CMDASH-WIRE-A: ControlDashboard's 'plan' and 'team' cards both check canManageClub(c.role) || c.isClubManager — never canManageClub(c.role) alone", () => {
+  const src = read("src/components/control/ControlDashboard.tsx");
+  const planIdx = src.indexOf('key: "plan"');
+  const teamIdx = src.indexOf('key: "team"');
+  const planLine = src.slice(planIdx, src.indexOf("\n", planIdx));
+  const teamLine = src.slice(teamIdx, src.indexOf("\n", teamIdx));
+  assert.match(planLine, /canManageClub\(c\.role\) \|\| c\.isClubManager/);
+  assert.match(teamLine, /canManageClub\(c\.role\) \|\| c\.isClubManager/);
+});
+
+test("CMDASH-WIRE-B: control/(portal)/page.tsx computes isClubManager via hasActiveRole(actor.grants, \"CLUB_MANAGER\") — reusing the existing primitive, never a new RBAC check — and passes it to ControlDashboard", () => {
+  const src = read("src/app/control/(portal)/page.tsx");
+  assert.match(src, /const isClubManager = hasActiveRole\(actor\.grants, "CLUB_MANAGER"\);/);
+  assert.match(src, /isClubManager=\{isClubManager\}/);
+});
+
+/* ===================================================================== *
  *  Scope matrix (section 6 / 7 / 14 of the brief)
  * ===================================================================== */
 
@@ -149,6 +208,64 @@ test("CMSCOPE-E: CITY_MANAGER(scope covering A+B) + a CLUB_MANAGER grant for A O
 
 test("CMSCOPE-F: a SUSPENDED CLUB_MANAGER grant for Club A does not satisfy the scope check", () => {
   assert.equal(scopedClubAllowed([grant({ clubId: "club-A", status: "SUSPENDED" })], "club-A"), false);
+});
+
+/* ===================================================================== *
+ *  getManagerScope's multi-grant decision (R4.1, sections 5/6/7/9)
+ * ===================================================================== */
+/**
+ * Mirrors getManagerScope's own decision tree for the grant-only branch
+ * (no legacy EmployeeProfile.clubId) exactly: filter to ACTIVE CLUB_MANAGER
+ * grants; an explicit requestedClubId is honored only if one of those
+ * grants covers it; with NO requestedClubId, default to the single grant's
+ * club ONLY when there is exactly one — never "first of several". Built
+ * from constructed grant arrays, not a re-implementation of the
+ * DB-touching function itself (which needs getActorContext()/prisma).
+ */
+function managerScopeClubId(grants: RoleGrant[], requestedClubId: string | null): string | null {
+  const active = grants.filter((g) => g.role === "CLUB_MANAGER" && g.status === "ACTIVE");
+  if (requestedClubId) {
+    return active.some((g) => g.clubId === requestedClubId) ? requestedClubId : null;
+  }
+  if (active.length === 1 && active[0].clubId) return active[0].clubId;
+  return null;
+}
+
+test("CMMULTI-A: THE R4.1 FIX — a single active CLUB_MANAGER grant for Club A, no explicit clubId — resolves to Club A automatically (deterministic: there is only one grant to choose)", () => {
+  assert.equal(managerScopeClubId([grant({ clubId: "club-A" })], null), "club-A");
+});
+
+test("CMMULTI-B: single grant A, explicit clubId=A — resolves to A (unchanged, consistent with the no-clubId default)", () => {
+  assert.equal(managerScopeClubId([grant({ clubId: "club-A" })], "club-A"), "club-A");
+});
+
+test("CMMULTI-C: single grant A, explicit clubId=B (foreign) — denied (null), the single-grant default never overrides an explicit, non-matching request", () => {
+  assert.equal(managerScopeClubId([grant({ clubId: "club-A" })], "club-B"), null);
+});
+
+test("CMMULTI-D: THE REPORTED GAP — two active grants (A+B), no explicit clubId — resolves to null (no club), exactly R4's pre-existing behavior, deliberately UNCHANGED: ambiguous choices are never guessed, per section 6's 'report, do not invent' instruction", () => {
+  const grants = [grant({ id: "g1", clubId: "club-A" }), grant({ id: "g2", clubId: "club-B" })];
+  assert.equal(managerScopeClubId(grants, null), null);
+});
+
+test("CMMULTI-E: two active grants (A+B), explicit clubId=A — resolves to A", () => {
+  const grants = [grant({ id: "g1", clubId: "club-A" }), grant({ id: "g2", clubId: "club-B" })];
+  assert.equal(managerScopeClubId(grants, "club-A"), "club-A");
+});
+
+test("CMMULTI-F: two active grants (A+B), explicit clubId=B — resolves to B", () => {
+  const grants = [grant({ id: "g1", clubId: "club-A" }), grant({ id: "g2", clubId: "club-B" })];
+  assert.equal(managerScopeClubId(grants, "club-B"), "club-B");
+});
+
+test("CMMULTI-G: two active grants (A+B), explicit clubId=C (foreign) — denied (null)", () => {
+  const grants = [grant({ id: "g1", clubId: "club-A" }), grant({ id: "g2", clubId: "club-B" })];
+  assert.equal(managerScopeClubId(grants, "club-C"), null);
+});
+
+test("CMMULTI-H: one ACTIVE grant (A) + one SUSPENDED grant (B), no explicit clubId — still resolves to A automatically: the suspended grant never counts toward 'how many active grants exist'", () => {
+  const grants = [grant({ id: "g1", clubId: "club-A" }), grant({ id: "g2", clubId: "club-B", status: "SUSPENDED" })];
+  assert.equal(managerScopeClubId(grants, null), "club-A");
 });
 
 /* ===================================================================== *
@@ -190,7 +307,25 @@ test("CMWIRE-D: getManagerScope (club-plan.ts) now has the same RoleAssignment-g
   const fnStart = src.indexOf("export async function getManagerScope");
   const fnEnd = src.indexOf("\nexport ", fnStart + 10);
   const fnSrc = src.slice(fnStart, fnEnd);
-  assert.match(fnSrc, /g\.role === "CLUB_MANAGER" && g\.status === "ACTIVE" && g\.clubId === requestedClubId/);
+  assert.match(fnSrc, /g\.role === "CLUB_MANAGER" && g\.status === "ACTIVE"/);
+  assert.match(fnSrc, /clubManagerGrants\.some\(\(g\) => g\.clubId === requestedClubId\)/);
+});
+
+test("CMWIRE-F: Sprint: REMEDIATION R4.1 — getManagerScope defaults to the single active CLUB_MANAGER grant's club when no explicit clubId is given AND there is exactly one such grant — the fix for a single-grant manager whose client-side page has no mechanism to send a clubId at all (ClubScopePicker renders ADMIN-only)", () => {
+  const src = read("src/lib/server/club-plan.ts");
+  const fnStart = src.indexOf("export async function getManagerScope");
+  const fnEnd = src.indexOf("\nexport ", fnStart + 10);
+  const fnSrc = src.slice(fnStart, fnEnd);
+  assert.match(fnSrc, /clubManagerGrants\.length === 1 && clubManagerGrants\[0\]\.clubId/);
+});
+
+test("CMWIRE-G: the single-grant default guard is an exact equality (=== 1), never a >= 1 or unconditional 'pick the first grant' — the ambiguous multi-grant case is left exactly as R4 produced it (no club resolved without an explicit clubId), never an arbitrary 'first grant wins' guess", () => {
+  const src = read("src/lib/server/club-plan.ts");
+  const fnStart = src.indexOf("export async function getManagerScope");
+  const fnEnd = src.indexOf("\nexport ", fnStart + 10);
+  const fnSrc = src.slice(fnStart, fnEnd);
+  assert.match(fnSrc, /clubManagerGrants\.length === 1/);
+  assert.doesNotMatch(fnSrc, /clubManagerGrants\.length (>=|>) /);
 });
 
 test("CMWIRE-E: deleteManagerTask's ownership check compares the task owner's employeeProfile.clubId against the resolved club — never actor.role — so the wider role gate cannot turn into cross-club delete access", () => {
