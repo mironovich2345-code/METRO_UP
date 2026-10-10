@@ -17,7 +17,7 @@ import { fetchProfileManagementRoles } from "@/lib/api/home-client";
 import type { CabinetTeamMemberDTO, ManagerDelegatedTaskDTO } from "@/lib/api/cabinet-client";
 import { useQuery, QUERY_POLICY, invalidatePrefix } from "@/lib/client/query-cache";
 import { cacheKeys, cacheKeyPrefixes } from "@/lib/client/cache-keys";
-import { canRestoreAssignment, describeRoleAssignmentError, pluralRu, resolveCityClubPageStatus } from "@/lib/cabinet-ui";
+import { canRestoreAssignment, describeRoleAssignmentError, groupDelegatedTasksByDate, pluralRu, resolveCityClubPageStatus } from "@/lib/cabinet-ui";
 import { appDateString } from "@/lib/app-day";
 import { cardIn, staggerStack, springSoft } from "@/lib/motion";
 import { cn } from "@/lib/utils";
@@ -693,14 +693,21 @@ function businessTodayInputValue(): string {
 /**
  * Management Round E2.1 — the drill-down this round actually adds: the
  * REAL DailyTask rows (text/date/completion) this CITY_MANAGER personally
- * assigned to the club's active manager, grouped the way the brief's own
- * mockup lays out ("Сегодня" / "Предстоящие"). Manager name and club live
- * once in the header, not repeated per row (brief's own instruction).
- * Read-only — no edit/delete/reassign control exists here at all, by
- * construction (every row below renders text + a status icon, nothing
- * else is clickable). `tasks === null` is "still loading" (useQuery's own
+ * assigned to the club's active manager. Manager name and club live once
+ * in the header, not repeated per row (brief's own instruction). Read-only
+ * — no edit/delete/reassign control exists here at all, by construction
+ * (every row below renders text + a status icon, nothing else is
+ * clickable). `tasks === null` is "still loading" (useQuery's own
  * undefined-until-first-response convention, normalized to null by the
  * caller); `tasks.length === 0` is the real empty state.
+ *
+ * Sprint: REMEDIATION R3, F-08 — the two-way split ("Сегодня" / everything
+ * else as "Предстоящие") silently mislabeled a past, still-TODO task as
+ * upcoming. groupDelegatedTasksByDate (cabinet-ui.ts, pure, directly
+ * unit-tested) now resolves the correct four-way classification;
+ * "Прошедшие" uses the same empty-section hiding as the other three
+ * (never a redesign — same card list, same DelegatedTaskRow, just a new
+ * section). Visual order: Просроченные, Сегодня, Предстоящие, Прошедшие.
  */
 function ManagerTasksSheet({
   open,
@@ -718,13 +725,15 @@ function ManagerTasksSheet({
   onAssignNew: () => void;
 }) {
   const todayStr = appDateString();
-  const today = tasks?.filter((t) => t.date === todayStr) ?? [];
-  const upcoming = tasks?.filter((t) => t.date !== todayStr) ?? [];
+  const { overdue, today, upcoming, past } = groupDelegatedTasksByDate(tasks ?? [], todayStr);
 
   // The server already sorts date-ascending/incomplete-first
   // (city-plan-core.ts's sortDelegatedTasks) — group upcoming rows by date
   // while preserving that order, a plain Map (insertion order mirrors the
-  // already-sorted order), never a second client-side sort.
+  // already-sorted order), never a second client-side sort. Unchanged from
+  // before R3 — "Предстоящие" still groups by date; "Просроченные" and
+  // "Прошедшие" render as plain lists (section 4/5's own "keep it compact,
+  // a simple textual header is sufficient" — no new sub-structure invented).
   const upcomingByDate = new Map<string, ManagerDelegatedTaskDTO[]>();
   for (const t of upcoming) {
     const bucket = upcomingByDate.get(t.date);
@@ -759,6 +768,17 @@ function ManagerTasksSheet({
 
             {tasks !== null && tasks.length > 0 && (
               <div className="mt-5 flex flex-col gap-5">
+                {overdue.length > 0 && (
+                  <div className="flex flex-col gap-2">
+                    <p className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Просроченные</p>
+                    <div className="flex flex-col gap-1.5">
+                      {overdue.map((t) => (
+                        <DelegatedTaskRow key={t.id} task={t} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {today.length > 0 && (
                   <div className="flex flex-col gap-2">
                     <p className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Сегодня</p>
@@ -781,6 +801,17 @@ function ManagerTasksSheet({
                         ))}
                       </div>
                     ))}
+                  </div>
+                )}
+
+                {past.length > 0 && (
+                  <div className="flex flex-col gap-2">
+                    <p className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Прошедшие</p>
+                    <div className="flex flex-col gap-1.5">
+                      {past.map((t) => (
+                        <DelegatedTaskRow key={t.id} task={t} />
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>

@@ -1,4 +1,4 @@
-import type { AttentionItemDTO, CityManagerClubSummaryDTO } from "@/lib/api/cabinet-types";
+import type { AttentionItemDTO, CityManagerClubSummaryDTO, ManagerDelegatedTaskDTO } from "@/lib/api/cabinet-types";
 import type { HomeContextDTO, HomeContextType } from "@/lib/api/home-types";
 import type { AcademyTargetRoleDTO } from "@/lib/api/content-types";
 
@@ -316,4 +316,59 @@ const ROLE_ASSIGNMENT_ERROR_MESSAGES: Record<string, string> = {
 export function describeRoleAssignmentError(code: string | null | undefined): string {
   if (code && ROLE_ASSIGNMENT_ERROR_MESSAGES[code]) return ROLE_ASSIGNMENT_ERROR_MESSAGES[code];
   return code ? `Не удалось выполнить действие (код: ${code}).` : "Не удалось выполнить действие.";
+}
+
+/** ManagerTasksSheet's own 4-way classification result — named buckets, each a
+ * fresh array (never the same array reference as `tasks`, never mutated). */
+export interface DelegatedTaskGroups {
+  overdue: ManagerDelegatedTaskDTO[];
+  today: ManagerDelegatedTaskDTO[];
+  upcoming: ManagerDelegatedTaskDTO[];
+  past: ManagerDelegatedTaskDTO[];
+}
+
+/**
+ * Sprint: REMEDIATION R3, F-08 — ManagerTasksSheet used to be a two-way
+ * split (date === today -> "Сегодня", everything else -> "Предстоящие"),
+ * so a past, still-TODO task the assigning CITY_MANAGER never came back to
+ * resolve was silently mislabeled "Предстоящие" (upcoming) — it never
+ * actually disappeared (getCityManagerDelegatedTasks has no date-range
+ * filter at all), but it was shown as if it hadn't happened yet. Product
+ * decision (final, R3 brief): a past incomplete task must remain visible,
+ * labeled "Просроченные" (overdue), never silently relabeled as upcoming.
+ *
+ * Four buckets, decided purely from a business-day STRING comparison
+ * (`date` is YYYY-MM-DD — the same app-timezone-day convention
+ * DailyPlanDTO/appDay() already use everywhere else in this codebase;
+ * lexical string comparison is correct for this format with zero
+ * Date/timezone parsing needed, exactly like sortDelegatedTasks's own
+ * date-ascending sort in city-plan-core.ts):
+ *
+ * - OVERDUE:  date < today AND status === "TODO"
+ * - TODAY:    date === today, regardless of status
+ * - UPCOMING: date > today
+ * - PAST:     date < today AND status !== "TODO" (already resolved —
+ *             COMPLETED or SKIPPED — just no longer the current day)
+ *
+ * Does not mutate `tasks`; every bucket is a fresh array built via a
+ * single pass, preserving the server's own pre-sorted order
+ * (sortDelegatedTasks: date-ascending, incomplete-before-done) within
+ * each bucket — never a second client-side sort.
+ */
+export function groupDelegatedTasksByDate(tasks: ManagerDelegatedTaskDTO[], today: string): DelegatedTaskGroups {
+  const overdue: ManagerDelegatedTaskDTO[] = [];
+  const todayTasks: ManagerDelegatedTaskDTO[] = [];
+  const upcoming: ManagerDelegatedTaskDTO[] = [];
+  const past: ManagerDelegatedTaskDTO[] = [];
+  for (const t of tasks) {
+    if (t.date === today) {
+      todayTasks.push(t);
+    } else if (t.date < today) {
+      if (t.status === "TODO") overdue.push(t);
+      else past.push(t);
+    } else {
+      upcoming.push(t);
+    }
+  }
+  return { overdue, today: todayTasks, upcoming, past };
 }
