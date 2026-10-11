@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Building2, CalendarDays, Camera, Check, ChevronRight, Clock, HelpCircle, MapPin, Briefcase, LayoutDashboard, Pencil, Trophy, User, UserCog, type LucideIcon } from "lucide-react";
 import { BottomNavigation } from "@/components/bottom-navigation";
+import { BOTTOM_NAV_CLEARANCE_CLASS } from "@/lib/bottom-nav-clearance";
 import { AppHeader } from "@/components/app-header";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Avatar } from "@/components/ui/avatar";
@@ -137,7 +138,7 @@ export default function ProfileScreen() {
   ];
 
   return (
-    <div className="relative min-h-[100dvh] pb-32">
+    <div className={`relative min-h-[100dvh] ${BOTTOM_NAV_CLEARANCE_CLASS}`}>
       <AppHeader title="Профиль" showThemeSwitcher={false} />
 
       <motion.main

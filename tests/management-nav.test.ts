@@ -230,9 +230,9 @@ test("ROUTES-D: /metric's route file still exists and was not deleted or convert
   assert.match(read("src/app/metric/page.tsx"), /export default function/);
 });
 
-test("ROUTES-E: the four newly-nav-bearing root screens use the same pb-32 bottom padding convention every pre-existing nav-bearing screen already uses (section 17)", () => {
+test("ROUTES-E (updated for QA-05.2 — the fixed pb-32 ignored the safe-area inset): the four management root screens use the SAME shared bottom-nav clearance every nav-bearing screen uses", () => {
   for (const file of ["src/app/team/page.tsx", "src/app/plan/page.tsx", "src/app/city/page.tsx", "src/app/questions/page.tsx"]) {
-    assert.match(read(file), /min-h-\[100dvh\] pb-32/, `expected ${file} to use pb-32`);
+    assert.match(read(file), /min-h-\[100dvh\] \$\{BOTTOM_NAV_CLEARANCE_CLASS\}/, `expected ${file} to use BOTTOM_NAV_CLEARANCE_CLASS`);
   }
 });
 

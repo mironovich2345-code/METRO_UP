@@ -4,6 +4,7 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowDown, ArrowUp, Building2, Crown, Trophy, Users } from "lucide-react";
 import { BottomNavigation } from "@/components/bottom-navigation";
+import { BOTTOM_NAV_CLEARANCE_CLASS } from "@/lib/bottom-nav-clearance";
 import { AppHeader } from "@/components/app-header";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Avatar } from "@/components/ui/avatar";
@@ -53,7 +54,7 @@ export default function RankingScreen() {
   const status: "loading" | "ready" | "error" = error ? "error" : !board && isLoading ? "loading" : board ? "ready" : "loading";
 
   return (
-    <div className="relative min-h-[100dvh] pb-32">
+    <div className={`relative min-h-[100dvh] ${BOTTOM_NAV_CLEARANCE_CLASS}`}>
       <AppHeader title="Рейтинг" subtitle={board?.hasData ? board.periodLabel : "Ежемесячный рейтинг"} />
       <RevalidatingBar show={Boolean(board) && isValidating} />
 

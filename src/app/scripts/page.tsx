@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { ChevronRight, Search } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
 import { BottomNavigation } from "@/components/bottom-navigation";
+import { BOTTOM_NAV_CLEARANCE_CLASS } from "@/lib/bottom-nav-clearance";
 import { RevalidatingBar } from "@/components/ui/revalidating-bar";
 import { cardIn, staggerStack } from "@/lib/motion";
 import { ApiError } from "@/lib/api/client";
@@ -46,7 +47,7 @@ export default function ScriptsScreen() {
   }, [data, filtered]);
 
   return (
-    <div className="relative min-h-[100dvh] pb-32">
+    <div className={`relative min-h-[100dvh] ${BOTTOM_NAV_CLEARANCE_CLASS}`}>
       <AppHeader title="Скрипты" subtitle="Сценарии разговоров" showBack backHref="/knowledge" sticky />
       <RevalidatingBar show={Boolean(data) && isValidating} />
 

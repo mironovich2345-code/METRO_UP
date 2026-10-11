@@ -4,6 +4,7 @@ import { use, useCallback } from "react";
 import { motion } from "framer-motion";
 import { AppHeader } from "@/components/app-header";
 import { BottomNavigation } from "@/components/bottom-navigation";
+import { BOTTOM_NAV_CLEARANCE_CLASS } from "@/lib/bottom-nav-clearance";
 import { RevalidatingBar } from "@/components/ui/revalidating-bar";
 import { InstructionBlocksView } from "@/components/knowledge/InstructionBlocksView";
 import { knowledgeApi } from "@/lib/api/knowledge-client";
@@ -17,7 +18,7 @@ export default function InstructionDetailScreen({ params }: { params: Promise<{ 
   const status: "loading" | "ready" | "error" = error ? "error" : !instruction && isLoading ? "loading" : instruction ? "ready" : "loading";
 
   return (
-    <div className="relative min-h-[100dvh] pb-32">
+    <div className={`relative min-h-[100dvh] ${BOTTOM_NAV_CLEARANCE_CLASS}`}>
       <AppHeader title="Инструкция" showBack backHref="/instructions" sticky />
       <RevalidatingBar show={Boolean(instruction) && isValidating} />
       <main className="px-5 pt-2">

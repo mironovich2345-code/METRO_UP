@@ -26,6 +26,7 @@ import {
   Users,
 } from "lucide-react";
 import { BottomNavigation } from "@/components/bottom-navigation";
+import { BOTTOM_NAV_CLEARANCE_CLASS } from "@/lib/bottom-nav-clearance";
 import {
   AttentionSection,
   ManagementListRow,
@@ -294,7 +295,7 @@ export default function HomeScreen() {
   });
 
   return (
-    <div className="relative min-h-[100dvh] pb-32">
+    <div className={`relative min-h-[100dvh] ${BOTTOM_NAV_CLEARANCE_CLASS}`}>
       <header className="brand-aura px-5 pb-2 pt-[calc(env(safe-area-inset-top)+16px)]">
         <div className="flex items-center gap-3">
           {/* User block → Profile (Profile is no longer a bottom-nav tab). Large

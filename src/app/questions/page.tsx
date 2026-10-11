@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { ChevronRight, MessageSquareOff } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
 import { BottomNavigation } from "@/components/bottom-navigation";
+import { BOTTOM_NAV_CLEARANCE_CLASS } from "@/lib/bottom-nav-clearance";
 import { ManagementAvatarLink } from "@/components/management/management-primitives";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
@@ -78,7 +79,7 @@ export default function QuestionsInboxPage() {
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.limit)) : 1;
 
   return (
-    <div className="relative min-h-[100dvh] pb-32">
+    <div className={`relative min-h-[100dvh] ${BOTTOM_NAV_CLEARANCE_CLASS}`}>
       {/* Round A.1, section A — /questions is always reached as the
           viewer's own root "Вопросы" workspace screen — avatar entry, no
           back button. */}

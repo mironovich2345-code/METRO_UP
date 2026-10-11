@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { ChevronRight, Clock, GraduationCap, UserCheck, Users } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
 import { BottomNavigation } from "@/components/bottom-navigation";
+import { BOTTOM_NAV_CLEARANCE_CLASS } from "@/lib/bottom-nav-clearance";
 import { ManagementAvatarLink, ManagementEmptyState, ManagementSummary } from "@/components/management/management-primitives";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
@@ -159,7 +160,7 @@ export default function TeamPage() {
   // Multi-club, not yet chosen — a compact selector, never an arbitrary pick.
   if (!isPreviewing && clubs && clubs.length > 1 && !selectedClubId) {
     return (
-      <div className="relative min-h-[100dvh] pb-32">
+      <div className={`relative min-h-[100dvh] ${BOTTOM_NAV_CLEARANCE_CLASS}`}>
         <AppHeader title="Моя команда" leading={<ManagementAvatarLink />} showThemeSwitcher={false} />
         <main className="flex flex-col gap-3 px-5 pt-2">
           <p className="px-1 text-sm text-muted-foreground">Выберите клуб</p>
@@ -183,7 +184,7 @@ export default function TeamPage() {
   }
 
   return (
-    <div className="relative min-h-[100dvh] pb-32">
+    <div className={`relative min-h-[100dvh] ${BOTTOM_NAV_CLEARANCE_CLASS}`}>
       {/* Round A.1, section B — /team has two meanings: a real CLUB_MANAGER's
           own ROOT workspace screen (no explicit clubId — avatar entry, no
           back button, matching every other root screen), or a CITY_MANAGER's

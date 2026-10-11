@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { ChevronDown, HelpCircle, Target, XCircle } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
 import { BottomNavigation } from "@/components/bottom-navigation";
+import { BOTTOM_NAV_CLEARANCE_CLASS } from "@/lib/bottom-nav-clearance";
 import { RevalidatingBar } from "@/components/ui/revalidating-bar";
 import { RichText } from "@/components/academy/lesson/RichText";
 import { ApiError } from "@/lib/api/client";
@@ -28,7 +29,7 @@ export default function ScriptDetailScreen({ params }: { params: Promise<{ slug:
             : "loading";
 
   return (
-    <div className="relative min-h-[100dvh] pb-32">
+    <div className={`relative min-h-[100dvh] ${BOTTOM_NAV_CLEARANCE_CLASS}`}>
       <AppHeader title="Скрипт" showBack backHref="/scripts" sticky />
       <RevalidatingBar show={Boolean(script) && isValidating} />
       <main className="px-5 pt-2">

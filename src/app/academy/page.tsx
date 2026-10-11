@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { CheckCircle2, Clock, GraduationCap, Lock } from "lucide-react";
 import { BottomNavigation, useEffectiveNavContext } from "@/components/bottom-navigation";
+import { BOTTOM_NAV_CLEARANCE_CLASS } from "@/lib/bottom-nav-clearance";
 import { AppHeader } from "@/components/app-header";
 import { ManagementAvatarLink } from "@/components/management/management-primitives";
 import { GlassCard } from "@/components/ui/glass-card";
@@ -92,7 +93,7 @@ export default function AcademyScreen() {
   };
 
   return (
-    <div className="relative min-h-[100dvh] pb-32">
+    <div className={`relative min-h-[100dvh] ${BOTTOM_NAV_CLEARANCE_CLASS}`}>
       <AppHeader title="Академия" subtitle="Твои курсы и прогресс" leading={isManagementRoot ? <ManagementAvatarLink /> : undefined} />
       <RevalidatingBar show={Boolean(data) && isValidating} />
 

@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { CheckCircle2, ChevronDown, ChevronRight, Circle, Clock, Lock } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
 import { BottomNavigation, useEffectiveNavContext } from "@/components/bottom-navigation";
+import { BOTTOM_NAV_CLEARANCE_CLASS } from "@/lib/bottom-nav-clearance";
 import { ManagementAvatarLink } from "@/components/management/management-primitives";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Badge } from "@/components/ui/badge";
@@ -56,7 +57,7 @@ export default function PlanScreen() {
   const pct = plan && plan.total ? Math.round((plan.completed / plan.total) * 100) : 0;
 
   return (
-    <div className="relative min-h-[100dvh] pb-32">
+    <div className={`relative min-h-[100dvh] ${BOTTOM_NAV_CLEARANCE_CLASS}`}>
       <AppHeader
         title="План на сегодня"
         subtitle={dateLabel}

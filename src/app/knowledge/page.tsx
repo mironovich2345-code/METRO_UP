@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { ArrowRight, BookOpen, ScrollText } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
 import { BottomNavigation } from "@/components/bottom-navigation";
+import { BOTTOM_NAV_CLEARANCE_CLASS } from "@/lib/bottom-nav-clearance";
 import { cardIn, staggerStack } from "@/lib/motion";
 import { useRootScreenEntrance } from "@/lib/client/root-screen-entrance";
 import { useApp } from "@/providers/app-provider";
@@ -18,7 +19,7 @@ export default function KnowledgeHub() {
   const canScripts = !!profile?.positionId && SCRIPT_POSITIONS.includes(profile.positionId);
 
   return (
-    <div className="relative min-h-[100dvh] pb-32">
+    <div className={`relative min-h-[100dvh] ${BOTTOM_NAV_CLEARANCE_CLASS}`}>
       <AppHeader title="База знаний" subtitle="Скрипты и рабочие инструкции" />
       <motion.main variants={staggerStack} initial={entranceInitial} animate="show" className="flex flex-col gap-4 px-5 pt-2">
         {canScripts && (

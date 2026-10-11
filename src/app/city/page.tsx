@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { AlertCircle, Building2, CheckCircle2, ChevronRight, Clock, GraduationCap } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
 import { BottomNavigation } from "@/components/bottom-navigation";
+import { BOTTOM_NAV_CLEARANCE_CLASS } from "@/lib/bottom-nav-clearance";
 import { ManagementAvatarLink, ManagementSummary } from "@/components/management/management-primitives";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
@@ -49,7 +50,7 @@ export default function CityClubsPage() {
     cityNames.length === 0 ? "Отдельные клубы" : cityNames.length === 1 ? cityNames[0] : `Города: ${cityNames.join(", ")}`;
 
   return (
-    <div className="relative min-h-[100dvh] pb-32">
+    <div className={`relative min-h-[100dvh] ${BOTTOM_NAV_CLEARANCE_CLASS}`}>
       {/* Round A.1, section A — /city is always CITY_MANAGER's own root
           "Клубы" workspace screen (never a drill-down for someone else) —
           avatar entry, no back button, matching every other root screen. */}
