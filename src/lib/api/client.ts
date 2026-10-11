@@ -90,3 +90,14 @@ export async function updateSelfProfile(input: SelfProfileUpdateInputDTO): Promi
   });
   return user;
 }
+
+/** Sprint: LIVE QA QA-04 — set the employee's OWN employment start date
+ * ("YYYY-MM-DD"). No id is sent: the server derives the target from the
+ * session and returns the confirmed SelfProfileDTO. */
+export async function updateSelfEmploymentStart(startedOn: string): Promise<SelfProfileDTO> {
+  const { profile } = await apiFetch<{ profile: SelfProfileDTO }>("/api/profile/employment", {
+    method: "PUT",
+    body: JSON.stringify({ startedOn }),
+  });
+  return profile;
+}

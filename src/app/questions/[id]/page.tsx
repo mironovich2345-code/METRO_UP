@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { FileText } from "lucide-react";
@@ -8,6 +8,8 @@ import { AppHeader } from "@/components/app-header";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { AttachmentViewer } from "@/components/questions/AttachmentViewer";
+import { attachmentPreviewKind } from "@/lib/client/attachment-preview";
 import { useApp } from "@/providers/app-provider";
 import { ApiError } from "@/lib/api/client";
 import { questionsApi, questionAttachmentDownloadUrl } from "@/lib/api/questions-client";
@@ -44,6 +46,8 @@ export default function QuestionDetailPage() {
   const { hydrated, isOnboarded } = useApp();
   const [statusError, setStatusError] = useState<string | null>(null);
   const [updating, setUpdating] = useState<QuestionStatusDTO | null>(null);
+  const [viewing, setViewing] = useState<QuestionAttachmentDTO | null>(null);
+  const closeViewer = useCallback(() => setViewing(null), []);
 
   const { data: question, error, isLoading, mutate } = useQuery(
     cacheKeys.questionDetail(id),
@@ -130,7 +134,7 @@ export default function QuestionDetailPage() {
                 <p className="px-1 text-sm font-bold text-foreground">Вложения</p>
                 <div className="flex flex-col gap-2">
                   {question.attachments.map((a) => (
-                    <AttachmentRow key={a.id} attachment={a} />
+                    <AttachmentRow key={a.id} attachment={a} onOpen={() => setViewing(a)} />
                   ))}
                 </div>
               </motion.div>
@@ -146,38 +150,45 @@ export default function QuestionDetailPage() {
           </>
         )}
       </motion.main>
+
+      <AttachmentViewer attachment={viewing} onClose={closeViewer} />
     </div>
   );
 }
 
-/** Image attachments preview inline; PDF gets an explicit open action — the
- * download proxy's own URL (questionAttachmentDownloadUrl) never contains a
- * storage path, just an opaque attachment id. */
-function AttachmentRow({ attachment }: { attachment: QuestionAttachmentDTO }) {
-  const isImage = attachment.mimeType.startsWith("image/");
-  const url = questionAttachmentDownloadUrl(attachment.id);
+/**
+ * Sprint: LIVE QA QA-04, section D — a row is a BUTTON that opens the in-app
+ * AttachmentViewer (authenticated fetch -> Blob -> object URL). It used to be
+ * an <a target="_blank"> to the protected download proxy, which Telegram
+ * hands to its external browser — no session there, so {"error":
+ * "unauthorized"}. The inline image thumbnail is still the same-origin
+ * proxy URL: an <img> request from inside the WebView carries the session
+ * cookie like any other in-app request; it is never navigated to.
+ */
+function AttachmentRow({ attachment, onOpen }: { attachment: QuestionAttachmentDTO; onOpen: () => void }) {
+  const isImage = attachmentPreviewKind(attachment.mimeType) === "image";
 
   if (isImage) {
     return (
-      <a href={url} target="_blank" rel="noopener noreferrer" className="block overflow-hidden rounded-2xl border border-border bg-card">
+      <button
+        type="button"
+        onClick={onOpen}
+        aria-label={`Открыть ${attachment.originalName}`}
+        className="block w-full overflow-hidden rounded-2xl border border-border bg-card"
+      >
         {/* eslint-disable-next-line @next/next/no-img-element -- same-origin, cookie-authed proxy URL; next/image's optimizer cannot sign/forward our auth cookie for this route */}
-        <img src={url} alt={attachment.originalName} className="max-h-72 w-full object-cover" />
-      </a>
+        <img src={questionAttachmentDownloadUrl(attachment.id)} alt={attachment.originalName} className="max-h-72 w-full object-cover" />
+      </button>
     );
   }
 
   return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="flex items-center gap-3 rounded-2xl border border-border bg-card p-3.5"
-    >
+    <button type="button" onClick={onOpen} className="flex w-full items-center gap-3 rounded-2xl border border-border bg-card p-3.5 text-left">
       <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-muted">
         <FileText className="size-4 text-muted-foreground" />
       </span>
       <p className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{attachment.originalName}</p>
-    </a>
+    </button>
   );
 }
 

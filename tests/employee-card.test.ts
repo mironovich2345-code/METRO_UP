@@ -222,7 +222,9 @@ test("LEARNING-B: no fabricated due-date/overdue/mandatory concept introduced an
 test("ROUTE-A: the route now composes the fuller ManagementEmployeeCardDTO via getManagementEmployeeCard, not the old thin getEmployeeTrainingDetail directly", () => {
   const src = read("src/app/api/control/cabinet/employee-training/route.ts");
   assert.match(src, /import \{ getManagementEmployeeCard \} from "@\/lib\/server\/rbac\/employee-card";/);
-  assert.match(src, /return jsonOk\(await getManagementEmployeeCard\(targetUserId, target\)\);/);
+  // QA-04 — composed alongside canGrantFullAccess; the card body is unchanged.
+  assert.match(src, /getManagementEmployeeCard\(targetUserId, target\)/);
+  assert.match(src, /return jsonOk\(\{ \.\.\.card, access: \{ status: target\.accessStatus, canGrantFull \} \}\);/);
 });
 
 /**
@@ -238,7 +240,7 @@ test("ROUTE-A: the route now composes the fuller ManagementEmployeeCardDTO via g
  */
 test("ROUTE-B: the route still selects cityId/positionId for the new profile fields, alongside the SAME clubId resolveClubManagerCabinetAccess is given, and now resolves authorization through that shared helper instead of a parallel inline legacy-identity check", () => {
   const src = read("src/app/api/control/cabinet/employee-training/route.ts");
-  assert.match(src, /select: \{ clubId: true, cityId: true, positionId: true \}/);
+  assert.match(src, /select: \{ clubId: true, cityId: true, positionId: true, accessStatus: true \}/);
   assert.match(src, /resolveClubManagerCabinetAccess\(user, target\.clubId\)/);
   assert.match(src, /cabinetAccessCoversClub\(access, target\.clubId\)/);
   assert.doesNotMatch(src, /isOwnLegacyClub/);

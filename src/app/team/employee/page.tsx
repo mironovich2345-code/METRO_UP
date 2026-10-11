@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
-import { CheckCircle2, ChevronDown, Circle, Clock, Eye, GraduationCap, MessageSquareOff } from "lucide-react";
+import { CheckCircle2, ChevronDown, Circle, Clock, Eye, GraduationCap, MessageSquareOff, ShieldCheck } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
 import { Avatar } from "@/components/ui/avatar";
 import { GlassCard } from "@/components/ui/glass-card";
@@ -19,11 +19,14 @@ import type {
   ManagementEmployeeMysteryResultDTO,
   ManagementEmployeeTestSummaryDTO,
 } from "@/lib/api/cabinet-client";
-import { useQuery, QUERY_POLICY } from "@/lib/client/query-cache";
-import { cacheKeys } from "@/lib/client/cache-keys";
+import { useQuery, QUERY_POLICY, invalidatePrefix } from "@/lib/client/query-cache";
+import { cacheKeys, cacheKeyPrefixes } from "@/lib/client/cache-keys";
+import { describeGrantFullAccessError, employeeAccessView } from "@/lib/client/access-grant-ui";
+import type { AccessStatusDTO } from "@/lib/api/types";
 import { cardIn, staggerStack } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { formatTenureRu, pluralRu } from "@/lib/cabinet-ui";
+import { formatEmploymentDateRu } from "@/lib/employment-date";
 
 /**
  * Management Round E1 — the ONE shared management Employee Card, reached
@@ -107,6 +110,21 @@ export default function EmployeeTrainingPage() {
               <ProfileSummaryCard profile={data.profile} employment={data.employment} />
             </motion.div>
 
+            {/* QA-04 — access level + «Выдать полный доступ» (own scope only;
+                the server decides canGrantFull and re-checks on the write). */}
+            <motion.div variants={cardIn}>
+              <AccessCard
+                userId={userId}
+                access={data.access}
+                onGranted={async () => {
+                  await mutate({ ...data, access: { status: "FULL", canGrantFull: false } }, { revalidate: false });
+                  invalidatePrefix(cacheKeyPrefixes.team);
+                  invalidatePrefix(cacheKeyPrefixes.city);
+                  invalidatePrefix(cacheKeyPrefixes.home);
+                }}
+              />
+            </motion.div>
+
             <motion.div variants={cardIn} className="flex flex-col gap-3">
               <p className="px-1 text-sm font-bold text-foreground">Обучение</p>
               <LearningSection learning={data.learning} />
@@ -152,19 +170,72 @@ function ProfileSummaryCard({
           start date exists (EmploymentAssignment, never User.createdAt).
           No row at all otherwise — section 4's "Employment/date section
           only if truthful data exists" is explicit about hiding, not a
-          calm placeholder, since literally every employee lacks this today
-          (Round E0's audit: nothing writes to EmploymentAssignment yet). */}
+          calm placeholder. Since QA-04 the employee sets it themselves in
+          Profile (PUT /api/profile/employment). */}
       {employment.startedAt && (
         <div className="mt-4 flex items-center gap-4 border-t border-border pt-3 text-sm">
           <div>
             <p className="text-xs text-muted-foreground">Дата начала работы</p>
-            <p className="font-semibold">{new Date(employment.startedAt).toLocaleDateString("ru-RU")}</p>
+            <p className="font-semibold">{formatEmploymentDateRu(employment.startedAt)}</p>
           </div>
           <div>
             <p className="text-xs text-muted-foreground">Стаж</p>
             <p className="font-semibold">{formatTenureRu(employment.startedAt)}</p>
           </div>
         </div>
+      )}
+    </GlassCard>
+  );
+}
+
+/* ------------------------------- ACCESS ------------------------------- */
+
+function AccessCard({
+  userId,
+  access,
+  onGranted,
+}: {
+  userId: string;
+  access: { status: AccessStatusDTO; canGrantFull: boolean };
+  onGranted: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const view = employeeAccessView(access);
+
+  const grant = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await cabinetApi.grantFullAccess(userId);
+      await onGranted();
+    } catch (e) {
+      setError(describeGrantFullAccessError(e instanceof ApiError ? e.code : null));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <GlassCard variant="solid" pad="md" animateIn={false}>
+      <div className="flex items-center gap-3">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-muted">
+          <ShieldCheck className="size-4.5 text-muted-foreground" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs text-muted-foreground">Доступ</p>
+          <p className="font-semibold [overflow-wrap:anywhere]">{view.label}</p>
+        </div>
+      </div>
+      {view.showGrant && (
+        <Button block size="md" className="mt-3" loading={busy} disabled={busy} onClick={() => void grant()}>
+          Выдать полный доступ
+        </Button>
+      )}
+      {error && (
+        <p role="alert" className="mt-2 text-sm text-red-500">
+          {error}
+        </p>
       )}
     </GlassCard>
   );

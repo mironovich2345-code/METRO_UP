@@ -53,6 +53,10 @@ export const cabinetApi = {
    * CLUB_MANAGER alike, future OPERATIONS_DIRECTOR reuses the same shape).
    * Same URL as before Round E1 — only the response got richer. */
   employeeTraining: (userId: string) => request<ManagementEmployeeCardDTO>(`/api/control/cabinet/employee-training${qs({ userId })}`),
+  /** Sprint: LIVE QA QA-04 — «Выдать полный доступ» (CLUB_MANAGER/CITY_MANAGER,
+   * own scope). No body; the server decides everything from the session. */
+  grantFullAccess: (userId: string) =>
+    request<{ userId: string; accessStatus: "FULL"; changed: boolean }>(`/api/control/team/${encodeURIComponent(userId)}/grant-full`, { method: "POST" }),
   /** Management Round E2 — CITY_MANAGER -> CLUB_MANAGER Daily Plan
    * delegation. Body carries only clubId/date/title; the server resolves
    * and validates the target, scope, and every other field itself. */

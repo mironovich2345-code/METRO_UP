@@ -10,6 +10,7 @@ import { GlassCard } from "@/components/ui/glass-card";
 import { Avatar } from "@/components/ui/avatar";
 import { AvatarCropSheet } from "@/components/profile/AvatarCropSheet";
 import { ProfileEditSheet } from "@/components/profile/ProfileEditSheet";
+import { EmploymentStartSheet } from "@/components/profile/EmploymentStartSheet";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ThemeSegmented } from "@/components/ui/theme-switcher";
@@ -23,7 +24,7 @@ import type { AccessStatus, CareerLevel } from "@/lib/profile";
 import { cardIn, staggerStack } from "@/lib/motion";
 import { cn, formatNumber } from "@/lib/utils";
 import { fetchProfileManagementRoles } from "@/lib/api/home-client";
-import { fetchSelfProfile } from "@/lib/api/client";
+import { fetchSelfProfile, updateSelfEmploymentStart } from "@/lib/api/client";
 import { useQuery, QUERY_POLICY } from "@/lib/client/query-cache";
 import { cacheKeys } from "@/lib/client/cache-keys";
 import { useRootScreenEntrance } from "@/lib/client/root-screen-entrance";
@@ -54,6 +55,7 @@ export default function ProfileScreen() {
   const { user: serverUser, refresh: refreshAppUser, saveProfile } = useAppUser();
   const [cropOpen, setCropOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [employmentOpen, setEmploymentOpen] = useState(false);
   const entranceInitial = useRootScreenEntrance();
   // Sprint: LIVE QA QA-02 — during a MANAGER/CLUB_MANAGER persona preview
   // this screen renders the synthetic preview persona (/api/auth/me), so it
@@ -89,7 +91,7 @@ export default function ProfileScreen() {
   // Sprint: LIVE QA QA-02 — the real employment start date (GET /api/profile;
   // never User.createdAt). Separate from AppUser so the auth bootstrap stays
   // a single query.
-  const { data: selfProfile, error: selfProfileError } = useQuery(
+  const { data: selfProfile, error: selfProfileError, mutate: setSelfProfile } = useQuery(
     hydrated && isOnboarded ? cacheKeys.selfProfile() : null,
     fetchSelfProfile,
     QUERY_POLICY.MEDIUM,
@@ -121,7 +123,16 @@ export default function ProfileScreen() {
     { icon: Briefcase, label: "Должность", value: position?.title ?? "—" },
     { icon: Building2, label: "Клуб", value: club ? `MetroFitness ${club.name}` : "—" },
     { icon: MapPin, label: "Город", value: city?.name ?? "—" },
-    { icon: CalendarDays, label: "Дата начала работы", value: employmentValue(employment.startDate) },
+    // QA-04 — the employee's own start date is the one editable work field
+    // (Должность/Клуб/Город stay read-only). "Указать" when none is recorded
+    // yet; Стаж below is always derived, never edited.
+    {
+      icon: CalendarDays,
+      label: "Дата начала работы",
+      value: employmentValue(canEdit && !selfProfile?.employmentStartedAt ? "Указать" : employment.startDate),
+      onClick: canEdit && selfProfile ? () => setEmploymentOpen(true) : undefined,
+      stacked: true,
+    },
     { icon: Clock, label: "Стаж", value: employmentValue(employment.tenure) },
   ];
 
@@ -400,6 +411,19 @@ export default function ProfileScreen() {
       {/* QA-02 — saveProfile applies the server-CONFIRMED user, so this
           header, Home's greeting/avatar and every AppUser reader update
           together; an ordinary save, never a context switch. */}
+      {/* QA-04 — the server returns the confirmed SelfProfileDTO; writing it
+          straight into the cache updates the date AND the derived tenure at
+          once, with no refetch and no reload. */}
+      <EmploymentStartSheet
+        open={employmentOpen && canEdit}
+        startedAtIso={selfProfile?.employmentStartedAt ?? null}
+        onClose={() => setEmploymentOpen(false)}
+        onSave={async (startedOn) => {
+          const updated = await updateSelfEmploymentStart(startedOn);
+          await setSelfProfile(updated, { revalidate: false });
+        }}
+      />
+
       <ProfileEditSheet
         open={editOpen && canEdit}
         displayName={profile.displayName}
@@ -414,6 +438,11 @@ interface InfoRowData {
   icon: LucideIcon;
   label: string;
   value: React.ReactNode;
+  /** Makes the row a button with a trailing chevron (QA-04: start date). */
+  onClick?: () => void;
+  /** Label above the value instead of beside it — a long value ("15 сентября
+   * 2024" + chevron) would otherwise crush the label at 320px. */
+  stacked?: boolean;
 }
 
 /** The label/value list style the Profile already used for its work info,
@@ -424,16 +453,33 @@ function InfoCard({ rows }: { rows: InfoRowData[] }) {
     <GlassCard variant="solid" pad="sm" animateIn={false}>
       {rows.map((row, i) => {
         const Icon = row.icon;
-        return (
-          <div
-            key={row.label}
-            className={cn("flex items-center gap-3 px-2 py-3", i < rows.length - 1 && "border-b border-border")}
-          >
+        const rowClass = cn("flex w-full items-center gap-3 px-2 py-3 text-left", i < rows.length - 1 && "border-b border-border");
+        const content = (
+          <>
             <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-muted">
               <Icon className="size-4.5 text-muted-foreground" />
             </div>
-            <span className="min-w-0 flex-1 text-sm text-muted-foreground">{row.label}</span>
-            <span className="max-w-[55%] truncate text-right text-[15px] font-semibold text-foreground">{row.value}</span>
+            {row.stacked ? (
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="text-sm text-muted-foreground">{row.label}</span>
+                <span className="truncate text-[15px] font-semibold text-foreground">{row.value}</span>
+              </span>
+            ) : (
+              <>
+                <span className="min-w-0 flex-1 text-sm text-muted-foreground">{row.label}</span>
+                <span className="max-w-[55%] truncate text-right text-[15px] font-semibold text-foreground">{row.value}</span>
+              </>
+            )}
+            {row.onClick && <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />}
+          </>
+        );
+        return row.onClick ? (
+          <button key={row.label} type="button" onClick={row.onClick} className={cn(rowClass, "rounded-xl transition-colors active:bg-foreground/5")}>
+            {content}
+          </button>
+        ) : (
+          <div key={row.label} className={rowClass}>
+            {content}
           </div>
         );
       })}

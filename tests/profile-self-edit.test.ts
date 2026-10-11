@@ -330,7 +330,7 @@ test("PROF-Z: describeEmployment — no assignment means «Не указано»
   const now = new Date("2026-06-15T12:00:00.000Z");
   const started = "2024-03-15T12:00:00.000Z";
   const result = describeEmployment(started, now);
-  assert.equal(result.startDate, new Date(started).toLocaleDateString("ru-RU"));
+  assert.equal(result.startDate, "15 марта 2024");
   assert.equal(result.tenure, formatTenureRu(started, now));
   assert.match(result.tenure, /год/);
 });

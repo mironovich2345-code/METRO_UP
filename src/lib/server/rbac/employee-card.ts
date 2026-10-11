@@ -34,15 +34,14 @@ import type {
 export async function getManagementEmployeeCard(
   targetUserId: string,
   targetProfile: { clubId: string; cityId: string; positionId: string },
-): Promise<ManagementEmployeeCardDTO> {
+): Promise<Omit<ManagementEmployeeCardDTO, "access">> {
   const [user, trainingDetail, tests, mysteryRows, employment] = await Promise.all([
     prisma.user.findUnique({ where: { id: targetUserId }, select: { displayName: true, avatarStorageKey: true } }),
     getEmployeeTrainingDetail(targetUserId),
     getEmployeeTestSummaries(targetUserId),
     loadPublishedMysteryResults(targetUserId),
-    // Round E0's audit finding: this table is schema-only today — nothing
-    // writes to it yet, so this will be null for every employee until a
-    // future round builds the write/backfill path. Never a stand-in from
+    // Written by the employee themselves since QA-04 (PUT
+    // /api/profile/employment); null until they set it. Never a stand-in from
     // the account's own registration timestamp — that is a different,
     // untruthful signal (see cabinet-ui.ts's formatTenureRu doc comment).
     prisma.employmentAssignment.findFirst({

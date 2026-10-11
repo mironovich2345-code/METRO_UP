@@ -1,4 +1,5 @@
 import { formatTenureRu } from "@/lib/cabinet-ui";
+import { formatEmploymentDateRu } from "@/lib/employment-date";
 
 /**
  * Sprint: LIVE QA QA-02 — "Complete Editable Employee Profile". Pure rules for
@@ -197,7 +198,9 @@ export function describeEmployment(
 ): { startDate: string; tenure: string } {
   if (!startedAtIso) return { startDate: NOT_SET_LABEL, tenure: NOT_SET_LABEL };
   return {
-    startDate: new Date(startedAtIso).toLocaleDateString("ru-RU"),
+    // QA-04 — the stored value is a calendar date at UTC midnight; formatted
+    // in UTC so no viewer timezone shifts it ("15 августа 2024").
+    startDate: formatEmploymentDateRu(startedAtIso),
     tenure: formatTenureRu(startedAtIso, now),
   };
 }

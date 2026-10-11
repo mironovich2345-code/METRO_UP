@@ -1,5 +1,5 @@
 import "server-only";
-import type { AccessStatus, DailyTaskPriority, EmployeePosition } from "@prisma/client";
+import type { AccessStatus, DailyTaskPriority, EmployeePosition, Prisma } from "@prisma/client";
 import { prisma } from "./db";
 import { AuthError } from "./authz";
 import { appDay } from "./time";
@@ -511,21 +511,55 @@ export async function setEmployeeAccess(
   if (before === "PENDING_APPROVAL") {
     throw new AuthError(409, "pending_approval", "Сотрудник ожидает первичного подтверждения — используйте approve");
   }
-  const action = resolveAccessAuditAction(before, accessStatus);
-  await prisma.$transaction(async (tx) => {
-    await tx.employeeProfile.update({ where: { userId: targetUserId }, data: { accessStatus } });
-    await tx.userAuditLog.create({
-      data: {
-        actorUserId: actor.id,
-        targetUserId,
-        action,
-        clubId,
-        before: { accessStatus: before },
-        after: { accessStatus },
-      },
-    });
-  });
+  await prisma.$transaction((tx) =>
+    applyAccessStatusChangeTx(tx, { actorUserId: actor.id, targetUserId, clubId, before, after: accessStatus }),
+  );
   return { userId: targetUserId, accessStatus };
+}
+
+/** Thrown when the target's accessStatus changed between the read and the
+ * write (another manager acted first) — never silently overwritten. */
+function accessStatusConflict(): AuthError {
+  return new AuthError(409, "access_status_changed", "Статус доступа уже изменился — обновите экран");
+}
+
+/**
+ * The ONE accessStatus write for an already-approved employee (FULL <->
+ * LIMITED, suspend, restore), shared by setEmployeeAccess and the scoped
+ * «Выдать полный доступ» (rbac/full-access-grant.ts, QA-04). Conditional on
+ * the status the caller authorized against (`before`), and audited with the
+ * approved ACCESS_GRANTED/ACCESS_SUSPENDED/ACCESS_RESTORED vocabulary in the
+ * same transaction. `cityId`/`metadata` carry optional extra audit context.
+ */
+export async function applyAccessStatusChangeTx(
+  tx: Prisma.TransactionClient,
+  params: {
+    actorUserId: string;
+    targetUserId: string;
+    clubId: string;
+    before: AccessStatus | null;
+    after: AccessStatus;
+    cityId?: string | null;
+    metadata?: Prisma.InputJsonValue;
+  },
+): Promise<void> {
+  const updated = await tx.employeeProfile.updateMany({
+    where: { userId: params.targetUserId, ...(params.before ? { accessStatus: params.before } : {}) },
+    data: { accessStatus: params.after },
+  });
+  if (updated.count !== 1) throw accessStatusConflict();
+  await tx.userAuditLog.create({
+    data: {
+      actorUserId: params.actorUserId,
+      targetUserId: params.targetUserId,
+      action: resolveAccessAuditAction(params.before, params.after),
+      clubId: params.clubId,
+      cityId: params.cityId ?? null,
+      before: { accessStatus: params.before },
+      after: { accessStatus: params.after },
+      ...(params.metadata !== undefined ? { metadata: params.metadata } : {}),
+    },
+  });
 }
 
 /**
@@ -560,47 +594,81 @@ export async function approveManagerAccess(
     throw new AuthError(409, "not_pending", "Заявка уже обработана");
   }
 
-  await prisma.$transaction(async (tx) => {
-    await tx.employeeProfile.update({ where: { userId: targetUserId }, data: { accessStatus: toStatus } });
-    await tx.userAuditLog.create({
-      data: {
-        actorUserId: actor.id,
-        targetUserId,
-        action: "ACCESS_GRANTED",
-        clubId,
-        reason: reason ?? null,
-        before: { accessStatus: "PENDING_APPROVAL" },
-        after: { accessStatus: toStatus },
-      },
-    });
-
-    const existingGrant = await tx.roleAssignment.findFirst({
-      where: { userId: targetUserId, role: "MANAGER", scopeType: "CLUB", clubId, status: "ACTIVE" },
-      select: { id: true },
-    });
-    if (!existingGrant) {
-      await tx.roleAssignment.create({
-        data: {
-          userId: targetUserId,
-          role: "MANAGER",
-          scopeType: "CLUB",
-          clubId,
-          status: "ACTIVE",
-          assignedByUserId: actor.id,
-          reason: reason ?? "manager_approval",
-        },
-      });
-      await tx.userAuditLog.create({
-        data: {
-          actorUserId: actor.id,
-          targetUserId,
-          action: "ROLE_ASSIGNED",
-          clubId,
-          after: { role: "MANAGER", scopeType: "CLUB", clubId, status: "ACTIVE" },
-        },
-      });
-    }
-  });
+  await prisma.$transaction((tx) =>
+    applyPendingApprovalTx(tx, { actorUserId: actor.id, targetUserId, clubId, toStatus, reason, createManagerGrant: true }),
+  );
 
   return { userId: targetUserId, accessStatus: toStatus };
+}
+
+/**
+ * The ONE PENDING_APPROVAL -> FULL/LIMITED transition, shared by
+ * approveManagerAccess and the scoped «Выдать полный доступ»
+ * (rbac/full-access-grant.ts, QA-04). Conditional on the target still being
+ * PENDING_APPROVAL; audited as ACCESS_GRANTED. With `createManagerGrant`
+ * (an ordinary employee) it also creates the MANAGER/CLUB RoleAssignment
+ * exactly as approval always has — idempotent, never a duplicate ACTIVE
+ * grant. A CLUB_MANAGER target (CITY_MANAGER flow) already holds a role and
+ * gets none.
+ */
+export async function applyPendingApprovalTx(
+  tx: Prisma.TransactionClient,
+  params: {
+    actorUserId: string;
+    targetUserId: string;
+    clubId: string;
+    toStatus: "FULL" | "LIMITED";
+    reason?: string | null;
+    createManagerGrant: boolean;
+    cityId?: string | null;
+    metadata?: Prisma.InputJsonValue;
+  },
+): Promise<void> {
+  const { actorUserId, targetUserId, clubId, toStatus, reason } = params;
+  const updated = await tx.employeeProfile.updateMany({
+    where: { userId: targetUserId, accessStatus: "PENDING_APPROVAL" },
+    data: { accessStatus: toStatus },
+  });
+  if (updated.count !== 1) throw accessStatusConflict();
+  await tx.userAuditLog.create({
+    data: {
+      actorUserId,
+      targetUserId,
+      action: "ACCESS_GRANTED",
+      clubId,
+      cityId: params.cityId ?? null,
+      reason: reason ?? null,
+      before: { accessStatus: "PENDING_APPROVAL" },
+      after: { accessStatus: toStatus },
+      ...(params.metadata !== undefined ? { metadata: params.metadata } : {}),
+    },
+  });
+
+  if (!params.createManagerGrant) return;
+  const existingGrant = await tx.roleAssignment.findFirst({
+    where: { userId: targetUserId, role: "MANAGER", scopeType: "CLUB", clubId, status: "ACTIVE" },
+    select: { id: true },
+  });
+  if (!existingGrant) {
+    await tx.roleAssignment.create({
+      data: {
+        userId: targetUserId,
+        role: "MANAGER",
+        scopeType: "CLUB",
+        clubId,
+        status: "ACTIVE",
+        assignedByUserId: actorUserId,
+        reason: reason ?? "manager_approval",
+      },
+    });
+    await tx.userAuditLog.create({
+      data: {
+        actorUserId,
+        targetUserId,
+        action: "ROLE_ASSIGNED",
+        clubId,
+        after: { role: "MANAGER", scopeType: "CLUB", clubId, status: "ACTIVE" },
+      },
+    });
+  }
 }

@@ -247,6 +247,11 @@ export interface ManagementEmployeeEmploymentDTO {
   startedAt: string | null;
 }
 
+export interface ManagementEmployeeAccessDTO {
+  status: AccessStatusDTO;
+  canGrantFull: boolean;
+}
+
 /** One row per quiz this employee has ever attempted — never per lesson
  * (a lesson may have no quiz at all), and never including QuizOption.isCorrect
  * or raw attempt `answers` (section 8's explicit "never expose correct
@@ -281,6 +286,10 @@ export interface ManagementEmployeeMysteryResultDTO {
 export interface ManagementEmployeeCardDTO {
   profile: ManagementEmployeeProfileDTO;
   employment: ManagementEmployeeEmploymentDTO;
+  /** Sprint: LIVE QA QA-04, section E — the target's current access level and
+   * whether THIS actor may grant FULL right now (server-decided by
+   * rbac/full-access-grant-core.ts; false during any View As). */
+  access: ManagementEmployeeAccessDTO;
   /** Reuses getEmployeeTrainingDetail's existing overall/programs shape
    * unchanged (no due dates/overdue/mandatory status — none of that exists
    * in the content model); displayName/position live in `profile` instead,

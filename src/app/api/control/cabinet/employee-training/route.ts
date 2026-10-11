@@ -3,6 +3,7 @@ import { prisma } from "@/lib/server/db";
 import { requireUser, AuthError } from "@/lib/server/authz";
 import { jsonOk, jsonError, handleError } from "@/lib/server/http";
 import { getManagementEmployeeCard } from "@/lib/server/rbac/employee-card";
+import { canGrantFullAccess } from "@/lib/server/rbac/full-access-grant";
 import { resolveClubManagerCabinetAccess } from "@/lib/server/rbac/cabinet-dashboards";
 import { cabinetAccessCoversClub, isManagerPersonaPreview } from "@/lib/server/rbac/scope-core";
 import { resolveEffectiveReadContext } from "@/lib/server/rbac/effective-context";
@@ -76,7 +77,7 @@ export async function GET(req: NextRequest) {
 
     const target = await prisma.employeeProfile.findUnique({
       where: { userId: targetUserId },
-      select: { clubId: true, cityId: true, positionId: true },
+      select: { clubId: true, cityId: true, positionId: true, accessStatus: true },
     });
     if (!target) return jsonError(404, "user_not_found");
 
@@ -102,7 +103,13 @@ export async function GET(req: NextRequest) {
       throw new AuthError(403, "forbidden", "Недостаточно прав для просмотра этого сотрудника");
     }
 
-    return jsonOk(await getManagementEmployeeCard(targetUserId, target));
+    // QA-04 — the card also says whether this actor may grant FULL; the
+    // POST .../grant-full route re-decides it independently on every write.
+    const [card, canGrantFull] = await Promise.all([
+      getManagementEmployeeCard(targetUserId, target),
+      canGrantFullAccess(user, targetUserId),
+    ]);
+    return jsonOk({ ...card, access: { status: target.accessStatus, canGrantFull } });
   } catch (e) {
     return handleError(e);
   }

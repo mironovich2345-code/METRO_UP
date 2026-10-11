@@ -47,6 +47,14 @@ export const selfProfileUpdateSchema = z.object({
 });
 export type SelfProfileUpdateInput = z.infer<typeof selfProfileUpdateSchema>;
 
+/** Sprint: LIVE QA QA-04 — the employee's own "Дата начала работы". ONLY a
+ * calendar date string; any other key (userId, clubId, endedAt…) is stripped.
+ * The real calendar/future/history checks are parseEmploymentStartDate's and
+ * the service's job. */
+export const selfEmploymentStartSchema = z.object({
+  startedOn: z.string({ required_error: "Укажите дату", invalid_type_error: "Укажите дату" }).max(20),
+});
+
 /** METRO UP ROUND 1, Milestone 1 — avatar upload. MIME/size are re-validated
  * for real against MEDIA_RULES.AVATAR server-side (storage/validation.ts) —
  * this schema only guards against a malformed/missing request shape. */

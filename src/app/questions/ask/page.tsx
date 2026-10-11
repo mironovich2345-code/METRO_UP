@@ -7,6 +7,8 @@ import { CheckCircle2, FileText, Image as ImageIcon, Loader2, Paperclip, RotateC
 import { AppHeader } from "@/components/app-header";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Button } from "@/components/ui/button";
+import { SelectField } from "@/components/ui/option-sheet";
+import { Switch } from "@/components/ui/switch";
 import { useApp } from "@/providers/app-provider";
 import { questionsApi } from "@/lib/api/questions-client";
 import { ApiError } from "@/lib/api/client";
@@ -25,7 +27,6 @@ import {
 } from "@/lib/client/ask-question-core";
 import type { QuestionCategoryDTO } from "@/lib/api/questions-types";
 import { cardIn, staggerStack } from "@/lib/motion";
-import { cn } from "@/lib/utils";
 
 /**
  * METRO UP ROUND 1, Milestone 2B — "Задать вопрос". Reachable from Profile
@@ -83,6 +84,7 @@ export default function AskQuestionPage() {
   const [category, setCategory] = useState<QuestionCategoryDTO>("WORK_PROCESSES");
   const [text, setText] = useState("");
   const [anonymous, setAnonymous] = useState(false);
+  const [categoryOpen, setCategoryOpen] = useState(false);
   const [attachments, setAttachments] = useState<AttachmentDraft[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -193,24 +195,20 @@ export default function AskQuestionPage() {
       <AppHeader title="Задать вопрос" showBack backHref="/profile" showThemeSwitcher={false} />
 
       <motion.main variants={staggerStack} initial="hidden" animate="show" className="flex flex-col gap-5 px-5 pt-2">
-        {/* Категория */}
+        {/* Категория — QA-04: one compact field + bottom sheet instead of a
+            wall of chips. Same QUESTION_CATEGORY_OPTIONS, same stored values;
+            picking one only sets `category` (text, attachments and the
+            anonymous toggle are separate state and stay as they are). */}
         <motion.div variants={cardIn} className="flex flex-col gap-2">
           <p className="px-1 text-sm font-bold text-foreground">Категория</p>
-          <div className="flex flex-wrap gap-2">
-            {QUESTION_CATEGORY_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => setCategory(opt.value)}
-                className={cn(
-                  "rounded-full border px-3.5 py-2 text-sm font-medium transition-colors",
-                  category === opt.value ? "border-brand bg-brand/10 text-foreground" : "border-border bg-card text-muted-foreground",
-                )}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
+          <SelectField
+            label="Категория"
+            value={category}
+            options={QUESTION_CATEGORY_OPTIONS}
+            open={categoryOpen}
+            onOpenChange={setCategoryOpen}
+            onChange={setCategory}
+          />
         </motion.div>
 
         {/* Ваш вопрос */}
@@ -285,20 +283,10 @@ export default function AskQuestionPage() {
               <p className="text-[15px] font-semibold text-foreground">Анонимно</p>
               <p className="mt-0.5 text-xs text-muted-foreground">Руководители не увидят ваше имя.</p>
             </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={anonymous}
-              onClick={() => setAnonymous((v) => !v)}
-              className={cn("relative h-7 w-12 shrink-0 rounded-full transition-colors", anonymous ? "bg-brand" : "bg-muted")}
-            >
-              <span
-                className={cn(
-                  "absolute top-0.5 size-6 rounded-full bg-white shadow transition-transform",
-                  anonymous ? "translate-x-5" : "translate-x-0.5",
-                )}
-              />
-            </button>
+            {/* QA-04 — shared Switch (derived geometry; see switch-geometry.ts
+                for the iPhone overflow root cause). OFF = identified, ON =
+                anonymous — unchanged. */}
+            <Switch checked={anonymous} onCheckedChange={setAnonymous} aria-label="Анонимно" />
           </GlassCard>
         </motion.div>
 

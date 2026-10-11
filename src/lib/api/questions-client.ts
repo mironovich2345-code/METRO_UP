@@ -69,9 +69,11 @@ export const questionsApi = {
 };
 
 /** METRO UP ROUND 1, Milestone 3, section 7 — the download PROXY's own
- * path, never a storage URL (see the route's docstring). Safe to use
- * directly as an <img src> or <a href>/window.open target — same-origin,
- * session-cookie auth, no token/signature of any kind in this URL. */
+ * path, never a storage URL (see the route's docstring). Same-origin,
+ * session-cookie auth, no token/signature of any kind in this URL. Fine as an
+ * in-WebView <img src> or a fetchProtectedBlob() path — but NEVER a link or
+ * window.open target (QA-04): Telegram opens links in its external browser,
+ * which has no session cookie, so the request is rejected as unauthorized. */
 export function questionAttachmentDownloadUrl(attachmentId: string): string {
   return `/api/questions/attachments/${attachmentId}/download`;
 }
