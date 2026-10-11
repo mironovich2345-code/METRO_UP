@@ -11,8 +11,11 @@
  * editable on its own.
  */
 
-/** Earliest accepted start date — guards against a mistyped year. */
-export const EMPLOYMENT_DATE_MIN = "1970-01-01";
+/** The day the MetroFitness network started operating (QA-04.1). Nobody can
+ * have started working in it earlier, so this is the business minimum for an
+ * employment start date — enforced by the server (parseEmploymentStartDate)
+ * and used as the picker's `min`. The ONLY place this date is written. */
+export const METROFITNESS_NETWORK_STARTED_ON = "2015-12-05";
 
 /** The furthest-ahead timezone on Earth is UTC+14: a date that is already
  * "today" somewhere is never rejected as future, whatever the server's own
@@ -24,7 +27,7 @@ const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 export const EMPLOYMENT_DATE_MESSAGES = {
   invalid_date: "Укажите корректную дату",
   future_date: "Дата не может быть в будущем",
-  too_early: "Слишком ранняя дата",
+  before_network_start: "Дата начала работы не может быть раньше 5 декабря 2015 года",
   before_previous_assignment: "Дата раньше окончания предыдущего места работы",
 } as const;
 
@@ -36,9 +39,9 @@ export type EmploymentDateValidation =
 
 /** "YYYY-MM-DD" -> a validated real calendar date at UTC midnight. Rejects
  * malformed strings, impossible dates (2024-02-30), dates before
- * EMPLOYMENT_DATE_MIN and dates that are in the future everywhere on Earth. */
+ * METROFITNESS_NETWORK_STARTED_ON and dates that are in the future everywhere on Earth. */
 export function parseEmploymentStartDate(input: unknown, now: Date = new Date()): EmploymentDateValidation {
-  const fail = (code: "invalid_date" | "future_date" | "too_early") => ({ ok: false as const, code, message: EMPLOYMENT_DATE_MESSAGES[code] });
+  const fail = (code: "invalid_date" | "future_date" | "before_network_start") => ({ ok: false as const, code, message: EMPLOYMENT_DATE_MESSAGES[code] });
   if (typeof input !== "string") return fail("invalid_date");
   const match = ISO_DATE.exec(input.trim());
   if (!match) return fail("invalid_date");
@@ -51,7 +54,7 @@ export function parseEmploymentStartDate(input: unknown, now: Date = new Date())
     return fail("invalid_date");
   }
   const isoDate = `${y}-${m}-${d}`;
-  if (isoDate < EMPLOYMENT_DATE_MIN) return fail("too_early");
+  if (isoDate < METROFITNESS_NETWORK_STARTED_ON) return fail("before_network_start");
   const latestToday = new Date(now.getTime() + LATEST_TIMEZONE_OFFSET_MS).toISOString().slice(0, 10);
   if (isoDate > latestToday) return fail("future_date");
   return { ok: true, isoDate, date };

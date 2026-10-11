@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   EMPLOYMENT_DATE_MESSAGES,
+  METROFITNESS_NETWORK_STARTED_ON,
   employmentDateInputValue,
   formatEmploymentDateRu,
   localTodayInputValue,
@@ -62,15 +63,33 @@ test("EMP-B: future dates are rejected; today is accepted in every timezone (UTC
   assert.equal(parseEmploymentStartDate("2027-01-01", NOW).ok, false);
 });
 
-test("EMP-C: impossible / malformed / too-early dates are rejected", () => {
+test("EMP-C: impossible / malformed calendar dates are rejected", () => {
   for (const bad of ["2024-02-30", "2023-02-29", "2024-13-01", "15.08.2024", "2024-8-15", "", "   ", null, 20240815, "2024-08-15T00:00:00Z"]) {
     const r = parseEmploymentStartDate(bad, NOW);
     assert.equal(r.ok, false, String(bad));
   }
-  const early = parseEmploymentStartDate("1969-12-31", NOW);
-  assert.equal(early.ok, false);
-  if (!early.ok) assert.equal(early.code, "too_early");
   assert.equal(parseEmploymentStartDate("2024-02-29", NOW).ok, true); // real leap day
+});
+
+test("EMP-C2 (QA-04.1): the business minimum is the MetroFitness network start, 2015-12-05 — one named constant, enforced server-side and used as the picker's min", () => {
+  assert.equal(METROFITNESS_NETWORK_STARTED_ON, "2015-12-05");
+  const dayBefore = parseEmploymentStartDate("2015-12-04", NOW);
+  assert.equal(dayBefore.ok, false);
+  if (!dayBefore.ok) {
+    assert.equal(dayBefore.code, "before_network_start");
+    assert.equal(dayBefore.message, "Дата начала работы не может быть раньше 5 декабря 2015 года");
+  }
+  for (const old of ["1970-01-01", "2000-06-15", "2015-11-30"]) assert.equal(parseEmploymentStartDate(old, NOW).ok, false, old);
+  assert.equal(parseEmploymentStartDate("2015-12-05", NOW).ok, true);
+  assert.equal(parseEmploymentStartDate("2016-01-01", NOW).ok, true);
+  // The crafted-request path: the route runs exactly this parser before any write.
+  assert.match(read("src/app/api/profile/employment/route.ts"), /const date = parseEmploymentStartDate\(parsed\.data\.startedOn\);\s*\n\s*if \(!date\.ok\) return jsonError\(400, date\.code/);
+  // The picker uses the same constant; the date literal lives in one place only.
+  assert.match(read("src/components/profile/EmploymentStartSheet.tsx"), /min=\{METROFITNESS_NETWORK_STARTED_ON\}/);
+  for (const f of ["src/components/profile/EmploymentStartSheet.tsx", "src/app/api/profile/employment/route.ts", "src/lib/server/self-profile.ts", "src/app/profile/page.tsx"]) {
+    assert.doesNotMatch(read(f), /2015-12-05|1970/, f);
+  }
+  assert.doesNotMatch(read("src/lib/employment-date.ts"), /1970/);
 });
 
 test("EMP-D: no timezone shift — the stored date is shown and pre-filled as the same calendar date", () => {

@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 import { describeProfileSaveError } from "@/lib/profile-edit";
 import {
   EMPLOYMENT_DATE_MESSAGES,
-  EMPLOYMENT_DATE_MIN,
+  METROFITNESS_NETWORK_STARTED_ON,
   employmentDateInputValue,
   localTodayInputValue,
   parseEmploymentStartDate,
@@ -140,7 +140,7 @@ function EmploymentStartPanel({ startedAtIso, onClose, onSave }: Omit<Employment
               id={id}
               type="date"
               value={value}
-              min={EMPLOYMENT_DATE_MIN}
+              min={METROFITNESS_NETWORK_STARTED_ON}
               max={today}
               onChange={(event) => {
                 setValue(event.target.value);
