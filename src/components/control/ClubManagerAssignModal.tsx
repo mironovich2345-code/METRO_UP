@@ -6,7 +6,7 @@ import { ApiError } from "@/lib/api/client";
 import { cabinetApi } from "@/lib/api/cabinet-client";
 import { rolesApi } from "@/lib/api/roles-client";
 import type { CabinetTeamMemberDTO } from "@/lib/api/cabinet-client";
-import { Field, TextArea } from "@/components/admin/ui";
+import { Field, FieldGroup, TextArea } from "@/components/admin/ui";
 import { Modal } from "@/components/control/Modal";
 import { cn } from "@/lib/utils";
 
@@ -81,7 +81,10 @@ export function ClubManagerAssignModal({
         <p className="mt-1 text-sm text-muted-foreground">Клуб «{clubName ?? "—"}»</p>
 
         <div className="mt-4 space-y-4">
-          <Field label="Сотрудник">
+          {/* QA-05 — a FieldGroup, not a <label>: inside a label, tapping the
+              caption "clicked" the FIRST member button and silently selected
+              that employee. */}
+          <FieldGroup label="Сотрудник">
             {loadStatus === "loading" && <p className="text-sm text-muted-foreground">Загрузка сотрудников…</p>}
             {loadStatus === "error" && <p className="text-sm text-red-500">Не удалось загрузить сотрудников клуба.</p>}
             {loadStatus === "ready" && members && members.length === 0 && (
@@ -91,6 +94,7 @@ export function ClubManagerAssignModal({
               <div className="max-h-56 overflow-y-auto rounded-2xl border border-border">
                 {members.map((m) => (
                   <button
+                    type="button"
                     key={m.userId}
                     onClick={() => setSelected(m)}
                     className={cn(
@@ -104,7 +108,7 @@ export function ClubManagerAssignModal({
                 ))}
               </div>
             )}
-          </Field>
+          </FieldGroup>
 
           <Field label="Комментарий" hint="Необязательно — попадёт в журнал аудита.">
             <TextArea value={reason} onChange={(e) => setReason(e.target.value)} />

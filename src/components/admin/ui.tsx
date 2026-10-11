@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -22,6 +22,35 @@ export function Field({
       {children}
       {hint && <span className="mt-1 block text-xs text-muted-foreground">{hint}</span>}
     </label>
+  );
+}
+
+/**
+ * Sprint: LIVE QA QA-05 — the Field look for COMPOSITE content (a picker made
+ * of buttons, a selected-item card with «Изменить», …). Field is a <label>,
+ * and a browser forwards every click on a label that does not hit a control
+ * to the label's FIRST labelable descendant — with buttons inside, tapping
+ * the caption or a selected item's text "clicks" that first button (on the
+ * role-assignment form: «Изменить», which cleared the chosen user). A group
+ * is a plain <div role="group"> named by its caption, so nothing is ever
+ * activated implicitly.
+ */
+export function FieldGroup({
+  label,
+  children,
+  hint,
+}: {
+  label: string;
+  children: React.ReactNode;
+  hint?: string;
+}) {
+  const id = useId();
+  return (
+    <div role="group" aria-labelledby={id} className="block">
+      <span id={id} className="mb-1 block text-xs font-medium text-muted-foreground">{label}</span>
+      {children}
+      {hint && <span className="mt-1 block text-xs text-muted-foreground">{hint}</span>}
+    </div>
   );
 }
 
