@@ -3,7 +3,7 @@ import type { AppRole } from "@prisma/client";
 import { getCurrentUser, type CurrentUser } from "./session";
 import { isAccessSuspended, isAccessPending, hasFullAccess } from "./access-status-logic";
 import { getActorContext } from "./rbac/context";
-import { hasSystemAccess } from "./rbac/authorize-core";
+import { hasSharedControlAccess, hasSystemAccess } from "./rbac/authorize-core";
 import { hasActiveRole } from "./rbac/scope-core";
 
 /**
@@ -111,11 +111,10 @@ export async function requireFullAccess(): Promise<CurrentUser> {
  * management). Legacy AppRole=ADMIN OR an active PROJECT_ADMIN/SYSTEM
  * RoleAssignment — see hasSystemAccess() in rbac/authorize-core.ts, which is
  * the actual decision logic (pure, unit-tested). Do not inline
- * "legacyAdmin || projectAdmin" anywhere else — every CMS/system route calls
- * THIS function instead of requireAdmin(). requireAdmin() itself is
- * untouched and stays reserved for legacy-AppRole-only semantics (e.g. the
- * SPM bridge in requireSPMAccess, which is explicitly NOT extended to
- * PROJECT_ADMIN — SPM is a separate, do-not-touch legacy axis).
+ * "legacyAdmin || projectAdmin" anywhere else — every admin-only route calls
+ * THIS function instead of requireAdmin(). The surfaces SHARED with SPM
+ * (learning CMS, scripts, instructions, /spm) use requireSharedControlAccess()
+ * instead (QA-06.1).
  */
 export async function requireSystemAccess(): Promise<CurrentUser> {
   const user = await requireUser();
@@ -135,6 +134,29 @@ export async function requireSystemAccess(): Promise<CurrentUser> {
  */
 export async function hasSystemAccessForUser(user: CurrentUser): Promise<boolean> {
   return hasSystemAccess(await getActorContext(user));
+}
+
+/**
+ * Sprint: LIVE QA QA-06.1 — the ONE gate for the Control surfaces PROJECT_ADMIN
+ * and SPM share: Обучение (Academy CMS + media + draft preview), Скрипты,
+ * Инструкции, Тайный покупатель, Продажи, Рейтинг сотрудников. Passes for an
+ * active PROJECT_ADMIN/SYSTEM grant (no legacy AppRole needed), legacy
+ * AppRole=ADMIN, or legacy AppRole=SPM — hasSharedControlAccess in
+ * rbac/authorize-core.ts. A CLUB_MANAGER / CITY_MANAGER / OPERATIONS_DIRECTOR
+ * / MANAGER never passes by those roles. Admin-only surfaces (Метрик, Роли,
+ * Сотрудники, Логи) keep requireSystemAccess.
+ */
+export async function requireSharedControlAccess(): Promise<CurrentUser> {
+  const user = await requireUser();
+  if (!hasSharedControlAccess(await getActorContext(user))) {
+    throw new AuthError(403, "forbidden", "Insufficient permissions");
+  }
+  return user;
+}
+
+/** Non-throwing sibling for Server Component pages/layouts. */
+export async function hasSharedControlAccessForUser(user: CurrentUser): Promise<boolean> {
+  return hasSharedControlAccess(await getActorContext(user));
 }
 
 /** Legacy-only gate: AppRole=CLUB_MANAGER/ADMIN. No remaining callers as of
@@ -174,8 +196,10 @@ export async function requireClubManagerAccess(): Promise<CurrentUser> {
   if (hasActiveRole(actor.grants, "CLUB_MANAGER")) return user;
   throw new AuthError(403, "forbidden", "Insufficient permissions");
 }
-/** Strict SPM only. Prefer requireSPMAccess() for the SPM panel/APIs. */
+/** Strict SPM only (legacy AppRole). The SPM panel/APIs use requireSharedControlAccess(). */
 export const requireSPM = () => requireRole("SPM");
-/** SPM panel + write actions: SPM or ADMIN (ADMIN keeps its real identity). */
-export const requireSPMAccess = () => requireRole("SPM", "ADMIN");
+/** @deprecated QA-06.1 — the SPM panel now uses requireSharedControlAccess
+ * (which also admits a grant-only PROJECT_ADMIN). Kept as an alias so any
+ * remaining caller gets the same, current rule — never the old legacy-only one. */
+export const requireSPMAccess = () => requireSharedControlAccess();
 export const requireAdmin = () => requireRole("ADMIN");

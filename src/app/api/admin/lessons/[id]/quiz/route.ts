@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { requireSystemAccess } from "@/lib/server/authz";
+import { requireSharedControlAccess } from "@/lib/server/authz";
 import { jsonOk, handleError, readJson } from "@/lib/server/http";
 import { quizUpsertSchema } from "@/lib/server/content-schemas";
 import { upsertQuiz, deleteQuiz } from "@/lib/server/content-admin";
@@ -14,7 +14,7 @@ type Ctx = { params: Promise<{ id: string }> };
  * block saving a draft; publish enforces validity. */
 export async function PUT(req: NextRequest, ctx: Ctx) {
   try {
-    const admin = await requireSystemAccess();
+    const admin = await requireSharedControlAccess();
     const { id } = await ctx.params;
     const input = quizUpsertSchema.parse(await readJson(req));
     const warnings = validateQuizStructure(input);
@@ -27,7 +27,7 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
 
 export async function DELETE(_req: NextRequest, ctx: Ctx) {
   try {
-    const admin = await requireSystemAccess();
+    const admin = await requireSharedControlAccess();
     const { id } = await ctx.params;
     await deleteQuiz(admin.id, id);
     return jsonOk({ ok: true });

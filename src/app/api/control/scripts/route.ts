@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { requireSystemAccess } from "@/lib/server/authz";
+import { requireSharedControlAccess } from "@/lib/server/authz";
 import { jsonOk, handleError, readJson } from "@/lib/server/http";
 import { scriptCreateSchema } from "@/lib/server/knowledge-schemas";
 import { listScripts, listScriptCategories, createScript } from "@/lib/server/knowledge-admin";
@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
-    await requireSystemAccess();
+    await requireSharedControlAccess();
     const url = new URL(req.url);
     const [scripts, categories] = await Promise.all([
       listScripts({
@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const admin = await requireSystemAccess();
+    const admin = await requireSharedControlAccess();
     const input = scriptCreateSchema.parse(await readJson(req));
     const script = await createScript(admin.id, input);
     return jsonOk({ script }, 201);

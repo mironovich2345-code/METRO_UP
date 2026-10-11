@@ -1,20 +1,20 @@
 import type { AppRole } from "@prisma/client";
-import { canAccessSpm } from "@/lib/roles";
+import { isSharedControlRole } from "@/lib/roles";
 
 /**
  * The ONE Control navigation model, rendered by both the desktop sidebar and
  * the mobile «Разделы» sheet (ControlShell). Pure, so who-sees-what and route
  * resolution are unit-tested.
  *
- * Sprint: LIVE QA QA-06 — Control is the PROJECT_ADMIN / SPM workspace, so
- * their navigation no longer mirrors the club/city cabinets:
- *   - PROJECT_ADMIN (system access): Система (Метрик, Роли, Сотрудники, Логи),
- *     Контент (Обучение, Скрипты, Инструкции), and — when their legacy role
- *     also passes canAccessSpm — Контроль и результаты.
- *   - SPM (canAccessSpm): Контроль и результаты (Тайный покупатель, Продажи,
- *     Рейтинг сотрудников) — exactly what the /spm guards admit. Контент is
- *     not shown to SPM: its pages and APIs are system-access only today
- *     (requireSystemAccess); a nav item would only lead to «доступ запрещён».
+ * Sprint: LIVE QA QA-06 / QA-06.1 — Control is the PROJECT_ADMIN / SPM
+ * workspace, so their navigation no longer mirrors the club/city cabinets:
+ *   - Система (Метрик, Роли, Сотрудники, Логи) — PROJECT_ADMIN (system
+ *     access) ONLY.
+ *   - Контент (Обучение, Скрипты, Инструкции) and Контроль и результаты
+ *     (Тайный покупатель, Продажи, Рейтинг сотрудников) — the SHARED
+ *     PROJECT_ADMIN + SPM surfaces: shown exactly when isSharedControlRole
+ *     passes, the same predicate the server guard (requireSharedControlAccess)
+ *     uses, so a grant-only PROJECT_ADMIN and a legacy SPM both see them.
  *   - The club cabinet (Управляющий, План дня) is shown to a REAL club
  *     manager only (legacy AppRole=CLUB_MANAGER or an active CLUB_MANAGER
  *     grant) — no longer to a legacy ADMIN merely because canManageClub(ADMIN)
@@ -71,6 +71,7 @@ export interface ControlNavGroup {
 
 export function buildControlNav(flags: ControlNavFlags): ControlNavGroup[] {
   const isAdmin = flags.hasSystemAccess;
+  const isSharedControl = isSharedControlRole(flags.role, flags.hasSystemAccess);
   const isRealClubManager = flags.role === "CLUB_MANAGER" || flags.isClubManager;
   const groups: ControlNavGroup[] = [
     { id: "home", title: null, items: [{ href: "/control", label: "Главная", icon: "home", exact: true }] },
@@ -89,6 +90,8 @@ export function buildControlNav(flags: ControlNavFlags): ControlNavGroup[] {
         { href: "/control/logs", label: "Логи", icon: "logs" },
       ],
     });
+  }
+  if (isSharedControl) {
     groups.push({
       id: "content",
       title: "Контент",
@@ -98,8 +101,6 @@ export function buildControlNav(flags: ControlNavFlags): ControlNavGroup[] {
         { href: "/control/instructions", label: "Инструкции", icon: "instructions" },
       ],
     });
-  }
-  if (canAccessSpm(flags.role)) {
     groups.push({
       id: "results",
       title: "Контроль и результаты",

@@ -1,16 +1,16 @@
 import { getCurrentUser } from "@/lib/server/session";
-import { hasSystemAccessForUser } from "@/lib/server/authz";
+import { hasSharedControlAccessForUser } from "@/lib/server/authz";
 import { AccessDenied } from "@/components/control/AccessDenied";
 import { InstructionsAdmin } from "@/components/control/InstructionsAdmin";
 
 export const dynamic = "force-dynamic";
 
-/** Work Instructions CMS — SYSTEM access only. */
+/** Work Instructions CMS — shared PROJECT_ADMIN + SPM workspace (QA-06.1, hasSharedControlAccessForUser). */
 export default async function ControlInstructionsPage() {
   const user = await getCurrentUser();
   if (!user) return null;
-  if (!(await hasSystemAccessForUser(user))) {
-    return <AccessDenied message="Раздел «Инструкции» доступен только администраторам." />;
+  if (!(await hasSharedControlAccessForUser(user))) {
+    return <AccessDenied message="Раздел «Инструкции» доступен администраторам и СПМ." />;
   }
   return <InstructionsAdmin />;
 }

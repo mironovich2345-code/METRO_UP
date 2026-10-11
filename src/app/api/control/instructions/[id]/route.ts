@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { requireSystemAccess } from "@/lib/server/authz";
+import { requireSharedControlAccess } from "@/lib/server/authz";
 import { jsonOk, handleError, readJson } from "@/lib/server/http";
 import { instructionUpdateSchema } from "@/lib/server/knowledge-schemas";
 import { getInstruction, updateInstruction } from "@/lib/server/knowledge-admin";
@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
-    await requireSystemAccess();
+    await requireSharedControlAccess();
     const { id } = await ctx.params;
     return jsonOk({ instruction: await getInstruction(id) });
   } catch (e) {
@@ -19,7 +19,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 
 export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
-    const admin = await requireSystemAccess();
+    const admin = await requireSharedControlAccess();
     const { id } = await ctx.params;
     const input = instructionUpdateSchema.parse(await readJson(req));
     return jsonOk({ instruction: await updateInstruction(admin.id, id, input) });

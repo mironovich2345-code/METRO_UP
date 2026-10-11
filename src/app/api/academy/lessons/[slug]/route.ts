@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { requireSystemAccess, requireActiveAccess } from "@/lib/server/authz";
+import { requireSharedControlAccess, requireActiveAccess } from "@/lib/server/authz";
 import { jsonOk, jsonError, handleError } from "@/lib/server/http";
 import { getLessonDetail } from "@/lib/server/lesson-detail";
 import { prisma } from "@/lib/server/db";
@@ -35,7 +35,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ slug: strin
     let userId: string | null = null;
     let restrictToProgramId: string | null = null;
     if (preview) {
-      await requireSystemAccess(); // only admins may preview drafts
+      await requireSharedControlAccess(); // only content editors (PROJECT_ADMIN / SPM) may preview drafts
     } else {
       const user = await requireActiveAccess();
       const effective = await resolveEffectiveReadContext(user);

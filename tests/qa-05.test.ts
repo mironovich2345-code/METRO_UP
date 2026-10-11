@@ -184,17 +184,17 @@ test("NAV-ADMIN (updated for QA-06): a legacy ADMIN gets Система, Кон�
   ]);
 });
 
-test("NAV-RBAC (updated for QA-06): each group appears only for the role whose server guard admits it — no widening", () => {
+test("NAV-RBAC (updated for QA-06.1): each group appears only for the role whose server guard admits it — no widening", () => {
   assert.deepEqual(hrefs(NONE), ["/control"]);
-  // PROJECT_ADMIN by grant only (AppRole EMPLOYEE): system + content; /spm stays legacy-role gated.
-  assert.deepEqual(hrefs({ ...NONE, hasSystemAccess: true }), ["/control", "/control/metric", "/control/roles", "/control/users", "/control/logs", "/admin/content", "/control/scripts", "/control/instructions"]);
+  // PROJECT_ADMIN by grant only (AppRole EMPLOYEE): system + the shared content and results.
+  assert.deepEqual(hrefs({ ...NONE, hasSystemAccess: true }), ["/control", "/control/metric", "/control/roles", "/control/users", "/control/logs", "/admin/content", "/control/scripts", "/control/instructions", "/spm/mystery", "/spm/sales", "/spm/rating"]);
   for (const f of [{ ...NONE, role: "CLUB_MANAGER" as const }, { ...NONE, isClubManager: true }]) {
     assert.deepEqual(hrefs(f), ["/control", "/control/club", "/control/plan"]);
   }
   assert.deepEqual(hrefs({ ...NONE, isCityManager: true }), ["/control", "/control/city"]);
   assert.deepEqual(hrefs({ ...NONE, isOperationsDirector: true }), ["/control", "/control/network"]);
-  // SPM: results only — never system, content or role administration.
-  assert.deepEqual(hrefs({ ...NONE, role: "SPM" }), ["/control", "/spm/mystery", "/spm/sales", "/spm/rating"]);
+  // SPM: the shared content + results — never system or role administration.
+  assert.deepEqual(hrefs({ ...NONE, role: "SPM" }), ["/control", "/admin/content", "/control/scripts", "/control/instructions", "/spm/mystery", "/spm/sales", "/spm/rating"]);
 });
 
 test("NAV-ACTIVE: the current section is resolved for every page, sub-routes included; segment-aware; null outside the nav", () => {

@@ -42,19 +42,19 @@ test("NAV-PA: PROJECT_ADMIN sees the admin-only system sections, content and res
   );
 });
 
-test("NAV-PA-GRANT: a PROJECT_ADMIN by grant only (no legacy SPM/ADMIN role) gets system + content; results stay hidden because the /spm server guard (canAccessSpm) would deny them", () => {
+test("NAV-PA-GRANT (updated for QA-06.1): a PROJECT_ADMIN by grant only (no legacy SPM/ADMIN role) gets system, content AND results — the /spm guard is the shared capability now", () => {
   const l = labels(GRANT_ADMIN);
-  for (const x of [...ADMIN_ONLY, ...CONTENT]) assert.ok(l.includes(x), x);
-  for (const x of [...RESULTS, ...CLUB_CABINET]) assert.ok(!l.includes(x), x);
-  assert.match(read("src/app/spm/(panel)/layout.tsx"), /if \(!user \|\| !canAccessSpm\(user\.role\)\)/);
+  for (const x of [...ADMIN_ONLY, "Сотрудники", ...CONTENT, ...RESULTS]) assert.ok(l.includes(x), x);
+  for (const x of CLUB_CABINET) assert.ok(!l.includes(x), x);
+  assert.match(read("src/app/spm/(panel)/layout.tsx"), /if \(!user \|\| !\(await hasSharedControlAccessForUser\(user\)\)\)/);
 });
 
-test("NAV-SPM: SPM sees the results it is authorised for — never Роли / Логи / Метрик / Сотрудники, never club management, never content it cannot open", () => {
-  assert.deepEqual(labels(SPM), ["Главная", ...RESULTS]);
-  for (const x of [...ADMIN_ONLY, "Сотрудники", ...CLUB_CABINET, ...CONTENT]) assert.ok(!labels(SPM).includes(x), x);
-  // Content is system-access only on the server today (so not offered to SPM).
-  assert.match(read("src/app/admin/layout.tsx"), /hasSystemAccessForUser\(user\)/);
-  assert.match(read("src/app/control/(portal)/scripts/page.tsx"), /hasSystemAccessForUser\(user\)/);
+test("NAV-SPM (updated for QA-06.1): SPM sees content and results — never Роли / Логи / Метрик / Сотрудники, never club management", () => {
+  assert.deepEqual(labels(SPM), ["Главная", ...CONTENT, ...RESULTS]);
+  for (const x of [...ADMIN_ONLY, "Сотрудники", ...CLUB_CABINET]) assert.ok(!labels(SPM).includes(x), x);
+  // Content is the shared capability on the server (so it opens for SPM).
+  assert.match(read("src/app/admin/layout.tsx"), /hasSharedControlAccessForUser\(user\)/);
+  assert.match(read("src/app/control/(portal)/scripts/page.tsx"), /hasSharedControlAccessForUser\(user\)/);
 });
 
 test("NAV-CABINETS: CLUB_MANAGER and CITY_MANAGER keep their own cabinets exactly; an admin who REALLY holds those roles gets them too", () => {

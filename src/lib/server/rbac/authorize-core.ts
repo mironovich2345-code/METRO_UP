@@ -1,4 +1,5 @@
 import { grantCoversClub } from "./scope-core";
+import { isSharedControlRole } from "@/lib/roles";
 import type { ActorContext, NetworkRole, RoleGrant, RoleScopeType } from "./types";
 
 /**
@@ -21,6 +22,12 @@ export function hasSystemAccess(actor: ActorContext): boolean {
   return actor.grants.some(
     (g) => g.role === "PROJECT_ADMIN" && g.scopeType === "SYSTEM" && g.status === "ACTIVE",
   );
+}
+
+/** Sprint: LIVE QA QA-06.1 — PROJECT_ADMIN (grant or legacy ADMIN) OR SPM:
+ * the shared Control content/results workspace. See isSharedControlRole. */
+export function hasSharedControlAccess(actor: ActorContext): boolean {
+  return isSharedControlRole(actor.appRole, hasSystemAccess(actor));
 }
 
 function activeGrants(actor: ActorContext): RoleGrant[] {

@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/server/db";
-import { requireSystemAccess } from "@/lib/server/authz";
+import { requireSharedControlAccess } from "@/lib/server/authz";
 import { jsonOk, handleError, readJson } from "@/lib/server/http";
 import { programCreateSchema } from "@/lib/server/content-schemas";
 import { createProgram } from "@/lib/server/content-admin";
@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 /** GET /api/admin/programs — full tree for the editor. */
 export async function GET() {
   try {
-    await requireSystemAccess();
+    await requireSharedControlAccess();
     const programs = await prisma.trainingProgram.findMany({
       orderBy: { order: "asc" },
       include: {
@@ -36,7 +36,7 @@ export async function GET() {
 /** POST /api/admin/programs — create a program. */
 export async function POST(req: NextRequest) {
   try {
-    const admin = await requireSystemAccess();
+    const admin = await requireSharedControlAccess();
     const input = programCreateSchema.parse(await readJson(req));
     const program = await createProgram(admin.id, input);
     return jsonOk({ program }, 201);

@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/server/db";
-import { requireSystemAccess } from "@/lib/server/authz";
+import { requireSharedControlAccess } from "@/lib/server/authz";
 import { jsonOk, jsonError, handleError, readJson } from "@/lib/server/http";
 import { lessonUpdateSchema } from "@/lib/server/content-schemas";
 import { updateLesson } from "@/lib/server/content-admin";
@@ -14,7 +14,7 @@ type Ctx = { params: Promise<{ id: string }> };
 /** GET — full lesson for the editor (raw blocks + quiz WITH answer keys, admin-only). */
 export async function GET(_req: NextRequest, ctx: Ctx) {
   try {
-    await requireSystemAccess();
+    await requireSharedControlAccess();
     const { id } = await ctx.params;
     const lesson = await prisma.lesson.findUnique({
       where: { id },
@@ -37,7 +37,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
 
 export async function PATCH(req: NextRequest, ctx: Ctx) {
   try {
-    const admin = await requireSystemAccess();
+    const admin = await requireSharedControlAccess();
     const { id } = await ctx.params;
     const input = lessonUpdateSchema.parse(await readJson(req));
     const lesson = await updateLesson(admin.id, id, input);

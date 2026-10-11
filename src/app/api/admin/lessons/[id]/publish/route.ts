@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { requireSystemAccess } from "@/lib/server/authz";
+import { requireSharedControlAccess } from "@/lib/server/authz";
 import { jsonOk, handleError } from "@/lib/server/http";
 import { publishLesson } from "@/lib/server/publish";
 
@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 /** POST — validate + publish. On failure returns 400 with `details` (errors[]). */
 export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
-    const admin = await requireSystemAccess();
+    const admin = await requireSharedControlAccess();
     const { id } = await ctx.params;
     const lesson = await publishLesson(admin.id, id);
     return jsonOk({ lesson });

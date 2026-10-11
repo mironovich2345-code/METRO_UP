@@ -27,3 +27,18 @@ export function canAccessControl(role: AppRole): boolean {
 export function canManageClub(role: AppRole): boolean {
   return role === "CLUB_MANAGER" || role === "ADMIN";
 }
+
+/**
+ * Sprint: LIVE QA QA-06.1 — the shared Control workspace of PROJECT_ADMIN and
+ * SPM: Обучение, Скрипты, Инструкции, Тайный покупатель, Продажи, Рейтинг
+ * сотрудников (and the future Рейтинг клубов). True for system access
+ * (an active PROJECT_ADMIN/SYSTEM grant OR legacy AppRole=ADMIN — the
+ * canonical hasSystemAccess bridge; ADMIN is also matched directly so the
+ * legacy role alone is enough) or legacy AppRole=SPM. Never for a
+ * CLUB_MANAGER / CITY_MANAGER / OPERATIONS_DIRECTOR / MANAGER by those roles.
+ * Pure and client-safe so the server gate (authorize-core.ts) and the Control
+ * navigation (control-nav.ts) cannot disagree.
+ */
+export function isSharedControlRole(appRole: AppRole, hasSystemAccess: boolean): boolean {
+  return hasSystemAccess || appRole === "ADMIN" || appRole === "SPM";
+}

@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
-import { requireSystemAccess } from "@/lib/server/authz";
+import { requireSharedControlAccess } from "@/lib/server/authz";
 import { jsonOk, handleError, readJson } from "@/lib/server/http";
 import { setInstructionStatus } from "@/lib/server/knowledge-admin";
 
@@ -11,7 +11,7 @@ const bodySchema = z.object({ status: z.enum(["DRAFT", "ARCHIVED"]) });
 
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   try {
-    const admin = await requireSystemAccess();
+    const admin = await requireSharedControlAccess();
     const { id } = await ctx.params;
     const { status } = bodySchema.parse(await readJson(req));
     return jsonOk({ instruction: await setInstructionStatus(admin.id, id, status) });

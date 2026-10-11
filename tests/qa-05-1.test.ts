@@ -16,7 +16,7 @@ import {
   resolveActiveControlNavItem,
   type ControlNavFlags,
 } from "../src/lib/control/control-nav";
-import { canAccessSpm, canManageClub } from "../src/lib/roles";
+import { canManageClub, isSharedControlRole } from "../src/lib/roles";
 import { resolveManagedClubSelection } from "../src/lib/cabinet-ui";
 import { ApiError } from "../src/lib/api/client";
 import type { AccessStatusDTO } from "../src/lib/api/types";
@@ -57,9 +57,9 @@ const REMOVED_HOME_CARDS: { href: string; can: (f: ControlNavFlags) => boolean }
   { href: "/control/team", can: (f) => canManageClub(f.role) || f.isClubManager },
   { href: "/control/city", can: (f) => f.isCityManager },
   { href: "/control/network", can: (f) => f.isOperationsDirector },
-  { href: "/spm/sales", can: (f) => canAccessSpm(f.role) },
-  { href: "/spm/mystery", can: (f) => canAccessSpm(f.role) },
-  { href: "/spm/rating", can: (f) => canAccessSpm(f.role) },
+  { href: "/spm/sales", can: (f) => isSharedControlRole(f.role, f.hasSystemAccess) },
+  { href: "/spm/mystery", can: (f) => isSharedControlRole(f.role, f.hasSystemAccess) },
+  { href: "/spm/rating", can: (f) => isSharedControlRole(f.role, f.hasSystemAccess) },
 ];
 
 test("HOME-REACH (updated for QA-06): every destination a removed Home card offered is still in the actor's nav — except the club cabinet for an actor who is not a real club manager (a QA-06 product decision; the routes still exist)", () => {
@@ -232,15 +232,16 @@ test("NAV-IA-V2 (updated for QA-06): the grouped IA matches the QA-06 target (em
   for (const f of allFlagCombos()) for (const g of buildControlNav(f)) assert.ok(g.items.length > 0);
 });
 
-test("NAV-SAME-PERMISSIONS (updated for QA-06): across every permission combination nothing is offered beyond the role's server guard; the club cabinet only to real club managers", () => {
+test("NAV-SAME-PERMISSIONS (updated for QA-06.1): across every permission combination nothing is offered beyond the role's server guard; the club cabinet only to real club managers", () => {
   for (const f of allFlagCombos()) {
     const nav = navHrefs(f);
     const realClubManager = f.role === "CLUB_MANAGER" || f.isClubManager;
     assert.equal(nav.includes("/control/club"), realClubManager, JSON.stringify(f));
     assert.equal(nav.includes("/control/logs"), f.hasSystemAccess, JSON.stringify(f));
     assert.equal(nav.includes("/control/roles"), f.hasSystemAccess, JSON.stringify(f));
-    assert.equal(nav.includes("/admin/content"), f.hasSystemAccess, JSON.stringify(f));
-    assert.equal(nav.includes("/spm/rating"), canAccessSpm(f.role), JSON.stringify(f));
+    // QA-06.1: content and results are the shared PROJECT_ADMIN + SPM surfaces.
+    assert.equal(nav.includes("/admin/content"), isSharedControlRole(f.role, f.hasSystemAccess), JSON.stringify(f));
+    assert.equal(nav.includes("/spm/rating"), isSharedControlRole(f.role, f.hasSystemAccess), JSON.stringify(f));
     assert.equal(nav.includes("/control/city"), f.isCityManager, JSON.stringify(f));
     assert.equal(nav.includes("/control/network"), f.isOperationsDirector, JSON.stringify(f));
   }
