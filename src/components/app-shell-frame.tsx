@@ -1,12 +1,12 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import { Loader2, RotateCw } from "lucide-react";
 import { AccessStatusGate } from "@/components/access/AccessStatusGate";
 import { ViewAsBanner } from "@/components/control/ViewAsBanner";
 import { EmployeeBootGate } from "@/components/employee-boot-gate";
 import { useAppUser } from "@/providers/AppUserProvider";
-import { canRenderAppBody } from "@/lib/context-transition";
+import { canRenderAppBody, isDesynced } from "@/lib/context-transition";
 import { viewAsApi } from "@/lib/api/roles-client";
 
 /**
@@ -56,6 +56,16 @@ import { viewAsApi } from "@/lib/api/roles-client";
  * whole switch, success or failure. `canRenderAppBody` (context-
  * transition.ts, pure) is the shared predicate — this is the only call
  * site that acts on it.
+ *
+ * Sprint: LIVE QA FIX QA-01.1 — a THIRD, mutually exclusive outcome:
+ * `contextTransitionPhase === "desynced"` means the server-side switch
+ * SUCCEEDED but identity confirmation did not (see confirmIdentity's own
+ * doc comment, AppUserProvider.tsx). The last CONFIRMED AppUser is now
+ * stale relative to the server, so it may never be revealed as if nothing
+ * happened — ContextRecoveryScreen renders instead of
+ * ContextTransitionOverlay, covering everything the same way, but with no
+ * way out except the full reload its own button performs (no retry button
+ * that could race the same confirmation again, no auto-reload loop).
  */
 const FULL_WIDTH_PREFIXES = ["/control", "/admin", "/spm"];
 
@@ -95,7 +105,11 @@ export function AppShellFrame({ children }: { children: React.ReactNode }) {
           />
         )}
         <AccessStatusGate>{children}</AccessStatusGate>
-        {!canRenderAppBody(contextTransitionPhase) && <ContextTransitionOverlay />}
+        {isDesynced(contextTransitionPhase) ? (
+          <ContextRecoveryScreen />
+        ) : (
+          !canRenderAppBody(contextTransitionPhase) && <ContextTransitionOverlay />
+        )}
       </EmployeeBootGate>
     </div>
   );
@@ -121,6 +135,41 @@ function ContextTransitionOverlay() {
       <p className="text-xl font-extrabold tracking-tight">METRO UP</p>
       <Loader2 className="size-6 animate-spin text-brand" />
       <p className="text-sm text-muted-foreground">Переключаем кабинет…</p>
+    </div>
+  );
+}
+
+/**
+ * Sprint: LIVE QA FIX QA-01.1 — the ONLY way out of "desynced" is a full
+ * application reload: `window.location.reload()` re-runs the ENTIRE
+ * Telegram bootstrap from scratch (AppUserProvider's own `bootstrap()`),
+ * which re-authenticates against whatever the server's session/cookie
+ * ACTUALLY is right now — the one unconditionally authoritative source,
+ * never a guess reconciled client-side. Deliberately a single explicit
+ * button, not an automatic reload: an auto-reload that itself fails would
+ * need its own loop guard to avoid repeating forever, which is exactly the
+ * complexity the brief says to avoid by preferring an explicit user action
+ * instead. No skeleton, no previous role/club name — same minimal
+ * language as ContextTransitionOverlay, with its own distinct copy and a
+ * recovery action instead of a spinner.
+ */
+function ContextRecoveryScreen() {
+  return (
+    <div className="fixed inset-0 z-[100] flex min-h-[100dvh] flex-col items-center justify-center gap-4 bg-background px-8 text-center">
+      <p className="text-xl font-extrabold tracking-tight">METRO UP</p>
+      <div>
+        <p className="text-base font-bold">Не удалось обновить кабинет</p>
+        <p className="mt-1.5 text-sm text-muted-foreground">
+          Контекст уже изменён, но приложение не смогло получить актуальные данные.
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={() => window.location.reload()}
+        className="inline-flex items-center gap-2 rounded-2xl bg-brand px-5 py-3 text-sm font-semibold text-brand-foreground"
+      >
+        <RotateCw className="size-4" /> Обновить приложение
+      </button>
     </div>
   );
 }

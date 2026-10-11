@@ -22,7 +22,7 @@ import { setOwnerKey, getOwnerKey, deriveOwnerKey } from "@/lib/client/owner";
 import { cacheKeys } from "@/lib/client/cache-keys";
 import { getEntry, persistEntry, deleteEntry } from "@/lib/client/persistent-cache";
 import { logBootEvent } from "@/lib/client/perf-boot";
-import { runContextTransition, type ContextTransitionPhase } from "@/lib/context-transition";
+import { runContextTransition, ContextDesyncError, type ContextTransitionPhase } from "@/lib/context-transition";
 import type { AppUserDTO, OnboardingInputDTO } from "@/lib/api/types";
 
 /** Hard ceiling for the Telegram bootstrap; production must never load forever. */
@@ -107,10 +107,20 @@ interface AppUserContextValue {
    * the transition ACTIVE before `action` is invoked, keeps it active for
    * `action`'s entire duration (server call, query-cache clear, identity
    * confirmation, any navigation — whatever `action` itself awaits), then
-   * marks it INACTIVE once `action` settles — success or failure alike.
-   * Rethrows on failure so the caller's own existing error UI (message,
-   * retry button) runs exactly as it did before this gate existed; never
-   * swallows an error silently.
+   * settles once `action` settles. Three outcomes (QA-01.1 extends the
+   * original two):
+   *  - success: marks INACTIVE ("idle"), the new cabinet may render.
+   *  - an ORDINARY failure (the server-side operation itself never
+   *    succeeded): marks INACTIVE ("idle") and rethrows, so the caller's
+   *    own existing error UI (message, retry button) runs exactly as it
+   *    did before this gate existed, against the still-honest old context.
+   *  - a `ContextDesyncError` specifically (the server-side operation DID
+   *    succeed but `confirmIdentity()` could not confirm the result):
+   *    marks "desynced" instead, and swallows the error — no caller may
+   *    react locally once the global ContextRecoveryScreen has taken over
+   *    (see context-transition.ts's own doc comment for the full
+   *    reasoning). Never a case that silently loses an error with nothing
+   *    showing SOMEWHERE — exactly one of these three always happens.
    */
   switchContext: (action: () => Promise<void>) => Promise<void>;
   /**
@@ -122,11 +132,16 @@ interface AppUserContextValue {
    * ONCE before giving up: by the time this runs, the server-side switch
    * has already succeeded, so a single transient network hiccup should
    * not strand the user on a stale identity if an immediate second
-   * attempt would resolve it. If the retry also fails, rethrows and
-   * leaves `user`/`status` at their last CONFIRMED value — `setUser` is
-   * only ever called on success, so a failed confirmation never produces
-   * a half-updated identity (see the QA-01 report's "Error recovery"
-   * section for the full reasoning on this specific failure mode).
+   * attempt would resolve it. If the retry also fails, throws a
+   * `ContextDesyncError` (QA-01.1) — not a plain Error — specifically
+   * because every existing call site only ever calls this AFTER its own
+   * preceding server mutation already succeeded, so a failure HERE always
+   * means "server changed, client couldn't confirm it," never "nothing
+   * changed at all." `user`/`status` are left at their last CONFIRMED
+   * value either way — `setUser` is only ever called on success, so a
+   * failed confirmation never produces a half-updated identity — but
+   * `switchContext` now treats that stale value as untrustworthy for
+   * rendering (see the QA-01.1 report's "Desync root cause" section).
    */
   confirmIdentity: () => Promise<void>;
 }
@@ -238,12 +253,27 @@ export function AppUserProvider({ children }: { children: React.ReactNode }) {
    * on AppUserContextValue for the full contract. One immediate retry before
    * giving up; `user`/`status` are untouched unless `applyFetchedIdentity`
    * itself succeeds, so a failure here never produces a half-updated
-   * identity — it leaves the LAST confirmed one in place and rethrows. */
+   * identity — it leaves the LAST confirmed one in place.
+   *
+   * Sprint: LIVE QA FIX QA-01.1 — the retry's own failure now throws
+   * `ContextDesyncError` (context-transition.ts), not the plain Error the
+   * underlying fetch itself raised. Deliberately a DIFFERENT, recognizable
+   * type: every existing caller of this function awaits its own preceding
+   * server mutation (viewAsApi.start/end) to succeed FIRST, so reaching
+   * this retry's catch block always means "the server already changed,
+   * the client just couldn't confirm it" — never "nothing happened at
+   * all." `switchContext`'s `instanceof ContextDesyncError` check is what
+   * turns that distinction into the "desynced" phase instead of the
+   * ordinary "idle" any other failure settles to. */
   const confirmIdentity = useCallback(async () => {
     try {
       await applyFetchedIdentity();
     } catch {
-      await applyFetchedIdentity(); // one immediate retry; a second failure propagates
+      try {
+        await applyFetchedIdentity(); // one immediate retry
+      } catch (e) {
+        throw new ContextDesyncError(e);
+      }
     }
   }, [applyFetchedIdentity]);
 

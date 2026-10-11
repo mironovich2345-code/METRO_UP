@@ -4,8 +4,10 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   canRenderAppBody,
+  isDesynced,
   nextContextTransitionPhase,
   runContextTransition,
+  ContextDesyncError,
   type ContextTransitionPhase,
 } from "../src/lib/context-transition";
 
@@ -128,23 +130,39 @@ test("CTX-K: canRenderAppBody(switching) === false — the neutral transition su
   assert.equal(canRenderAppBody("switching"), false);
 });
 
-test("CTX-L (structural): AppShellFrame reads contextTransitionPhase from useAppUser() and feeds it to canRenderAppBody to decide whether ContextTransitionOverlay renders — the ONE call site that acts on the shared predicate", () => {
+test("CTX-L (structural): AppShellFrame reads contextTransitionPhase from useAppUser() and feeds it to canRenderAppBody/isDesynced to decide between the real app body, ContextTransitionOverlay, and ContextRecoveryScreen — the ONE call site that acts on either shared predicate", () => {
   const src = read("src/components/app-shell-frame.tsx");
-  assert.match(src, /import \{ canRenderAppBody \} from "@\/lib\/context-transition";/);
+  assert.match(src, /import \{ canRenderAppBody, isDesynced \} from "@\/lib\/context-transition";/);
   assert.match(src, /const \{ user, switchContext, confirmIdentity, contextTransitionPhase \} = useAppUser\(\);/);
-  assert.match(src, /!canRenderAppBody\(contextTransitionPhase\) && <ContextTransitionOverlay \/>/);
+  assert.match(src, /isDesynced\(contextTransitionPhase\) \? \(\s*\n\s*<ContextRecoveryScreen \/>\s*\n\s*\) : \(\s*\n\s*!canRenderAppBody\(contextTransitionPhase\) && <ContextTransitionOverlay \/>\s*\n\s*\)/);
 });
 
-test("CTX-M (structural): the transition overlay is a `fixed inset-0` layer stacked ON TOP of the banner/children (never a conditional replacement of them) — this is the deliberate 'cover, don't unmount' choice that keeps the triggering screen's own local state (error messages, busy flags) intact across a failed switch", () => {
+test("CTX-M (structural): the transition overlay (or, exclusively, the recovery screen) is a `fixed inset-0` layer stacked ON TOP of the banner/children (never a conditional replacement of them) — this is the deliberate 'cover, don't unmount' choice that keeps the triggering screen's own local state (error messages, busy flags) intact across a failed switch", () => {
   const src = read("src/components/app-shell-frame.tsx");
-  const fnSrc = src.slice(src.indexOf("function ContextTransitionOverlay"), src.length);
-  assert.match(fnSrc, /fixed inset-0/);
-  // Both the banner/children AND the (conditionally-shown) overlay are
-  // siblings inside the SAME return — never an `if/else` swapping one for
-  // the other.
+  const overlayFnSrc = src.slice(src.indexOf("function ContextTransitionOverlay"), src.indexOf("function ContextRecoveryScreen"));
+  assert.match(overlayFnSrc, /fixed inset-0/);
+  const recoveryFnSrc = src.slice(src.indexOf("function ContextRecoveryScreen"), src.length);
+  assert.match(recoveryFnSrc, /fixed inset-0/);
+  // The banner/children AND the (conditionally-shown) overlay/recovery
+  // screen are siblings inside the SAME return — never an `if/else`
+  // swapping the banner/children themselves out for either one.
   const returnSrc = src.slice(src.indexOf("return (\n    <div className=\"app-shell\">"), src.indexOf("function ContextTransitionOverlay"));
   assert.match(returnSrc, /<AccessStatusGate>\{children\}<\/AccessStatusGate>/);
-  assert.match(returnSrc, /\{!canRenderAppBody\(contextTransitionPhase\) && <ContextTransitionOverlay \/>\}/);
+  assert.match(returnSrc, /isDesynced\(contextTransitionPhase\) \?/);
+});
+
+test("CTX-M2 (structural): the two surfaces are MUTUALLY EXCLUSIVE — ContextRecoveryScreen is chosen by a ternary (isDesynced ? recovery : overlay-or-nothing), never a second independent condition that could show both, or neither, at once", () => {
+  const src = read("src/components/app-shell-frame.tsx");
+  const returnSrc = src.slice(src.indexOf("return (\n    <div className=\"app-shell\">"), src.indexOf("function ContextTransitionOverlay"));
+  const ternaryIdx = returnSrc.indexOf("isDesynced(contextTransitionPhase) ?");
+  assert.ok(ternaryIdx >= 0);
+  // Exactly one ContextRecoveryScreen reference and one ContextTransitionOverlay
+  // reference inside the render — both live inside the SAME ternary's two
+  // branches, not behind separate, independently-toggleable conditions.
+  const recoveryMatches = returnSrc.match(/<ContextRecoveryScreen \/>/g) ?? [];
+  const overlayMatches = returnSrc.match(/<ContextTransitionOverlay \/>/g) ?? [];
+  assert.equal(recoveryMatches.length, 1);
+  assert.equal(overlayMatches.length, 1);
 });
 
 test("CTX-N (structural): the transition surface shows no previous role/club name, no skeleton cards — only the brand wordmark, a spinner, and the one required copy line ('Переключаем кабинет…')", () => {
@@ -193,4 +211,105 @@ test("CTX-Q (structural): every View-As start/end call site composes its server 
 
   const home = read("src/app/home/page.tsx");
   assert.match(home, /switchContext\(async \(\) => \{\s*\n\s*await viewAsApi\.end\(\);\s*\n\s*await confirmIdentity\(\);\s*\n\s*\}\);/);
+});
+
+/* ===================================================================== *
+ *  Sprint: LIVE QA FIX QA-01.1 — "Context Switch Desync Recovery".
+ *  Distinguishes two failure classes the QA-01 state machine used to
+ *  collapse into one: the server-side operation never succeeding (safe
+ *  to return to the old confirmed cabinet) vs. the server-side operation
+ *  succeeding but identity confirmation failing (unsafe — must desync).
+ * ===================================================================== */
+
+test("CTX-R: idle -> switching, re-confirmed under the 3-phase table", () => {
+  assert.equal(nextContextTransitionPhase("idle", "begin"), "switching");
+});
+
+test("CTX-S: ORDINARY server failure (the action throws before ever reaching identity confirmation) -> settles to idle and rethrows — the old confirmed cabinet is still honest and may render again", async () => {
+  const phases: ContextTransitionPhase[] = [];
+  const serverError = new Error("viewAsApi.start rejected (403/network) — server state never changed");
+  await assert.rejects(
+    runContextTransition(async () => {
+      throw serverError; // the server call itself failed — never a ContextDesyncError
+    }, (p) => phases.push(p)),
+    serverError,
+  );
+  assert.deepEqual(phases, ["switching", "idle"]);
+  assert.equal(canRenderAppBody(phases.at(-1) as ContextTransitionPhase), true);
+});
+
+test("CTX-T: server success + identity success -> idle, the new (now-confirmed) UI may render", async () => {
+  const phases: ContextTransitionPhase[] = [];
+  await runContextTransition(async () => {
+    /* viewAsApi.start/end resolves */
+    /* confirmIdentity resolves */
+  }, (p) => phases.push(p));
+  assert.deepEqual(phases, ["switching", "idle"]);
+  assert.equal(canRenderAppBody(phases.at(-1) as ContextTransitionPhase), true);
+});
+
+test("CTX-U: THE QA-01.1 FIX — server success + identity failure (confirmIdentity throws ContextDesyncError) settles to 'desynced', NOT 'idle' — and the error is swallowed here (does not reject the caller's own promise), because no local error UI may run against a screen the global ContextRecoveryScreen has already taken over", async () => {
+  const phases: ContextTransitionPhase[] = [];
+  await runContextTransition(async () => {
+    throw new ContextDesyncError(new Error("fetchMe failed twice after the server-side switch already succeeded"));
+  }, (p) => phases.push(p));
+  assert.deepEqual(phases, ["switching", "desynced"]);
+});
+
+test("CTX-V: desynced -> canRenderAppBody === false — the ordinary app body may NOT render while desynced, same as while switching", () => {
+  assert.equal(canRenderAppBody("desynced"), false);
+});
+
+test("CTX-W: isDesynced distinguishes 'desynced' from the ordinary transient 'switching' phase — the exact predicate AppShellFrame uses to choose ContextRecoveryScreen instead of ContextTransitionOverlay", () => {
+  assert.equal(isDesynced("desynced"), true);
+  assert.equal(isDesynced("switching"), false);
+  assert.equal(isDesynced("idle"), false);
+});
+
+test("CTX-X: a PLAIN Error is NEVER mistaken for desync, even one that merely MENTIONS desync in its own message — only a genuine ContextDesyncError instance settles to 'desynced'; every other rejection settles to the ordinary 'idle' and rethrows", async () => {
+  const phases: ContextTransitionPhase[] = [];
+  const lookalike = new Error("context desynced maybe?"); // same-ish wording, wrong type
+  await assert.rejects(
+    runContextTransition(async () => {
+      throw lookalike;
+    }, (p) => phases.push(p)),
+    lookalike,
+  );
+  assert.deepEqual(phases, ["switching", "idle"]);
+});
+
+test("CTX-Y (structural): confirmIdentity throws ContextDesyncError (not a plain Error) on its retry's own failure, wrapping the underlying cause — every existing call site only ever invokes confirmIdentity() AFTER its own preceding server mutation already succeeded (CTX-Q), so reaching this catch always means 'server changed, client couldn't confirm'", () => {
+  const src = read("src/providers/AppUserProvider.tsx");
+  assert.match(src, /import \{ runContextTransition, ContextDesyncError, type ContextTransitionPhase \} from "@\/lib\/context-transition";/);
+  const fnSrc = src.slice(src.indexOf("const confirmIdentity = useCallback"), src.indexOf("const [transitionPhase"));
+  assert.match(fnSrc, /throw new ContextDesyncError\(e\);/);
+});
+
+test("CTX-Z (structural): runContextTransition recognizes ContextDesyncError specifically via `instanceof`, never a string/error-code match an unrelated error could accidentally satisfy", () => {
+  const src = read("src/lib/context-transition.ts");
+  const fnSrc = src.slice(src.indexOf("export async function runContextTransition"), src.length);
+  assert.match(fnSrc, /if \(e instanceof ContextDesyncError\)/);
+});
+
+test("CTX-AA (structural): ContextRecoveryScreen's recovery action calls window.location.reload() directly — a full application reload/rebootstrap, never a partial client-side retry of the SAME confirmIdentity() that just failed", () => {
+  const src = read("src/components/app-shell-frame.tsx");
+  const fnSrc = src.slice(src.indexOf("function ContextRecoveryScreen"), src.length);
+  assert.match(fnSrc, /onClick=\{\(\) => window\.location\.reload\(\)\}/);
+});
+
+test("CTX-AB (structural): no automatic reload anywhere in app-shell-frame.tsx or context-transition.ts — the recovery is reachable ONLY via the button's own onClick, never a useEffect/timer that could fire it without a tap, and never a loop (no retry counter, because there is no automatic attempt to count in the first place)", () => {
+  const appShell = read("src/components/app-shell-frame.tsx");
+  assert.doesNotMatch(appShell, /setTimeout|setInterval/);
+  const recoveryFnSrc = appShell.slice(appShell.indexOf("function ContextRecoveryScreen"), appShell.length);
+  assert.doesNotMatch(recoveryFnSrc, /useEffect/);
+  const ctxLib = read("src/lib/context-transition.ts");
+  assert.doesNotMatch(ctxLib, /setTimeout|setInterval/);
+});
+
+test("CTX-AC (structural): the recovery screen's own copy matches the mandated text exactly", () => {
+  const src = read("src/components/app-shell-frame.tsx");
+  const fnSrc = src.slice(src.indexOf("function ContextRecoveryScreen"), src.length);
+  assert.match(fnSrc, /Не удалось обновить кабинет/);
+  assert.match(fnSrc, /Контекст уже изменён, но приложение не смогло получить актуальные данные\./);
+  assert.match(fnSrc, /Обновить приложение/);
 });
