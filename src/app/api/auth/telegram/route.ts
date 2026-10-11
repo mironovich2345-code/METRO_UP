@@ -11,7 +11,7 @@ import { telegramAuthSchema } from "@/lib/server/schemas";
 import { jsonOk, jsonError, handleError } from "@/lib/server/http";
 import { meDTO } from "@/lib/server/dto";
 import { getRateLimiter } from "@/lib/server/rate-limit";
-import { hasTelegramMetadataChanged } from "@/lib/server/telegram-identity";
+import { hasTelegramMetadataChanged, initialDisplayNameFrom, telegramMetadataFrom } from "@/lib/server/telegram-identity";
 import { hasSystemAccessForUser } from "@/lib/server/authz";
 
 export const runtime = "nodejs";
@@ -88,10 +88,12 @@ export async function POST(req: NextRequest) {
     logAuth("initdata_verified", startedAt);
 
     const telegramId = String(tgUser.id);
-    const fullName =
-      [tgUser.first_name, tgUser.last_name].filter(Boolean).join(" ").trim() ||
-      tgUser.first_name ||
-      "Сотрудник";
+    // Sprint: LIVE QA QA-02 — the Telegram-owned columns, and nothing else,
+    // are what this route may write for an EXISTING user. `displayName` is
+    // the employee's own app-owned name (editable in Profile): it is set
+    // only in the `create` branch below, so reopening the Mini App can never
+    // revert a name the employee changed.
+    const metadata = telegramMetadataFrom(tgUser);
 
     logAuth("user_lookup", startedAt);
 
@@ -134,24 +136,13 @@ export async function POST(req: NextRequest) {
     let writePath: "none" | "metadata-update" | "create";
 
     if (existing) {
-      const metadataChanged = hasTelegramMetadataChanged(existing, {
-        telegramUsername: tgUser.username ?? null,
-        telegramFirstName: tgUser.first_name ?? null,
-        telegramLastName: tgUser.last_name ?? null,
-        telegramPhotoUrl: tgUser.photo_url ?? null,
-      });
+      const metadataChanged = hasTelegramMetadataChanged(existing, metadata);
 
       if (metadataChanged) {
         const writeStart = performance.now();
         user = await prisma.user.update({
           where: { id: existing.id },
-          data: {
-            telegramUsername: tgUser.username ?? null,
-            telegramFirstName: tgUser.first_name ?? null,
-            telegramLastName: tgUser.last_name ?? null,
-            telegramPhotoUrl: tgUser.photo_url ?? null,
-            lastLoginAt: new Date(),
-          },
+          data: { ...metadata, lastLoginAt: new Date() },
           include: { employeeProfile: true },
         });
         userWriteMs = Math.round(performance.now() - writeStart);
@@ -171,20 +162,11 @@ export async function POST(req: NextRequest) {
       const writeStart = performance.now();
       user = await prisma.user.upsert({
         where: { telegramId },
-        update: {
-          telegramUsername: tgUser.username ?? null,
-          telegramFirstName: tgUser.first_name ?? null,
-          telegramLastName: tgUser.last_name ?? null,
-          telegramPhotoUrl: tgUser.photo_url ?? null,
-          lastLoginAt: new Date(),
-        },
+        update: { ...metadata, lastLoginAt: new Date() },
         create: {
           telegramId,
-          telegramUsername: tgUser.username ?? null,
-          telegramFirstName: tgUser.first_name ?? null,
-          telegramLastName: tgUser.last_name ?? null,
-          telegramPhotoUrl: tgUser.photo_url ?? null,
-          displayName: fullName,
+          ...metadata,
+          displayName: initialDisplayNameFrom(tgUser),
           role: "EMPLOYEE",
           lastLoginAt: new Date(),
         },

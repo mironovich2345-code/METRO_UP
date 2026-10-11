@@ -3,12 +3,13 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Building2, Camera, Check, ChevronRight, HelpCircle, MapPin, Briefcase, LayoutDashboard, Trophy, UserCog } from "lucide-react";
+import { Building2, CalendarDays, Camera, Check, ChevronRight, Clock, HelpCircle, MapPin, Briefcase, LayoutDashboard, Pencil, Trophy, User, UserCog, type LucideIcon } from "lucide-react";
 import { BottomNavigation } from "@/components/bottom-navigation";
 import { AppHeader } from "@/components/app-header";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Avatar } from "@/components/ui/avatar";
 import { AvatarCropSheet } from "@/components/profile/AvatarCropSheet";
+import { ProfileEditSheet } from "@/components/profile/ProfileEditSheet";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ThemeSegmented } from "@/components/ui/theme-switcher";
@@ -22,12 +23,15 @@ import type { AccessStatus, CareerLevel } from "@/lib/profile";
 import { cardIn, staggerStack } from "@/lib/motion";
 import { cn, formatNumber } from "@/lib/utils";
 import { fetchProfileManagementRoles } from "@/lib/api/home-client";
+import { fetchSelfProfile } from "@/lib/api/client";
 import { useQuery, QUERY_POLICY } from "@/lib/client/query-cache";
 import { cacheKeys } from "@/lib/client/cache-keys";
+import { useRootScreenEntrance } from "@/lib/client/root-screen-entrance";
 import type { ProfileManagementRoleDTO } from "@/lib/api/home-types";
 import { canShowAskQuestionEntry } from "@/lib/client/ask-question-core";
 import { loadStoredContext } from "@/lib/home-context-storage";
 import { getOwnerKey } from "@/lib/client/owner";
+import { NOT_SET_LABEL, canSelfEditProfile, describeEmployment, splitDisplayName } from "@/lib/profile-edit";
 
 const CAREER_RANK_INDEX: Record<CareerLevel, number> = {
   NEWCOMER: 0,
@@ -47,8 +51,16 @@ const ACCESS_LABELS: Record<AccessStatus, string> = {
 export default function ProfileScreen() {
   const { profile, isOnboarded, hydrated } = useApp();
   // Role comes ONLY from the server-backed session user — never from localStorage.
-  const { user: serverUser, refresh: refreshAppUser } = useAppUser();
+  const { user: serverUser, refresh: refreshAppUser, saveProfile } = useAppUser();
   const [cropOpen, setCropOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const entranceInitial = useRootScreenEntrance();
+  // Sprint: LIVE QA QA-02 — during a MANAGER/CLUB_MANAGER persona preview
+  // this screen renders the synthetic preview persona (/api/auth/me), so it
+  // offers no editing at all: neither the name nor the photo. The server
+  // refuses those writes anyway (middleware + requireNoActiveViewAs); a
+  // CITY_MANAGER self-preview is the real actor and stays editable.
+  const canEdit = canSelfEditProfile(serverUser?.viewContext);
   // Sprint: REMEDIATION R3, F-06 — server-derived (hasSystemAccessForUser,
   // the SAME primitive /admin's own layout/routes gate on), not re-derived
   // from the legacy role alone: a grant-only PROJECT_ADMIN (no legacy
@@ -74,6 +86,15 @@ export default function ProfileScreen() {
   );
   const managementRoles: ProfileManagementRoleDTO[] = managementRolesData ?? [];
 
+  // Sprint: LIVE QA QA-02 — the real employment start date (GET /api/profile;
+  // never User.createdAt). Separate from AppUser so the auth bootstrap stays
+  // a single query.
+  const { data: selfProfile, error: selfProfileError } = useQuery(
+    hydrated && isOnboarded ? cacheKeys.selfProfile() : null,
+    fetchSelfProfile,
+    QUERY_POLICY.MEDIUM,
+  );
+
   if (!hydrated || !profile) {
     return <div className="min-h-[100dvh]" />;
   }
@@ -83,15 +104,25 @@ export default function ProfileScreen() {
   const position = getPositionById(profile.positionId);
   const levelIndex = CAREER_RANK_INDEX[profile.careerLevel];
   const currentRank = RANKS[levelIndex];
+  const name = splitDisplayName(profile.displayName);
+  const identityPlace = [club?.name, city?.name].filter(Boolean).join(" · ");
 
-  const info = [
-    { icon: MapPin, label: "Город", value: city?.name ?? "—" },
-    {
-      icon: Building2,
-      label: "Клуб",
-      value: club ? `MetroFitness ${club.name}` : "—",
-    },
+  // Loading and "nothing recorded" are different states: a pulse while the
+  // request is in flight, "Не указано" only once it has answered with nothing.
+  const employment = describeEmployment(selfProfile?.employmentStartedAt ?? null);
+  const employmentValue = (resolved: string) =>
+    selfProfile ? resolved : selfProfileError ? "Ошибка загрузки" : <ValuePending />;
+
+  const personalRows: InfoRowData[] = [
+    { icon: User, label: "Имя", value: name.firstName || NOT_SET_LABEL },
+    { icon: User, label: "Фамилия", value: name.lastName || NOT_SET_LABEL },
+  ];
+  const workRows: InfoRowData[] = [
     { icon: Briefcase, label: "Должность", value: position?.title ?? "—" },
+    { icon: Building2, label: "Клуб", value: club ? `MetroFitness ${club.name}` : "—" },
+    { icon: MapPin, label: "Город", value: city?.name ?? "—" },
+    { icon: CalendarDays, label: "Дата начала работы", value: employmentValue(employment.startDate) },
+    { icon: Clock, label: "Стаж", value: employmentValue(employment.tenure) },
   ];
 
   return (
@@ -100,36 +131,43 @@ export default function ProfileScreen() {
 
       <motion.main
         variants={staggerStack}
-        initial="hidden"
+        initial={entranceInitial}
         animate="show"
         className="flex flex-col gap-6 px-5"
       >
         {/* Identity */}
-        <motion.div variants={cardIn} className="flex flex-col items-center pt-2">
+        <motion.div variants={cardIn} className="flex min-w-0 flex-col items-center pt-2 text-center">
           {/* METRO UP ROUND 1, Milestone 1 — tap avatar to change photo.
               src is the custom uploaded avatar ONLY (serverUser.avatarUrl) —
               deliberately never telegramUser.photoUrl; no custom avatar
-              means initials, by product rule, not a Telegram-photo fallback. */}
-          <button
-            type="button"
-            onClick={() => setCropOpen(true)}
-            className="relative rounded-full"
-            aria-label="Изменить фото профиля"
-          >
-            <Avatar
-              name={profile.displayName}
-              src={serverUser?.avatarUrl ?? undefined}
-              size={92}
-              ring
-            />
-            <span className="absolute bottom-0 right-0 flex size-7 items-center justify-center rounded-full border-2 border-background bg-brand">
-              <Camera className="size-3.5 text-brand-foreground" />
-            </span>
-          </button>
-          <h1 className="mt-4 text-2xl font-extrabold tracking-tight text-foreground">
+              means initials, by product rule, not a Telegram-photo fallback.
+              QA-02: not tappable during a persona preview (see canEdit). */}
+          {canEdit ? (
+            <button
+              type="button"
+              onClick={() => setCropOpen(true)}
+              className="relative rounded-full"
+              aria-label="Изменить фото профиля"
+            >
+              <Avatar
+                name={profile.displayName}
+                src={serverUser?.avatarUrl ?? undefined}
+                size={92}
+                ring
+              />
+              <span className="absolute bottom-0 right-0 flex size-7 items-center justify-center rounded-full border-2 border-background bg-brand">
+                <Camera className="size-3.5 text-brand-foreground" />
+              </span>
+            </button>
+          ) : (
+            <Avatar name={profile.displayName} src={serverUser?.avatarUrl ?? undefined} size={92} ring />
+          )}
+          <h1 className="mt-4 max-w-full text-2xl font-extrabold tracking-tight text-foreground [overflow-wrap:anywhere]">
             {profile.displayName}
           </h1>
-          <div className="mt-2 flex items-center gap-2">
+          {position && <p className="mt-1 max-w-full text-sm font-medium text-muted-foreground [overflow-wrap:anywhere]">{position.title}</p>}
+          {identityPlace && <p className="max-w-full text-sm text-muted-foreground [overflow-wrap:anywhere]">{identityPlace}</p>}
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
             <Badge variant="brand" size="md">
               {currentRank.title}
             </Badge>
@@ -137,34 +175,26 @@ export default function ProfileScreen() {
               {ACCESS_LABELS[profile.accessStatus]}
             </Badge>
           </div>
+          {canEdit ? (
+            <Button variant="secondary" size="md" className="mt-4" onClick={() => setEditOpen(true)}>
+              <Pencil className="size-4" /> Редактировать профиль
+            </Button>
+          ) : (
+            <p className="mt-4 text-sm text-muted-foreground">Редактирование недоступно в режиме просмотра</p>
+          )}
         </motion.div>
 
-        {/* Work info */}
-        <motion.div variants={cardIn}>
-          <GlassCard variant="solid" pad="sm" animateIn={false}>
-            {info.map((row, i) => {
-              const Icon = row.icon;
-              return (
-                <div
-                  key={row.label}
-                  className={cn(
-                    "flex items-center gap-3 px-2 py-3",
-                    i < info.length - 1 && "border-b border-border",
-                  )}
-                >
-                  <div className="flex size-10 items-center justify-center rounded-xl bg-muted">
-                    <Icon className="size-4.5 text-muted-foreground" />
-                  </div>
-                  <span className="flex-1 text-sm text-muted-foreground">
-                    {row.label}
-                  </span>
-                  <span className="max-w-[55%] truncate text-[15px] font-semibold text-foreground">
-                    {row.value}
-                  </span>
-                </div>
-              );
-            })}
-          </GlassCard>
+        {/* QA-02 — personal data: the employee's own, editable via the sheet. */}
+        <motion.div variants={cardIn} className="flex flex-col gap-3">
+          <SectionHeader title="Мои данные" />
+          <InfoCard rows={personalRows} />
+        </motion.div>
+
+        {/* QA-02 — work data: company-controlled, never editable here. */}
+        <motion.div variants={cardIn} className="flex flex-col gap-3">
+          <SectionHeader title="Работа" />
+          <InfoCard rows={workRows} />
+          <p className="px-1 text-xs text-muted-foreground">Рабочие данные изменяются руководителем</p>
         </motion.div>
 
         {/* METRO UP ROUND 1, Milestone 2B/2B.1 — "Задать вопрос" entry point.
@@ -357,7 +387,7 @@ export default function ProfileScreen() {
       <BottomNavigation />
 
       <AvatarCropSheet
-        open={cropOpen}
+        open={cropOpen && canEdit}
         onClose={() => setCropOpen(false)}
         onSaved={() => {
           // Pull the fresh AppUserDTO (now carrying the new avatarUrl) —
@@ -366,6 +396,53 @@ export default function ProfileScreen() {
           void refreshAppUser();
         }}
       />
+
+      {/* QA-02 — saveProfile applies the server-CONFIRMED user, so this
+          header, Home's greeting/avatar and every AppUser reader update
+          together; an ordinary save, never a context switch. */}
+      <ProfileEditSheet
+        open={editOpen && canEdit}
+        displayName={profile.displayName}
+        onClose={() => setEditOpen(false)}
+        onSave={(parts) => saveProfile({ firstName: parts.firstName, lastName: parts.lastName })}
+      />
     </div>
   );
+}
+
+interface InfoRowData {
+  icon: LucideIcon;
+  label: string;
+  value: React.ReactNode;
+}
+
+/** The label/value list style the Profile already used for its work info,
+ * shared by "Мои данные" and "Работа". Long values truncate inside their own
+ * cell (never widen the page). */
+function InfoCard({ rows }: { rows: InfoRowData[] }) {
+  return (
+    <GlassCard variant="solid" pad="sm" animateIn={false}>
+      {rows.map((row, i) => {
+        const Icon = row.icon;
+        return (
+          <div
+            key={row.label}
+            className={cn("flex items-center gap-3 px-2 py-3", i < rows.length - 1 && "border-b border-border")}
+          >
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-muted">
+              <Icon className="size-4.5 text-muted-foreground" />
+            </div>
+            <span className="min-w-0 flex-1 text-sm text-muted-foreground">{row.label}</span>
+            <span className="max-w-[55%] truncate text-right text-[15px] font-semibold text-foreground">{row.value}</span>
+          </div>
+        );
+      })}
+    </GlassCard>
+  );
+}
+
+/** In-flight placeholder for a value still being loaded — never shown as
+ * "Не указано", which would claim the answer is already known. */
+function ValuePending() {
+  return <span aria-label="Загрузка" className="inline-block h-4 w-16 animate-pulse rounded bg-muted align-middle" />;
 }

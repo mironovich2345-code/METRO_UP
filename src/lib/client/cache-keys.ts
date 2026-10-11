@@ -85,6 +85,10 @@ export const cacheKeys = {
   ratingBoard: () => key("rating"),
 
   profileManagementRoles: () => key("profile-management-roles"),
+  /** Sprint: LIVE QA QA-02 — GET /api/profile (own employment start date).
+   * In-memory only (not in persistent-cache-core's L2 allowlist); cleared
+   * with everything else on View-As start/end and sign-out. */
+  selfProfile: () => key("self-profile"),
 
   /** `clubId` is the explicit drill-down target when present (CITY_MANAGER
    * viewing a specific club) or "own" for a CLUB_MANAGER's own-club flow

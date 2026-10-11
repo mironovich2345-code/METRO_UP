@@ -15,6 +15,7 @@ import {
   fetchMe,
   logout as apiLogout,
   submitOnboarding,
+  updateSelfProfile,
 } from "@/lib/api/client";
 import { runWithTimeout, TimeoutError } from "@/lib/async-timeout";
 import { clearAllQueries } from "@/lib/client/query-cache";
@@ -23,7 +24,7 @@ import { cacheKeys } from "@/lib/client/cache-keys";
 import { getEntry, persistEntry, deleteEntry } from "@/lib/client/persistent-cache";
 import { logBootEvent } from "@/lib/client/perf-boot";
 import { runContextTransition, ContextDesyncError, type ContextTransitionPhase } from "@/lib/context-transition";
-import type { AppUserDTO, OnboardingInputDTO } from "@/lib/api/types";
+import type { AppUserDTO, OnboardingInputDTO, SelfProfileUpdateInputDTO } from "@/lib/api/types";
 
 /** Hard ceiling for the Telegram bootstrap; production must never load forever. */
 const BOOTSTRAP_TIMEOUT_MS = 9000;
@@ -87,6 +88,14 @@ interface AppUserContextValue {
   refresh: () => Promise<void>;
   retry: () => void;
   saveOnboarding: (input: OnboardingInputDTO) => Promise<AppUserDTO>;
+  /**
+   * Sprint: LIVE QA QA-02 — save the employee's OWN name (PATCH /api/profile)
+   * and apply the server-CONFIRMED user — exactly the saveOnboarding pattern:
+   * nothing changes locally until the server has accepted the write, and on
+   * failure this throws with `user` untouched. An ordinary data save: it
+   * never touches the context-transition gate (switchContext/overlay).
+   */
+  saveProfile: (input: SelfProfileUpdateInputDTO) => Promise<AppUserDTO>;
   signOut: () => Promise<void>;
   /**
    * Sprint: LIVE QA FIX QA-01 — "idle" | "switching". True GLOBAL signal
@@ -318,6 +327,19 @@ export function AppUserProvider({ children }: { children: React.ReactNode }) {
     return saved;
   }, []);
 
+  /** Sprint: LIVE QA QA-02 — see AppUserContextValue.saveProfile. The PATCH
+   * is refused server-side during a persona preview, so `saved` is always the
+   * real actor; persistIdentitySnapshot keeps its own preview guard anyway.
+   * Everything that reads AppUser (Profile, Home's greeting/avatar, the
+   * management avatar entry) picks the confirmed name up on this one update. */
+  const saveProfile = useCallback(async (input: SelfProfileUpdateInputDTO) => {
+    const saved = await updateSelfProfile(input);
+    setUser(saved);
+    setStatus("authenticated");
+    persistIdentitySnapshot(saved);
+    return saved;
+  }, []);
+
   const signOut = useCallback(async () => {
     try {
       await apiLogout();
@@ -344,13 +366,14 @@ export function AppUserProvider({ children }: { children: React.ReactNode }) {
       refresh,
       retry,
       saveOnboarding,
+      saveProfile,
       signOut,
       contextTransitionPhase: transitionPhase,
       isContextSwitching: transitionPhase !== "idle",
       switchContext,
       confirmIdentity,
     }),
-    [status, user, refresh, retry, saveOnboarding, signOut, transitionPhase, switchContext, confirmIdentity],
+    [status, user, refresh, retry, saveOnboarding, saveProfile, signOut, transitionPhase, switchContext, confirmIdentity],
   );
 
   return (

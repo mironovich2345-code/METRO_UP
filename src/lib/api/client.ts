@@ -1,6 +1,8 @@
 import type {
   AppUserDTO,
   OnboardingInputDTO,
+  SelfProfileDTO,
+  SelfProfileUpdateInputDTO,
 } from "./types";
 
 /** Thrown for non-2xx API responses. Carries a safe code + optional field errors. */
@@ -69,5 +71,22 @@ export async function submitOnboarding(
     "/api/profile/onboarding",
     { method: "POST", body: JSON.stringify(input) },
   );
+  return user;
+}
+
+/** Sprint: LIVE QA QA-02 — the employee's own Profile extras (employment). */
+export async function fetchSelfProfile(): Promise<SelfProfileDTO> {
+  const { profile } = await apiFetch<{ profile: SelfProfileDTO }>("/api/profile");
+  return profile;
+}
+
+/** Sprint: LIVE QA QA-02 — change the employee's OWN name. Sends only the two
+ * allowlisted fields; the server derives the target from the session and
+ * returns the confirmed AppUserDTO. */
+export async function updateSelfProfile(input: SelfProfileUpdateInputDTO): Promise<AppUserDTO> {
+  const { user } = await apiFetch<{ user: AppUserDTO }>("/api/profile", {
+    method: "PATCH",
+    body: JSON.stringify({ firstName: input.firstName, lastName: input.lastName }),
+  });
   return user;
 }

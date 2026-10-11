@@ -73,3 +73,18 @@ export interface OnboardingInputDTO {
   clubId: string;
   positionId: PositionDTO;
 }
+
+/** Sprint: LIVE QA QA-02 — PATCH /api/profile body: the ENTIRE allowlist of
+ * self-editable fields (see src/lib/profile-edit.ts for how they map onto
+ * the stored displayName). There is deliberately no user id field. */
+export interface SelfProfileUpdateInputDTO {
+  firstName: string;
+  lastName: string;
+}
+
+/** Sprint: LIVE QA QA-02 — GET /api/profile: what Profile needs beyond
+ * AppUserDTO. `employmentStartedAt` is the open EmploymentAssignment's real
+ * startedAt, or null (never User.createdAt). */
+export interface SelfProfileDTO {
+  employmentStartedAt: string | null;
+}

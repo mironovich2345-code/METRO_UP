@@ -7,6 +7,7 @@ import { jsonOk, jsonError, handleError, readJson } from "@/lib/server/http";
 import { meDTO } from "@/lib/server/dto";
 import { getRateLimiter } from "@/lib/server/rate-limit";
 import { hasSystemAccessForUser } from "@/lib/server/authz";
+import { initialDisplayNameFrom, telegramMetadataFrom } from "@/lib/server/telegram-identity";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,25 +29,18 @@ export async function POST(req: NextRequest) {
 
     const tg = result.user;
     const telegramId = String(tg.id);
-    const fullName =
-      [tg.first_name, tg.last_name].filter(Boolean).join(" ").trim() || tg.first_name || "Сотрудник";
+    // Sprint: LIVE QA QA-02 — same rule as /api/auth/telegram: an existing
+    // user's login writes only the Telegram-owned columns; `displayName`
+    // (the employee's own, Profile-editable name) is set only on create.
+    const metadata = telegramMetadataFrom(tg);
 
     const user = await prisma.user.upsert({
       where: { telegramId },
-      update: {
-        telegramUsername: tg.username ?? null,
-        telegramFirstName: tg.first_name ?? null,
-        telegramLastName: tg.last_name ?? null,
-        telegramPhotoUrl: tg.photo_url ?? null,
-        lastLoginAt: new Date(),
-      },
+      update: { ...metadata, lastLoginAt: new Date() },
       create: {
         telegramId,
-        telegramUsername: tg.username ?? null,
-        telegramFirstName: tg.first_name ?? null,
-        telegramLastName: tg.last_name ?? null,
-        telegramPhotoUrl: tg.photo_url ?? null,
-        displayName: fullName,
+        ...metadata,
+        displayName: initialDisplayNameFrom(tg),
         role: "EMPLOYEE",
         lastLoginAt: new Date(),
       },

@@ -25,6 +25,28 @@ export const onboardingSchema = z.object({
 });
 export type OnboardingInput = z.infer<typeof onboardingSchema>;
 
+/**
+ * Sprint: LIVE QA QA-02 — PATCH /api/profile (self-service name edit). SHAPE
+ * ONLY: the business rules (trim, required first name, the 2–50 displayName
+ * rule) live in src/lib/profile-edit.ts's validateProfileName, shared with
+ * the client. These two keys are the entire allowlist — role, clubId, cityId,
+ * positionId, accessStatus, XP, rating, employment dates, RoleAssignments and
+ * any user id are stripped by Zod's default behaviour (same convention as
+ * every schema in this file) and can never reach the update. The 200-char
+ * bound only rejects absurd payloads before normalization.
+ */
+export const selfProfileUpdateSchema = z.object({
+  firstName: z
+    .string({ required_error: "Укажите имя", invalid_type_error: "Укажите имя" })
+    .max(200, "Слишком длинное значение"),
+  lastName: z
+    .string({ invalid_type_error: "Некорректная фамилия" })
+    .max(200, "Слишком длинное значение")
+    .nullable()
+    .optional(),
+});
+export type SelfProfileUpdateInput = z.infer<typeof selfProfileUpdateSchema>;
+
 /** METRO UP ROUND 1, Milestone 1 — avatar upload. MIME/size are re-validated
  * for real against MEDIA_RULES.AVATAR server-side (storage/validation.ts) —
  * this schema only guards against a malformed/missing request shape. */
