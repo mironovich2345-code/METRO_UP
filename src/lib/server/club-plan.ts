@@ -9,6 +9,7 @@ import { normalizeChecklist, type ChecklistInput } from "./club-plan-schemas";
 import { resolveAccessAuditAction } from "./access-status-logic";
 import type { CurrentUser } from "./session";
 import { getActorContext } from "./rbac/context";
+import { resolveManagerEligibleClubIds, resolveManagerRequestedClub } from "./rbac/scope-core";
 import { canSwitchClub, requestedClubForRole } from "@/lib/club-scope";
 import { getPositionById } from "@/content/positions";
 import { getClubById } from "@/content/cities";
@@ -46,29 +47,27 @@ export function resolveClubContext(user: CurrentUser): { clubId: string | null; 
 
 /**
  * Club-scope resolution. Authorization stays server-side:
- * - CLUB_MANAGER is ALWAYS locked to their own EmployeeProfile.clubId — a
- *   requested clubId from the client is ignored entirely (never trusted).
- *   Sprint: REMEDIATION R4.2, section 5 — traced, not assumed: this
- *   `own` check runs UNCONDITIONALLY before any grant is even consulted,
- *   so a real user who happens to hold BOTH a legacy EmployeeProfile.clubId
- *   AND a separate active CLUB_MANAGER grant for a DIFFERENT club is
- *   always locked to the legacy club — the grant is never reachable
- *   through this function for them. Pre-existing precedence, left
- *   unchanged (reported, not "fixed" — there is no bug here, only a
- *   documented limit this round does not widen).
  * - ADMIN (superuser) may operate on any real active club: a requested clubId is
  *   validated against the DB; otherwise their own club (if any) is the default.
+ * - CLUB_MANAGER (legacy identity, a RoleAssignment grant, or both) is
+ *   scoped to the UNION of their eligible clubs — resolveManagerEligibleClubIds
+ *   (scope-core.ts), shared with resolveClubManagerClubs/getManagerScope so
+ *   all three agree. A requested clubId from the client is NEVER trusted
+ *   as given; it is only honored once re-verified against that real
+ *   eligible set.
  * There is no client-only authorization — every switch is validated here.
  *
- * Sprint: REMEDIATION R4.2, F-05 — brought into parity with
- * getManagerScope's own grant bridge (R4/R4.1): a RoleAssignment-only
- * CLUB_MANAGER (no EmployeeProfile.clubId) with EXACTLY ONE active
- * CLUB_MANAGER grant now resolves to it automatically, with no
- * requestedClubId required — deterministic, since there is only one
- * legitimate choice. Multiple active grants without an explicit
- * requestedClubId remain UNRESOLVED (409 no_club) — never an arbitrary
- * "first grant wins" guess; the caller (control/(portal)/plan/page.tsx)
- * now has its own picker to supply an explicit choice in that case.
+ * Sprint: REMEDIATION R4.3 — closes the gap R4.2 found and reported, not
+ * fixed: a real user holding BOTH a legacy EmployeeProfile.clubId AND a
+ * separate active CLUB_MANAGER grant for a DIFFERENT club used to be
+ * locked to the legacy club unconditionally, making the grant's club
+ * permanently unreachable through this function. Now both contribute to
+ * ONE eligible set (deduplicated): exactly one eligible club (whichever
+ * axis it came from) resolves automatically; two or more remain
+ * UNRESOLVED without an explicit, re-verified requestedClubId — never an
+ * arbitrary "first wins" guess. A pure legacy-only or pure grant-only
+ * single-club manager is completely unaffected (still exactly one
+ * eligible club either way).
  */
 async function resolveScopedClubId(user: CurrentUser, requestedClubId?: string | null): Promise<string> {
   const honored = requestedClubForRole(user.role, requestedClubId); // manager → null
@@ -77,36 +76,23 @@ async function resolveScopedClubId(user: CurrentUser, requestedClubId?: string |
     if (!club) throw new AuthError(400, "invalid_club", "Клуб не найден");
     return club.id;
   }
-  const own = user.employeeProfile?.clubId ?? null;
-  if (own) return own;
 
-  // Bridge for a CLUB_MANAGER whose authority comes ONLY from a
-  // RoleAssignment (new RBAC hierarchy), not the legacy
-  // EmployeeProfile.clubId convention above (they may have no
-  // EmployeeProfile at all). requestedClubId is NEVER trusted as given —
-  // it is only honored once independently verified against an ACTIVE
-  // CLUB_MANAGER grant the caller actually holds for that exact club,
-  // mirroring the same "claim, then re-verify against real grants"
-  // pattern authorize-core.ts's club.read uses everywhere else in this
-  // RBAC system. With no requestedClubId at all, exactly one active
-  // grant resolves deterministically (R4.2); two or more remain
-  // unresolved, requiring an explicit choice.
   const actor = await getActorContext(user);
-  const clubManagerGrants = actor.grants.filter((g) => g.role === "CLUB_MANAGER" && g.status === "ACTIVE");
-  if (requestedClubId) {
-    if (clubManagerGrants.some((g) => g.clubId === requestedClubId)) {
-      const club = await prisma.club.findFirst({ where: { id: requestedClubId, isActive: true }, select: { id: true } });
-      if (club) return club.id;
-    }
-  } else if (clubManagerGrants.length === 1 && clubManagerGrants[0].clubId) {
-    const club = await prisma.club.findFirst({ where: { id: clubManagerGrants[0].clubId, isActive: true }, select: { id: true } });
+  const eligible = resolveManagerEligibleClubIds(user.role, user.employeeProfile?.clubId, actor.grants);
+  const resolved = resolveManagerRequestedClub(eligible, requestedClubId);
+  if (resolved) {
+    const club = await prisma.club.findFirst({ where: { id: resolved, isActive: true }, select: { id: true } });
     if (club) return club.id;
   }
 
-  // ADMIN without a club must pick one; a real manager simply has no club
-  // (or has several and hasn't picked one yet).
+  // ADMIN without a club must pick one; a manager with zero eligible
+  // clubs simply has none ("no_club"); a manager with 2+ eligible clubs
+  // and no selection yet must also pick one ("select_club", same wording
+  // as ADMIN's own ambiguous case) — "no_club" is reserved for the
+  // genuinely zero-eligible-clubs case only.
   const isAdmin = canSwitchClub(user.role);
-  throw new AuthError(409, isAdmin ? "select_club" : "no_club", isAdmin ? "Выберите клуб" : "Ваша учётная запись не привязана к клубу");
+  const needsSelection = isAdmin || eligible.length > 1;
+  throw new AuthError(409, needsSelection ? "select_club" : "no_club", needsSelection ? "Выберите клуб" : "Ваша учётная запись не привязана к клубу");
 }
 
 /** Clubs an ADMIN may scope into (server-backed selector source). */
@@ -122,39 +108,22 @@ async function listActiveClubs(): Promise<ManagerScopeDTO["clubs"]> {
 /**
  * Non-throwing scope for READ views. For ADMIN returns the switchable club list;
  * an invalid requested club falls back to their own club (reads never error).
- * For CLUB_MANAGER always returns their own club and an empty selector.
+ * For CLUB_MANAGER, returns whatever resolveManagerEligibleClubIds resolves
+ * (see its own doc comment — scope-core.ts): legacy EmployeeProfile.clubId
+ * UNION every active CLUB_MANAGER RoleAssignment grant, deduplicated.
  *
- * Sprint: REMEDIATION R4, F-05 — downstream legacy assumption found while
- * tracing GET /api/control/plan one level past the route gate: this
- * function only ever consulted user.employeeProfile?.clubId, with no
- * RoleAssignment fallback at all, unlike resolveScopedClubId above (which
- * already has one, from the role-cabinets step 6 bridge). A grant-only
- * CLUB_MANAGER commonly has no EmployeeProfile.clubId set at all, so
- * fixing the route gate alone would have swapped a 403 for a silently
- * empty plan (clubId: null -> EMPTY_PLAN in getClubPlan) — never a data
- * leak, but still not the real fix. Mirrors resolveScopedClubId's own
- * bridge exactly: requestedClubId is NEVER trusted as given, only honored
- * once independently verified against an ACTIVE CLUB_MANAGER grant for
- * that exact club. Only activates when the legacy path above (own
- * EmployeeProfile.clubId) found nothing — a legacy CLUB_MANAGER or ADMIN
- * is completely unaffected, since `clubId` is already non-null for them
- * by this point.
- *
- * Sprint: REMEDIATION R4.1 — traced PAGE -> API -> here and found the R4
- * bridge above was unreachable in practice: control/(portal)/plan/page.tsx
- * only ever sends a non-null clubId via ClubScopePicker, which renders
- * ONLY when scope.canSwitch (ADMIN) is true — a non-admin CLUB_MANAGER
- * (legacy or grant-only) has no client-side mechanism to supply one, so a
- * grant-only manager with NO EmployeeProfile.clubId got an empty plan
- * forever, even with exactly one active CLUB_MANAGER grant: the gate
- * admitted them (R4), but the scope resolver still had nothing to resolve
- * without a requestedClubId nobody could send. Fix: when there is EXACTLY
- * ONE active CLUB_MANAGER grant and no explicit clubId, default to it —
- * deterministic and unambiguous (there is only one choice), mirroring the
- * legacy own-EmployeeProfile.clubId default directly above. Multiple
- * active grants without an explicit clubId are deliberately UNCHANGED
- * (still resolve to no club) — see this function's test coverage and the
- * R4.1 report for why that ambiguous case is reported, not solved, here.
+ * Sprint: REMEDIATION R4, F-05 — originally only ever consulted
+ * user.employeeProfile?.clubId, with no RoleAssignment fallback at all.
+ * Sprint: REMEDIATION R4.1 — added the single-grant default (traced PAGE ->
+ * API: control/(portal)/plan/page.tsx has no mechanism to supply a
+ * requestedClubId for a non-admin, so "ask again with a club id" was
+ * unreachable for a grant-only manager). Sprint: REMEDIATION R4.3 — the
+ * legacy-own-club and grant-bridge branches used to be mutually exclusive
+ * (own club, if present, short-circuited before any grant was consulted),
+ * so a mixed legacy+grant actor's grant club was unreachable here too.
+ * Now both axes are UNIONED via the same resolveManagerEligibleClubIds that
+ * resolveScopedClubId/resolveClubManagerClubs also use, so all three
+ * functions agree on exactly the same eligible-club set.
  */
 export async function getManagerScope(user: CurrentUser, requestedClubId?: string | null): Promise<ManagerScopeDTO> {
   const isAdmin = canSwitchClub(user.role);
@@ -164,19 +133,13 @@ export async function getManagerScope(user: CurrentUser, requestedClubId?: strin
     const club = await prisma.club.findFirst({ where: { id: honored, isActive: true }, select: { id: true } });
     clubId = club ? club.id : user.employeeProfile?.clubId ?? null;
   } else {
-    clubId = user.employeeProfile?.clubId ?? null;
-    if (!clubId) {
-      const actor = await getActorContext(user);
-      const clubManagerGrants = actor.grants.filter((g) => g.role === "CLUB_MANAGER" && g.status === "ACTIVE");
-      if (requestedClubId) {
-        if (clubManagerGrants.some((g) => g.clubId === requestedClubId)) {
-          const club = await prisma.club.findFirst({ where: { id: requestedClubId, isActive: true }, select: { id: true } });
-          if (club) clubId = club.id;
-        }
-      } else if (clubManagerGrants.length === 1 && clubManagerGrants[0].clubId) {
-        const club = await prisma.club.findFirst({ where: { id: clubManagerGrants[0].clubId, isActive: true }, select: { id: true } });
-        if (club) clubId = club.id;
-      }
+    const actor = await getActorContext(user);
+    const eligible = resolveManagerEligibleClubIds(user.role, user.employeeProfile?.clubId, actor.grants);
+    const resolved = resolveManagerRequestedClub(eligible, requestedClubId);
+    clubId = null;
+    if (resolved) {
+      const club = await prisma.club.findFirst({ where: { id: resolved, isActive: true }, select: { id: true } });
+      if (club) clubId = club.id;
     }
   }
   return {

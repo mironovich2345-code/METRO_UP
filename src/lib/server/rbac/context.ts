@@ -3,6 +3,7 @@ import { prisma } from "../db";
 import { perfTimed } from "../perf";
 import type { CurrentUser } from "../session";
 import type { ActorContext } from "./types";
+import { resolveManagerEligibleClubIds } from "./scope-core";
 
 /**
  * Assemble the ActorContext once per request. Pure decision logic lives in
@@ -123,17 +124,17 @@ export async function resolveCityManagerClubs(actor: ActorContext): Promise<Club
  * clubs are MINE by direct grant", the "Мой клуб" / club-selector question.
  */
 export async function resolveClubManagerClubs(user: CurrentUser, actor: ActorContext): Promise<ClubSummary[]> {
-  const clubIds = new Set<string>();
-  if (user.role === "CLUB_MANAGER" && user.employeeProfile?.clubId) {
-    clubIds.add(user.employeeProfile.clubId);
-  }
-  for (const g of actor.grants) {
-    if (g.role === "CLUB_MANAGER" && g.status === "ACTIVE" && g.clubId) clubIds.add(g.clubId);
-  }
-  if (clubIds.size === 0) return [];
+  // Sprint: REMEDIATION R4.3 — the Set-building above moved into
+  // resolveManagerEligibleClubIds (scope-core.ts, pure) so
+  // resolveScopedClubId/getManagerScope (club-plan.ts) can share the exact
+  // same eligible-club computation instead of each re-deriving their own,
+  // potentially-diverging copy. Reused here unchanged — this function's
+  // own remaining job is resolving names/cities from the DB.
+  const clubIds = resolveManagerEligibleClubIds(user.role, user.employeeProfile?.clubId, actor.grants);
+  if (clubIds.length === 0) return [];
 
   const clubs = await prisma.club.findMany({
-    where: { id: { in: [...clubIds] }, isActive: true },
+    where: { id: { in: clubIds }, isActive: true },
     include: { city: { select: { name: true } } },
   });
   return clubs

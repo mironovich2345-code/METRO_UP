@@ -188,6 +188,56 @@ export function cabinetAccessCoversClub(access: { clubId: string } | null, targe
 }
 
 /**
+ * Sprint: REMEDIATION R4.3 — the ONE legitimate "which clubs may this
+ * actor act as desktop CLUB_MANAGER for" computation (brief section 1):
+ * legacy EmployeeProfile.clubId UNION every active CLUB_MANAGER
+ * RoleAssignment grant's club, deduplicated. No other authority
+ * contributes a club here — CITY_MANAGER club.read, OPERATIONS_DIRECTOR
+ * network access, and PROJECT_ADMIN system access are deliberately never
+ * consulted, unless the SAME actor separately holds genuine CLUB_MANAGER
+ * identity/grants too (then only THOSE contribute).
+ *
+ * This is the pure extraction of what resolveClubManagerClubs
+ * (rbac/context.ts) already computed inline before resolving names/cities
+ * from the DB — reused there (not duplicated) and newly applied to
+ * resolveScopedClubId/getManagerScope (club-plan.ts), which previously let
+ * a legacy EmployeeProfile.clubId win unconditionally, making any
+ * separate active grant for a DIFFERENT club permanently unreachable for
+ * that actor. All three now agree on exactly this one set.
+ */
+export function resolveManagerEligibleClubIds(
+  legacyRole: string,
+  legacyClubId: string | null | undefined,
+  grants: RoleGrant[],
+): string[] {
+  const clubIds = new Set<string>();
+  if (legacyRole === "CLUB_MANAGER" && legacyClubId) clubIds.add(legacyClubId);
+  for (const g of grants) {
+    if (g.role === "CLUB_MANAGER" && g.status === "ACTIVE" && g.clubId) clubIds.add(g.clubId);
+  }
+  return [...clubIds];
+}
+
+/**
+ * Sprint: REMEDIATION R4.3 — given the eligible set above and an optional
+ * explicit request, which single club (if any) is the current scope?
+ * - An explicit request is honored ONLY if it is actually in the eligible
+ *   set — a foreign/forged id is never trusted, exactly like every other
+ *   "claim, then re-verify against real grants" check in this RBAC system.
+ * - With no explicit request: exactly one eligible club resolves
+ *   automatically (deterministic — there is only one choice); two or more
+ *   remain unresolved — NEVER an arbitrary "first grant wins" guess; the
+ *   caller must ask again with an explicit choice.
+ */
+export function resolveManagerRequestedClub(eligibleClubIds: string[], requestedClubId?: string | null): string | null {
+  if (requestedClubId) {
+    return eligibleClubIds.includes(requestedClubId) ? requestedClubId : null;
+  }
+  if (eligibleClubIds.length === 1) return eligibleClubIds[0];
+  return null;
+}
+
+/**
  * Sprint: REMEDIATION R2.1 — a genuine View-As MANAGER persona preview has
  * NO management Employee Card access at all, even when the REAL actor
  * underneath (a CITY_MANAGER) has legitimate club.read authority over the
