@@ -23,7 +23,11 @@ import {
   canChangeQuestionStatus,
   canReadQuestion,
   canSendQuestionAs,
+  buildQuestionContextOptions,
+  collapseToCityCandidates,
   describeScopeResolutionError,
+  scopeResolutionHttpStatus,
+  type QuestionContextOptions,
   extForQuestionAttachmentMime,
   isOwnQuestionAttachmentKey,
   questionAttachmentKeyPrefix,
@@ -64,6 +68,8 @@ function toSanitizeInput(row: {
   status: QuestionStatus;
   authorUserId: string;
   senderRole: string;
+  cityIdSnapshot: string;
+  clubIdSnapshot: string | null;
   cityNameSnapshot: string;
   clubNameSnapshot: string | null;
   createdAt: Date;
@@ -80,6 +86,8 @@ function toSanitizeInput(row: {
     authorUserId: row.authorUserId,
     authorDisplayName: row.author.displayName,
     senderRole: row.senderRole,
+    cityIdSnapshot: row.cityIdSnapshot,
+    clubIdSnapshot: row.clubIdSnapshot,
     cityNameSnapshot: row.cityNameSnapshot,
     clubNameSnapshot: row.clubNameSnapshot,
     createdAt: row.createdAt,
@@ -173,6 +181,45 @@ async function buildCityManagerScopeCandidates(actor: ActorContext): Promise<Que
 }
 
 /**
+ * QA-04.2 — the ONE list of scopes a management sender may submit under,
+ * shared by createEmployeeQuestion (which resolves against it) and
+ * getQuestionContextOptions (which shows it to the form) so the two can
+ * never disagree. CLUB_MANAGER: every club they really manage.
+ * CITY_MANAGER: their cities (collapseToCityCandidates — a city-level
+ * sender's routing never depends on a club, so none is invented).
+ */
+export async function resolveQuestionScopeCandidates(
+  user: CurrentUser,
+  actor: ActorContext,
+  senderContext: "CLUB_MANAGER" | "CITY_MANAGER",
+): Promise<QuestionScopeCandidate[]> {
+  return senderContext === "CLUB_MANAGER"
+    ? buildClubManagerScopeCandidates(user, actor)
+    : collapseToCityCandidates(await buildCityManagerScopeCandidates(actor));
+}
+
+/**
+ * QA-04.2 — GET /api/questions/context. What the Ask Question form needs
+ * BEFORE submit: which scope kind applies and, only when genuinely
+ * ambiguous, the actor's own authorized options. A context the actor does
+ * not actually hold is refused exactly like the POST would refuse it.
+ */
+export async function getQuestionContextOptions(
+  user: CurrentUser,
+  actor: ActorContext,
+  senderContext: QuestionSenderContext,
+): Promise<QuestionContextOptions> {
+  if (!user.employeeProfile) throw new AuthError(409, "onboarding_required", "Профиль сотрудника не найден");
+  if (!canSendQuestionAs(actor, senderContext)) {
+    throw new AuthError(403, "forbidden", "Недостаточно прав для отправки вопроса в этом качестве");
+  }
+  if (senderContext === "MANAGER") return buildQuestionContextOptions("MANAGER", []);
+  const options = buildQuestionContextOptions(senderContext, await resolveQuestionScopeCandidates(user, actor, senderContext));
+  if (options.options.length === 0) throw new AuthError(403, "no_scope", describeScopeResolutionError("no_scope"));
+  return options;
+}
+
+/**
  * Section 1/4/5 — create the one source-of-truth row. Every input that
  * matters for scope/identity is SERVER-DERIVED: city/club snapshots come
  * from the actor's own EmployeeProfile (never a client-supplied cityId/
@@ -222,11 +269,10 @@ export async function createEmployeeQuestion(user: CurrentUser, actor: ActorCont
     cityName = getCityById(cityId)?.name ?? cityId;
     clubName = getClubById(clubId)?.name ?? clubId;
   } else {
-    const candidates =
-      input.senderContext === "CLUB_MANAGER" ? await buildClubManagerScopeCandidates(user, actor) : await buildCityManagerScopeCandidates(actor);
+    const candidates = await resolveQuestionScopeCandidates(user, actor, input.senderContext);
     const resolved = resolveScopeFromCandidates(candidates, input.scopeHint);
     if (!resolved.ok) {
-      throw new AuthError(409, resolved.code, describeScopeResolutionError(resolved.code));
+      throw new AuthError(scopeResolutionHttpStatus(resolved.code), resolved.code, describeScopeResolutionError(resolved.code));
     }
     cityId = resolved.scope.cityId;
     cityName = resolved.scope.cityName;

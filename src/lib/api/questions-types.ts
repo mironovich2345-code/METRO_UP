@@ -102,3 +102,15 @@ export interface QuestionAttachmentUploadTicketDTO {
   requiredHeaders: Record<string, string>;
   expiresInSeconds: number;
 }
+
+/** Sprint: LIVE QA QA-04.2 — GET /api/questions/context. `options` are only
+ * ever the actor's OWN authorized clubs (kind "club") or cities (kind
+ * "city"); a selector is shown only when `requiresSelection`. */
+export interface QuestionContextDTO {
+  senderContext: QuestionSenderContextDTO;
+  kind: "club" | "city" | null;
+  options: { id: string; label: string }[];
+  requiresSelection: boolean;
+  /** A MANAGER/CLUB_MANAGER View-As preview — submitting is not available. */
+  previewReadOnly: boolean;
+}

@@ -142,6 +142,8 @@ export const cacheKeys = {
   questionsList: (filter: { status: string; category?: string; clubId?: string; page: number }) =>
     key("questions-list", filter.status, filter.category ?? "-", filter.clubId ?? "-", String(filter.page)),
   questionDetail: (id: string) => key("questions-detail", id),
+  /** QA-04.2 — the Ask Question form's scope options for one sender context. */
+  questionContext: (senderContext: string) => key("questions-context", senderContext),
 } as const;
 
 /** Prefix helpers for coarse, category-wide invalidation (query-cache.ts's

@@ -5,6 +5,8 @@ import type {
   ListQuestionsRequestDTO,
   ListQuestionsResponseDTO,
   QuestionAttachmentUploadTicketDTO,
+  QuestionContextDTO,
+  QuestionSenderContextDTO,
   QuestionStatusDTO,
 } from "./questions-types";
 
@@ -58,6 +60,10 @@ export const questionsApi = {
     const qs = sp.toString();
     return request<ListQuestionsResponseDTO>(`/api/questions${qs ? `?${qs}` : ""}`);
   },
+
+  /** QA-04.2 — scope options for the Ask Question form (see the route). */
+  context: (senderContext: QuestionSenderContextDTO) =>
+    request<{ context: QuestionContextDTO }>(`/api/questions/context?senderContext=${encodeURIComponent(senderContext)}`).then((r) => r.context),
 
   get: (id: string) => request<{ question: EmployeeQuestionDTO }>(`/api/questions/${id}`),
 

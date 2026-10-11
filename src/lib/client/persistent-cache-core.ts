@@ -15,7 +15,10 @@
  * this is the ONE supported way to invalidate every persisted entry at
  * once (e.g. after a DTO shape change) without touching IndexedDB by hand.
  */
-export const CACHE_SCHEMA_VERSION = 1;
+// 2 — Sprint: LIVE QA QA-04.2B: drops every entry persisted before the
+// anonymous-author fix, so no previously cached question response that still
+// carried a revealed name can ever be replayed from disk.
+export const CACHE_SCHEMA_VERSION = 2;
 
 export interface PersistedEntry {
   key: string;

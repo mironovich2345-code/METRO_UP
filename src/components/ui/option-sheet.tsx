@@ -26,9 +26,12 @@ export function SelectField<T extends string>({
   open,
   onOpenChange,
   onChange,
+  placeholder = "—",
 }: {
   label: string;
-  value: T;
+  /** null = nothing chosen yet; the field shows `placeholder`. */
+  value: T | null;
+  placeholder?: string;
   options: readonly SelectOption<T>[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -43,11 +46,13 @@ export function SelectField<T extends string>({
         id={id}
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-label={`${label}: ${current?.label ?? ""}`}
+        aria-label={`${label}: ${current?.label ?? placeholder}`}
         onClick={() => onOpenChange(true)}
         className="flex min-h-12 w-full min-w-0 items-center gap-3 rounded-2xl border border-border bg-card px-4 py-3 text-left transition-colors active:bg-foreground/5"
       >
-        <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-foreground">{current?.label ?? "—"}</span>
+        <span className={cn("min-w-0 flex-1 truncate text-[15px] font-medium", current ? "text-foreground" : "text-muted-foreground")}>
+          {current?.label ?? placeholder}
+        </span>
         <ChevronDown className="size-4.5 shrink-0 text-muted-foreground" aria-hidden />
       </button>
       {typeof document !== "undefined" &&

@@ -170,8 +170,45 @@ export function buildCreateQuestionPayload(input: {
  * the text is invalid, or while ANY attachment is still uploading or in an
  * error state (the user must wait, remove, or retry first).
  */
-export function isSubmitDisabled(state: { submitting: boolean; text: string; attachments: AttachmentDraft[] }): boolean {
+export function isSubmitDisabled(state: {
+  submitting: boolean;
+  text: string;
+  attachments: AttachmentDraft[];
+  /** QA-04.2 — a multi-scope sender has not picked a club/city yet. */
+  scopeMissing?: boolean;
+  /** QA-04.2 — a View-As persona preview (the server refuses the write). */
+  readOnly?: boolean;
+}): boolean {
   if (state.submitting) return true;
+  if (state.readOnly || state.scopeMissing) return true;
   if (!validateQuestionText(state.text).ok) return true;
   return state.attachments.some((a) => a.status === "uploading" || a.status === "error");
+}
+
+/**
+ * Sprint: LIVE QA QA-04.2 — which club/city (if any) the form sends, given
+ * the server's GET /api/questions/context answer. The server is the authority
+ * on the OPTIONS (only the actor's own clubs/cities); this only picks among
+ * them:
+ * - no answer yet, or no choice needed (MANAGER, one club, one city): send
+ *   nothing — the server resolves the single real scope itself;
+ * - a choice is needed: the user's explicit pick, else Home's stored club
+ *   when (and only when) it is one of the offered options — a stale stored
+ *   club is ignored, never sent. Nothing picked -> `missingSelection`, and the
+ *   form blocks submit and shows the selector instead of failing on the API.
+ */
+export function resolveQuestionScopeSelection(params: {
+  context: { kind: "club" | "city" | null; options: { id: string }[]; requiresSelection: boolean } | null | undefined;
+  storedHint: { clubId?: string } | undefined;
+  picked: string | null;
+}): { selectedId: string | null; scopeHint: { clubId?: string; cityId?: string } | undefined; missingSelection: boolean } {
+  const { context } = params;
+  if (!context || !context.requiresSelection || !context.kind) {
+    return { selectedId: null, scopeHint: undefined, missingSelection: false };
+  }
+  const ids = new Set(context.options.map((o) => o.id));
+  const stored = context.kind === "club" ? params.storedHint?.clubId : undefined;
+  const selectedId = params.picked && ids.has(params.picked) ? params.picked : stored && ids.has(stored) ? stored : null;
+  if (!selectedId) return { selectedId: null, scopeHint: undefined, missingSelection: true };
+  return { selectedId, scopeHint: context.kind === "club" ? { clubId: selectedId } : { cityId: selectedId }, missingSelection: false };
 }

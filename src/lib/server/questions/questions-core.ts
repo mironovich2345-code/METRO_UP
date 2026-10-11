@@ -153,16 +153,65 @@ export function resolveScopeFromCandidates(candidates: QuestionScopeCandidate[],
   return { ok: false, code: "ambiguous_scope" };
 }
 
+/**
+ * QA-04.2 — HTTP status per resolution failure. A requested club/city that
+ * is not one of the actor's own candidates (forged, foreign, revoked) is a
+ * DENIAL (403), never a "please pick again" conflict.
+ */
+export function scopeResolutionHttpStatus(code: "no_scope" | "ambiguous_scope" | "invalid_scope_hint"): 403 | 409 {
+  return code === "ambiguous_scope" ? 409 : 403;
+}
+
 export function describeScopeResolutionError(code: "no_scope" | "ambiguous_scope" | "invalid_scope_hint"): string {
   switch (code) {
     case "ambiguous_scope":
-      return "Не удалось определить контекст для вопроса. Выберите город/клуб в приложении и попробуйте снова.";
+      return "Выберите клуб или город в форме вопроса.";
     case "invalid_scope_hint":
-      return "Недействительный контекст. Обновите приложение и попробуйте снова.";
+      return "Выбранный клуб или город вам недоступен. Обновите форму и выберите из списка.";
     case "no_scope":
     default:
-      return "Недостаточно прав для отправки вопроса.";
+      return "Для вашей роли не найден ни один клуб или город. Обратитесь к администратору.";
   }
+}
+
+/**
+ * QA-04.2 — a CITY_MANAGER's own question routes to OPERATIONS_DIRECTOR only
+ * (notification-service.ts / INBOX_EXCLUDED_SENDER_ROLE): its routing never
+ * depends on a club, only the city snapshot is informational. So every
+ * CITY_MANAGER grant collapses to its CITY — a CITY grant plus a CLUB grant
+ * inside the same city is ONE choice, not an "ambiguous" pair, and no club is
+ * invented for a city-level sender. Order of first appearance is kept.
+ */
+export function collapseToCityCandidates(candidates: QuestionScopeCandidate[]): QuestionScopeCandidate[] {
+  const byCity = new Map<string, QuestionScopeCandidate>();
+  for (const c of candidates) {
+    if (!byCity.has(c.cityId)) byCity.set(c.cityId, { cityId: c.cityId, cityName: c.cityName, clubId: null, clubName: null });
+  }
+  return [...byCity.values()];
+}
+
+export type QuestionContextKind = "club" | "city";
+
+export interface QuestionContextOptions {
+  /** null for MANAGER: their scope is their own EmployeeProfile, no choice. */
+  kind: QuestionContextKind | null;
+  /** Only the actor's OWN authorized clubs/cities — never anything else. */
+  options: { id: string; label: string }[];
+  /** True only when there are 2+ genuine choices; the form then shows a
+   * selector and blocks submit until one is picked. */
+  requiresSelection: boolean;
+}
+
+/** QA-04.2 — what the Ask Question form needs to know about scope, built
+ * from the SAME candidates createEmployeeQuestion resolves against. */
+export function buildQuestionContextOptions(senderContext: QuestionSenderContext, candidates: QuestionScopeCandidate[]): QuestionContextOptions {
+  if (senderContext === "MANAGER") return { kind: null, options: [], requiresSelection: false };
+  const kind: QuestionContextKind = senderContext === "CLUB_MANAGER" ? "club" : "city";
+  const options =
+    kind === "club"
+      ? candidates.filter((c) => c.clubId).map((c) => ({ id: c.clubId!, label: c.clubName ?? c.clubId! }))
+      : candidates.map((c) => ({ id: c.cityId, label: c.cityName }));
+  return { kind, options, requiresSelection: options.length > 1 };
 }
 
 /** The subset of an EmployeeQuestion row every scope-based predicate below
@@ -230,10 +279,43 @@ export function canChangeQuestionStatus(actor: ActorContext, q: QuestionScope): 
  * OPERATIONS_DIRECTOR, which is exactly why this checks hasSystemAccess
  * specifically and NOT hasNetworkAccess.
  */
-export function shouldRevealAuthor(actor: ActorContext, q: { authorUserId: string; anonymous: boolean }): boolean {
+export function shouldRevealAuthor(
+  actor: ActorContext,
+  q: { authorUserId: string; anonymous: boolean; cityIdSnapshot: string; clubIdSnapshot: string | null },
+): boolean {
   if (!q.anonymous) return true;
   if (actor.userId === q.authorUserId) return true;
+  // QA-04.2B — the promise on the form is "Руководители не увидят ваше имя".
+  // A PROJECT_ADMIN keeps the moderation exception ONLY when they are not
+  // also one of this question's leaders: someone who reaches it through a
+  // CITY_MANAGER / CLUB_MANAGER / OPERATIONS_DIRECTOR role covering it reads
+  // it AS that leader — masked — even if they additionally hold system
+  // access. (Before this, a CITY_MANAGER account that was also legacy
+  // AppRole=ADMIN saw every anonymous author in their own leadership inbox.)
+  if (isLeadershipViewer(actor, q)) return false;
   return hasSystemAccess(actor);
+}
+
+/**
+ * QA-04.2B — does this actor hold a leadership role whose scope covers the
+ * question? Real grants (and the legacy CLUB_MANAGER club) only; a View-As
+ * persona never feeds this (every question route resolves the REAL actor).
+ */
+export function isLeadershipViewer(actor: ActorContext, q: { cityIdSnapshot: string; clubIdSnapshot: string | null }): boolean {
+  if (actor.appRole === "CLUB_MANAGER" && q.clubIdSnapshot !== null && actor.employeeClubId === q.clubIdSnapshot) return true;
+  return actor.grants.some((g) => {
+    if (!isGrantActive(g)) return false;
+    switch (g.role) {
+      case "OPERATIONS_DIRECTOR":
+        return true;
+      case "CITY_MANAGER":
+        return q.clubIdSnapshot ? grantCoversClub(g, q.clubIdSnapshot, q.cityIdSnapshot) : grantCoversCity(g, q.cityIdSnapshot);
+      case "CLUB_MANAGER":
+        return q.clubIdSnapshot !== null && g.clubId === q.clubIdSnapshot;
+      default:
+        return false;
+    }
+  });
 }
 
 /** Client-safe shape — NEVER includes telegramId/username/avatar/phone or
@@ -256,6 +338,9 @@ export interface QuestionRecordForSanitize {
   authorUserId: string;
   authorDisplayName: string;
   senderRole: string;
+  /** QA-04.2B — scope snapshots, needed to tell a leader from a moderator. */
+  cityIdSnapshot: string;
+  clubIdSnapshot: string | null;
   cityNameSnapshot: string;
   clubNameSnapshot: string | null;
   createdAt: Date;
@@ -279,7 +364,7 @@ export interface QuestionRecordForSanitize {
  * substring search, Object.keys), not just the common ones.
  */
 export function sanitizeQuestionForActor(actor: ActorContext, record: QuestionRecordForSanitize): EmployeeQuestionDTO {
-  const reveal = shouldRevealAuthor(actor, { authorUserId: record.authorUserId, anonymous: record.anonymous });
+  const reveal = shouldRevealAuthor(actor, record);
   return {
     id: record.id,
     category: record.category,

@@ -248,7 +248,7 @@ test("Q-D: the Switch pins the thumb at an explicit left/top inset and translate
 test("Q-E: anonymous semantics are unchanged — OFF identified, ON anonymous, sent as the same `anonymous` flag", () => {
   const page = read("src/app/questions/ask/page.tsx");
   assert.match(page, /const \[anonymous, setAnonymous\] = useState\(false\);/);
-  assert.match(page, /buildCreateQuestionPayload\(\{ senderContext, category, text, anonymous, attachments, scopeHint \}\)/);
+  assert.match(page, /buildCreateQuestionPayload\(\{ senderContext, category, text, anonymous, attachments, scopeHint: scopeSelection\.scopeHint \}\)/);
 });
 
 /* ===================================================================== *

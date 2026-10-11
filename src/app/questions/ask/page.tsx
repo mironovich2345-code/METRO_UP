@@ -19,6 +19,7 @@ import {
   isSubmitDisabled,
   buildCreateQuestionPayload,
   remainingAttachmentSlots,
+  resolveQuestionScopeSelection,
   resolveScopeHint,
   resolveSenderContext,
   validateAttachmentFile,
@@ -27,6 +28,8 @@ import {
 } from "@/lib/client/ask-question-core";
 import type { QuestionCategoryDTO } from "@/lib/api/questions-types";
 import { cardIn, staggerStack } from "@/lib/motion";
+import { useQuery, QUERY_POLICY } from "@/lib/client/query-cache";
+import { cacheKeys } from "@/lib/client/cache-keys";
 
 /**
  * METRO UP ROUND 1, Milestone 2B — "Задать вопрос". Reachable from Profile
@@ -57,12 +60,16 @@ function describeQuestionError(code: string | null): string {
       return "Профиль сотрудника не найден.";
     case "upload_failed":
       return "Не удалось загрузить файл. Проверьте соединение.";
+    // QA-04.2 — the form now shows the club/city selector BEFORE submit
+    // whenever a pick is needed, so these are fallbacks, never the normal path.
     case "ambiguous_scope":
-      return "Не удалось определить контекст для вопроса. Выберите город/клуб в приложении и попробуйте снова.";
+      return "Выберите клуб или город в форме вопроса.";
     case "invalid_scope_hint":
-      return "Недействительный контекст. Обновите приложение и попробуйте снова.";
+      return "Выбранный клуб или город вам недоступен. Выберите из списка.";
     case "no_scope":
-      return "Недостаточно прав для отправки вопроса.";
+      return "Для вашей роли не найден ни один клуб или город. Обратитесь к администратору.";
+    case "VIEW_AS_READ_ONLY":
+      return "Отправка вопросов недоступна в режиме просмотра.";
     default:
       return "Не удалось отправить вопрос. Попробуйте ещё раз.";
   }
@@ -90,6 +97,30 @@ export default function AskQuestionPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [succeeded, setSucceeded] = useState(false);
   const [textTouched, setTextTouched] = useState(false);
+  // QA-04.2 — the explicit club/city pick, only ever asked for when the
+  // server says the sender's scope is genuinely ambiguous.
+  const [pickedScopeId, setPickedScopeId] = useState<string | null>(null);
+  const [scopeOpen, setScopeOpen] = useState(false);
+
+  // Home's active cabinet decides WHICH role the user is asking as (a
+  // selector the server re-validates); the club/city options themselves come
+  // from the server's view of the REAL actor's grants, never from storage.
+  const stored = hydrated && isOnboarded ? loadStoredContext(getOwnerKey()) : null;
+  const senderContext = resolveSenderContext(stored);
+  const {
+    data: questionContext,
+    error: questionContextError,
+    mutate: reloadQuestionContext,
+  } = useQuery(
+    hydrated && isOnboarded ? cacheKeys.questionContext(senderContext) : null,
+    () => questionsApi.context(senderContext),
+    QUERY_POLICY.MUTABLE,
+  );
+  const scopeSelection = resolveQuestionScopeSelection({
+    context: questionContext,
+    storedHint: resolveScopeHint(stored),
+    picked: pickedScopeId,
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!hydrated || !isOnboarded) {
@@ -157,10 +188,10 @@ export default function AskQuestionPage() {
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const stored = loadStoredContext(getOwnerKey());
-      const senderContext = resolveSenderContext(stored);
-      const scopeHint = resolveScopeHint(stored);
-      const payload = buildCreateQuestionPayload({ senderContext, category, text, anonymous, attachments, scopeHint });
+      // QA-04.2 — a club/city is sent ONLY when the server asked for a pick;
+      // otherwise the server resolves the single real scope itself (a stale
+      // stored club can no longer turn a valid submit into an error).
+      const payload = buildCreateQuestionPayload({ senderContext, category, text, anonymous, attachments, scopeHint: scopeSelection.scopeHint });
       await questionsApi.create(payload);
       setSucceeded(true);
     } catch (e) {
@@ -187,7 +218,11 @@ export default function AskQuestionPage() {
     );
   }
 
-  const disabled = isSubmitDisabled({ submitting, text, attachments });
+  const readOnly = questionContext?.previewReadOnly ?? false;
+  // A denied context (role no longer held, no club/city in scope) would only
+  // fail on submit too — say so now and keep the button disabled.
+  const contextDenied = questionContextError instanceof ApiError && (questionContextError.status === 403 || questionContextError.status === 409);
+  const disabled = isSubmitDisabled({ submitting, text, attachments, scopeMissing: scopeSelection.missingSelection, readOnly: readOnly || contextDenied });
   const textCheck = validateQuestionText(text);
 
   return (
@@ -199,6 +234,44 @@ export default function AskQuestionPage() {
             wall of chips. Same QUESTION_CATEGORY_OPTIONS, same stored values;
             picking one only sets `category` (text, attachments and the
             anonymous toggle are separate state and stay as they are). */}
+        {/* QA-04.2 — only when the sender's scope is genuinely ambiguous
+            (several managed clubs / several cities): the actor's OWN options
+            from the server. Picking changes only this value — category,
+            text, attachments and the anonymous toggle are separate state. */}
+        {questionContext?.requiresSelection && questionContext.kind && (
+          <motion.div variants={cardIn} className="flex flex-col gap-2">
+            <p className="px-1 text-sm font-bold text-foreground">{questionContext.kind === "club" ? "Клуб" : "Город"}</p>
+            <SelectField
+              label={questionContext.kind === "club" ? "Клуб" : "Город"}
+              value={scopeSelection.selectedId}
+              placeholder={questionContext.kind === "club" ? "Выберите клуб" : "Выберите город"}
+              options={questionContext.options.map((o) => ({ value: o.id, label: o.label }))}
+              open={scopeOpen}
+              onOpenChange={setScopeOpen}
+              onChange={setPickedScopeId}
+            />
+          </motion.div>
+        )}
+
+        {readOnly && (
+          <motion.div variants={cardIn}>
+            <p className="px-1 text-sm text-muted-foreground">Отправка вопросов недоступна в режиме просмотра.</p>
+          </motion.div>
+        )}
+
+        {questionContextError && (
+          <motion.div variants={cardIn} className="flex items-center gap-3 px-1">
+            <p className="min-w-0 flex-1 text-sm text-red-500">
+              {contextDenied ? describeQuestionError(questionContextError instanceof ApiError ? questionContextError.code : null) : "Не удалось загрузить данные формы."}
+            </p>
+            {!contextDenied && (
+              <Button size="sm" variant="secondary" onClick={() => void reloadQuestionContext()}>
+                Повторить
+              </Button>
+            )}
+          </motion.div>
+        )}
+
         <motion.div variants={cardIn} className="flex flex-col gap-2">
           <p className="px-1 text-sm font-bold text-foreground">Категория</p>
           <SelectField
