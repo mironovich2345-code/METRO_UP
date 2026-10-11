@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, GraduationCap } from "lucide-react";
 import { GlassCard } from "@/components/ui/glass-card";
 import { fetchAcademyState } from "@/lib/api/content-client";
-import type { AcademyStateDTO } from "@/lib/api/content-types";
+import { useQuery, QUERY_POLICY } from "@/lib/client/query-cache";
+import { cacheKeys } from "@/lib/client/cache-keys";
 
 /**
  * "Продолжить обучение" — the next available, not-completed PUBLISHED lesson from
@@ -16,19 +16,29 @@ import type { AcademyStateDTO } from "@/lib/api/content-types";
  * PERSONAL Home context (home/page.tsx), so it explicitly requests the
  * MANAGER Academy section — never a role-section this card has no UI to
  * disambiguate for.
+ *
+ * Sprint: LIVE QA FIX QA-01B — read through the shared query cache instead
+ * of a private useState+useEffect fetch. The private fetch had no cache at
+ * all, so this card painted its own skeleton on EVERY return to Home — part
+ * of the MANAGER Home flicker. Same fetcher, same section, same three
+ * render outcomes; the skeleton now only appears when there is genuinely
+ * nothing cached yet. Freshness: stale-while-revalidate like every other
+ * cached Home surface (revalidated on mount), and lesson completion's
+ * existing invalidatePrefix(cacheKeyPrefixes.academy) covers this key. A
+ * failed request with nothing cached renders the same honest fallback card
+ * the old `.catch(() => setState(null))` did; a failed background refresh
+ * keeps showing the cached lesson rather than replacing it with that
+ * fallback.
  */
 export function ContinueLearningCard() {
-  const [state, setState] = useState<AcademyStateDTO | null>(null);
-  const [loaded, setLoaded] = useState(false);
+  const { data, error } = useQuery(
+    cacheKeys.academyState("MANAGER"),
+    () => fetchAcademyState("MANAGER"),
+    QUERY_POLICY.MEDIUM,
+  );
+  const state = data ?? null;
 
-  useEffect(() => {
-    fetchAcademyState("MANAGER")
-      .then(setState)
-      .catch(() => setState(null))
-      .finally(() => setLoaded(true));
-  }, []);
-
-  if (!loaded) {
+  if (data === undefined && error === undefined) {
     return <div className="h-24 w-full animate-pulse rounded-3xl bg-muted" />;
   }
 

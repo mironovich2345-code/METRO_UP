@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { CheckCircle2, Clock, GraduationCap, Lock } from "lucide-react";
@@ -17,12 +17,13 @@ import { useApp } from "@/providers/app-provider";
 import { cardIn, staggerStack } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { haptic } from "@/lib/telegram";
-import { homeContextToAcademySection } from "@/lib/cabinet-ui";
+import { resolveInitialAcademySectionKey } from "@/lib/cabinet-ui";
 import { isManagementNavContext } from "@/lib/nav-items";
 import { loadStoredContext } from "@/lib/home-context-storage";
 import { fetchAcademyOverview } from "@/lib/api/content-client";
 import { useQuery, QUERY_POLICY } from "@/lib/client/query-cache";
 import { cacheKeys } from "@/lib/client/cache-keys";
+import { useRootScreenEntrance } from "@/lib/client/root-screen-entrance";
 import type { AcademyDayCardDTO, AcademyOverviewDTO, AcademySectionsDTO, AcademyTargetRoleDTO } from "@/lib/api/content-types";
 
 const SECTION_LABEL: Record<AcademyTargetRoleDTO, string> = {
@@ -50,28 +51,36 @@ export default function AcademyScreen() {
   // CITY_MANAGER's). The avatar entry is additive, shown only for the two
   // management contexts — PERSONAL's header stays byte-identical.
   const isManagementRoot = isManagementNavContext(useEffectiveNavContext());
-  // Sprint: mini-app-performance — `undefined` = not yet resolved from
-  // storage (key stays null, nothing fetched yet); `"default"` = resolved,
-  // no stored preference, ask the server for its own MANAGER-first fallback;
-  // otherwise the persisted section itself. Kept as a cache-key-shaped
-  // string (never AcademyTargetRoleDTO | undefined directly) so "default"
-  // and a real section can never collide with each other in the SWR cache.
-  const [sectionKey, setSectionKey] = useState<string | undefined>(undefined);
-
-  useEffect(() => {
-    // Section 4 — "default selected Academy section should follow the active
-    // Mini App context when possible": reads the SAME persisted context Home
-    // uses (home-context-storage.ts) rather than a separate Academy-only
-    // preference — no context concept, no default hint, plain fetch (the
-    // server's own MANAGER-first fallback applies).
+  const entranceInitial = useRootScreenEntrance();
+  // Sprint: mini-app-performance — `"default"` = no stored preference, ask
+  // the server for its own MANAGER-first fallback; otherwise the persisted
+  // section itself. Kept as a cache-key-shaped string (never
+  // AcademyTargetRoleDTO | undefined directly) so "default" and a real
+  // section can never collide with each other in the SWR cache.
+  //
+  // Section 4 — "default selected Academy section should follow the active
+  // Mini App context when possible": reads the SAME persisted context Home
+  // uses (home-context-storage.ts) rather than a separate Academy-only
+  // preference.
+  //
+  // Sprint: LIVE QA FIX QA-01B — resolved SYNCHRONOUSLY on the first render
+  // (lazy initializer) instead of in a post-paint effect. The effect left the
+  // first frame of EVERY /academy visit with an `undefined` section, so a
+  // null SWR key and the skeleton below, even when this exact section's
+  // overview was already cached — the skeleton -> content flash captured on
+  // the live recording. /academy only ever renders client-side, behind
+  // EmployeeBootGate, so reading localStorage here cannot mismatch a server
+  // pass. The derivation itself is resolveInitialAcademySectionKey
+  // (cabinet-ui.ts) — the SAME function Home's prefetch now uses, so a
+  // prefetched overview is actually the key this screen asks for.
+  const [sectionKey, setSectionKey] = useState<string>(() => {
     const ownerKey = telegramUser?.id != null ? String(telegramUser.id) : "demo";
-    const stored = loadStoredContext(ownerKey);
-    setSectionKey(stored ? homeContextToAcademySection(stored.type) : "default");
-  }, [telegramUser?.id]);
+    return resolveInitialAcademySectionKey(loadStoredContext(ownerKey));
+  });
 
-  const requestedSection = sectionKey && sectionKey !== "default" ? (sectionKey as AcademyTargetRoleDTO) : undefined;
+  const requestedSection = sectionKey !== "default" ? (sectionKey as AcademyTargetRoleDTO) : undefined;
   const { data, error, isLoading, isValidating, mutate } = useQuery<AcademyOverviewDTO & Partial<AcademySectionsDTO>>(
-    sectionKey ? cacheKeys.academyOverview(sectionKey) : null,
+    cacheKeys.academyOverview(sectionKey),
     () => fetchAcademyOverview(requestedSection),
     QUERY_POLICY.MEDIUM,
   );
@@ -105,7 +114,7 @@ export default function AcademyScreen() {
         </div>
       )}
 
-      <motion.main variants={staggerStack} initial="hidden" animate="show" className="px-5">
+      <motion.main variants={staggerStack} initial={entranceInitial} animate="show" className="px-5">
         {status === "loading" && (
           <div className="space-y-4">
             <div className="h-28 w-full animate-pulse rounded-3xl bg-muted" />
@@ -179,7 +188,7 @@ export default function AcademyScreen() {
                 ) : (
                   <motion.div
                     variants={staggerStack}
-                    initial="hidden"
+                    initial={entranceInitial}
                     animate="show"
                     className="mt-3 grid grid-cols-2 gap-3"
                   >

@@ -14,6 +14,7 @@ import { cabinetApi } from "@/lib/api/cabinet-client";
 import type { CityManagerDashboardDTO } from "@/lib/api/cabinet-client";
 import { useQuery, QUERY_POLICY } from "@/lib/client/query-cache";
 import { cacheKeys } from "@/lib/client/cache-keys";
+import { useRootScreenEntrance } from "@/lib/client/root-screen-entrance";
 import { attentionCardCount, clubsWithoutManager, distinctCityNames, groupPendingApprovalByClub, pluralRu } from "@/lib/cabinet-ui";
 import { cardIn, staggerStack } from "@/lib/motion";
 import { cn } from "@/lib/utils";
@@ -26,6 +27,7 @@ import { cn } from "@/lib/utils";
  */
 export default function CityClubsPage() {
   const router = useRouter();
+  const entranceInitial = useRootScreenEntrance();
   const { data: dashboard, error, isLoading, isValidating, mutate } = useQuery<CityManagerDashboardDTO>(
     cacheKeys.cityDashboard(),
     cabinetApi.cityManager,
@@ -54,7 +56,7 @@ export default function CityClubsPage() {
       <AppHeader title="Мои клубы" subtitle={dashboard ? scopeLabel : undefined} leading={<ManagementAvatarLink />} showThemeSwitcher={false} />
       <RevalidatingBar show={Boolean(dashboard) && isValidating} />
 
-      <motion.main variants={staggerStack} initial="hidden" animate="show" className="flex flex-col gap-5 px-5 pt-2">
+      <motion.main variants={staggerStack} initial={entranceInitial} animate="show" className="flex flex-col gap-5 px-5 pt-2">
         {status === "loading" && (
           <div className="flex flex-col gap-3">
             <div className="h-24 animate-pulse rounded-3xl bg-muted" />

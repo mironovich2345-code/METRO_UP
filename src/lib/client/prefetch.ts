@@ -5,6 +5,9 @@ import { cacheKeys } from "./cache-keys";
 import { fetchAcademyOverview } from "@/lib/api/content-client";
 import { fetchRatingBoard, fetchProfileManagementRoles } from "@/lib/api/home-client";
 import { cabinetApi } from "@/lib/api/cabinet-client";
+import { loadStoredContext } from "@/lib/home-context-storage";
+import { resolveInitialAcademySectionKey } from "@/lib/cabinet-ui";
+import type { AcademyTargetRoleDTO } from "@/lib/api/content-types";
 
 /**
  * Sprint: mini-app-performance, section 8 — warm the cache for the screens a
@@ -31,9 +34,25 @@ function shouldPrefetch(): boolean {
   return conn.effectiveType !== "slow-2g" && conn.effectiveType !== "2g";
 }
 
-export function prefetchPersonalDestinations() {
+/**
+ * `storedContextOwnerKey` — the SAME owner key /academy itself reads the
+ * stored Home context with (home/page.tsx and academy/page.tsx both derive
+ * it from useApp().telegramUser), passed in rather than re-derived here so
+ * the two can never read different storage slots.
+ */
+export function prefetchPersonalDestinations(storedContextOwnerKey: string) {
   if (!shouldPrefetch()) return;
-  preload(cacheKeys.academyOverview("default"), () => fetchAcademyOverview());
+  // Sprint: LIVE QA FIX QA-01B — warm the EXACT key (and request the exact
+  // section) /academy's own first render asks for. This used to always warm
+  // "default", while /academy derives its key from the stored Home context
+  // (a MANAGER's stored PERSONAL -> "MANAGER"): two keys for one response,
+  // so this prefetch was never read and /academy cold-loaded right after
+  // Home had warmed it. Called after Home's own saveStoredContext effect has
+  // run (runWhenIdle, home/page.tsx), so it reads the same stored context
+  // /academy will. resolveInitialAcademySectionKey is the one shared rule.
+  const academySection = resolveInitialAcademySectionKey(loadStoredContext(storedContextOwnerKey));
+  const requestedSection = academySection !== "default" ? (academySection as AcademyTargetRoleDTO) : undefined;
+  preload(cacheKeys.academyOverview(academySection), () => fetchAcademyOverview(requestedSection));
   preload(cacheKeys.ratingBoard(), fetchRatingBoard);
   preload(cacheKeys.profileManagementRoles(), () => fetchProfileManagementRoles().then((r) => r.roles));
 }

@@ -159,3 +159,39 @@ export function isActiveNavRoute(pathname: string, item: BottomNavRoute): boolea
     (item.match?.some((p) => pathname === p || pathname.startsWith(`${p}/`)) ?? false)
   );
 }
+
+/**
+ * Sprint: LIVE QA FIX QA-01B, section 13 — is this tab tap a navigation to
+ * the route ALREADY on screen? Exact pathname equality only, deliberately
+ * narrower than isActiveNavRoute: on /team/employee the "Команда" tab is
+ * ACTIVE (prefix match) but tapping it is a real navigation back to /team,
+ * and must stay one. Only a tap on the exact current root is a no-op —
+ * no push, no re-render, no Next.js scroll-into-view, no refetch.
+ */
+export function isSameRouteNavTap(pathname: string, href: string): boolean {
+  return pathname === href;
+}
+
+/**
+ * Sprint: LIVE QA FIX QA-01B, section 13 — the click handler every bottom-nav
+ * item runs, kept here (pure: the haptic is injected) so the exact
+ * production logic has real test coverage. A tap on the route already on
+ * screen calls preventDefault(): next/link runs our onClick FIRST and then
+ * returns early when `e.defaultPrevented` is set (verified in the installed
+ * next/dist/client/app-dir/link.js), and the native anchor navigation is
+ * cancelled too — so there is no push, no re-render, no scroll-into-view,
+ * and no selection haptic for a selection that did not change. Every other
+ * tap — including an active-by-prefix tab like "Команда" on /team/employee
+ * — gets the selection haptic and navigates exactly as before.
+ */
+export function applyNavTap(
+  event: { preventDefault(): void },
+  isCurrentRoute: boolean,
+  onNavigateFeedback: () => void,
+): void {
+  if (isCurrentRoute) {
+    event.preventDefault();
+    return;
+  }
+  onNavigateFeedback();
+}

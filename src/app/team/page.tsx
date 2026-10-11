@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { ChevronRight, Clock, GraduationCap, UserCheck, Users } from "lucide-react";
@@ -17,9 +17,10 @@ import { managerApi } from "@/lib/api/club-plan-client";
 import type { CabinetTeamMemberDTO, ClubManagerDashboardDTO } from "@/lib/api/cabinet-client";
 import { useQuery, QUERY_POLICY, invalidatePrefix } from "@/lib/client/query-cache";
 import { cacheKeys, cacheKeyPrefixes } from "@/lib/client/cache-keys";
+import { useRootScreenEntrance } from "@/lib/client/root-screen-entrance";
 import { cardIn, staggerStack } from "@/lib/motion";
 import { cn } from "@/lib/utils";
-import { describeRoleAssignmentError, filterPendingEmployees, resolveManagedClubSelection, resolveTeamAccessMode } from "@/lib/cabinet-ui";
+import { describeRoleAssignmentError, filterPendingEmployees, resolveManagedClubSelection, resolveTeamAccessMode, resolveTeamSelectedClubId } from "@/lib/cabinet-ui";
 
 /**
  * Sprint: mini-app-role-experience, section 8-9 — CLUB_MANAGER's "Моя
@@ -67,9 +68,12 @@ export default function TeamPage() {
   const explicitClubId = search.get("clubId");
   const isPreviewing = user?.viewContext?.previewRole === "CLUB_MANAGER";
 
+  /** The user's EXPLICIT pick from the multi-club selector below — null until
+   * they choose. Never set automatically (see effectiveClubId). */
   const [selectedClubId, setSelectedClubId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const entranceInitial = useRootScreenEntrance();
 
   // Resolve which club(s) this real actor manages — skipped while previewing
   // AND skipped entirely when an explicit clubId drill-down is given (that
@@ -80,16 +84,21 @@ export default function TeamPage() {
     () => cabinetApi.myManagedClubs().then((r) => r.clubs),
     QUERY_POLICY.MUTABLE,
   );
-  useEffect(() => {
-    if (!clubs) return;
-    const selection = resolveManagedClubSelection(clubs);
-    if (selection.kind === "auto") setSelectedClubId(selection.club.id);
-  }, [clubs]);
+  // Sprint: LIVE QA FIX QA-01B — derived during render from the (usually
+  // already cached) clubs list, instead of a post-paint
+  // `useEffect(() => setSelectedClubId(auto))`. That effect left the FIRST
+  // frame of every /team visit with no club, so a null roster key and a
+  // skeleton, even when both the clubs list and this club's roster were
+  // already in the cache — the skeleton -> roster swap seen on every
+  // return to /team. Same rule as before (resolveTeamSelectedClubId wraps
+  // resolveManagedClubSelection unchanged): an explicit pick wins, exactly
+  // one club auto-selects, 0 or 2+ never guess.
+  const effectiveClubId = resolveTeamSelectedClubId({ explicitChoice: selectedClubId, clubs });
 
-  const { isReadOnlyDrillDown, activeClubId } = resolveTeamAccessMode({ isPreviewing, explicitClubId, selectedClubId });
+  const { isReadOnlyDrillDown, activeClubId } = resolveTeamAccessMode({ isPreviewing, explicitClubId, selectedClubId: effectiveClubId });
 
   const canLoad = isPreviewing || Boolean(activeClubId);
-  const teamKey = canLoad ? cacheKeys.team(explicitClubId ?? selectedClubId, isPreviewing) : null;
+  const teamKey = canLoad ? cacheKeys.team(explicitClubId ?? effectiveClubId, isPreviewing) : null;
   const {
     data: teamData,
     error: teamError,
@@ -197,7 +206,7 @@ export default function TeamPage() {
       )}
       <RevalidatingBar show={Boolean(teamData) && isValidating} />
 
-      <motion.main variants={staggerStack} initial="hidden" animate="show" className="flex flex-col gap-5 px-5 pt-2">
+      <motion.main variants={staggerStack} initial={entranceInitial} animate="show" className="flex flex-col gap-5 px-5 pt-2">
         {status === "no-club" && (
           <GlassCard variant="solid" pad="lg" animateIn={false} className="text-center">
             <p className="font-semibold">Вы пока не управляете ни одним клубом</p>

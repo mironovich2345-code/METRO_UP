@@ -21,6 +21,27 @@ export const cardIn: Variants = {
   },
 };
 
+/**
+ * Sprint: LIVE QA FIX QA-01B — the `initial` value a ROOT tab screen's
+ * staggerStack container uses. Root screens (/home, /academy, /team, /plan,
+ * /city, /questions, /knowledge, /ranking, /metric) remount on every tab
+ * navigation, and framer-motion propagates a container's `initial` to every
+ * `variants={cardIn}` child — including children that mount LATER (verified
+ * in framer-motion 12's makeLatestValues: an inherited `initial` label is
+ * applied on each child's first frame; `initial === false` blocks it and
+ * starts the child at `animate`). With "hidden", every tab switch painted
+ * its content at opacity 0 + blur(6px) + 18px offset and re-materialized it
+ * over ~0.6-1s — even with fully cached data — which is the visible
+ * "flash" on same-role navigation.
+ *
+ * The entrance is now the cold-open reveal ONLY: the first root screen of a
+ * session plays it; every later root-screen mount gets `false` and renders
+ * its content in its final state on its very first frame.
+ */
+export function rootScreenEntranceInitial(rootScreenAlreadyShown: boolean): "hidden" | false {
+  return rootScreenAlreadyShown ? false : "hidden";
+}
+
 /** Stagger container for a vertical stack of cards. */
 export const staggerStack: Variants = {
   hidden: {},

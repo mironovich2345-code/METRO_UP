@@ -15,6 +15,7 @@ import { useApp } from "@/providers/app-provider";
 import { questionsApi } from "@/lib/api/questions-client";
 import { useQuery, QUERY_POLICY } from "@/lib/client/query-cache";
 import { cacheKeys } from "@/lib/client/cache-keys";
+import { useRootScreenEntrance } from "@/lib/client/root-screen-entrance";
 import { QUESTION_CATEGORY_OPTIONS } from "@/lib/client/ask-question-core";
 import { QUESTION_STATUS_TABS, questionCategoryLabel, questionStatusBadgeVariant, questionStatusLabel } from "@/lib/client/questions-ui";
 import type { EmployeeQuestionDTO, QuestionCategoryDTO, QuestionStatusDTO } from "@/lib/api/questions-types";
@@ -35,6 +36,7 @@ export default function QuestionsInboxPage() {
   const [category, setCategory] = useState<QuestionCategoryDTO | undefined>(undefined);
   const [clubId, setClubId] = useState<string | undefined>(undefined);
   const [page, setPage] = useState(1);
+  const entranceInitial = useRootScreenEntrance();
 
   const filterKey = { status, category, clubId, page };
   const { data, error, isLoading, isValidating, mutate } = useQuery(
@@ -86,7 +88,7 @@ export default function QuestionsInboxPage() {
       {/* Management UX Round D, section 8 — a light visual pass only:
           gap-4 -> gap-3 for a slightly tighter vertical rhythm (filters/
           backend/anonymity/status semantics all untouched). */}
-      <motion.main variants={staggerStack} initial="hidden" animate="show" className="flex flex-col gap-3 px-5 pt-2">
+      <motion.main variants={staggerStack} initial={entranceInitial} animate="show" className="flex flex-col gap-3 px-5 pt-2">
         {/* Tabs */}
         <motion.div variants={cardIn} className="flex gap-2 overflow-x-auto pb-1">
           {QUESTION_STATUS_TABS.map((tab) => (

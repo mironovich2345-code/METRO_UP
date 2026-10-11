@@ -57,6 +57,7 @@ import { prefetchPersonalDestinations, prefetchCityManagerDestinations, prefetch
 import { runWhenIdle } from "@/lib/client/idle";
 import { useScreenPerfLog } from "@/lib/client/perf";
 import { logBootEvent } from "@/lib/client/perf-boot";
+import { useRootScreenEntrance } from "@/lib/client/root-screen-entrance";
 import { loadStoredContext, saveStoredContext, type StoredHomeContext } from "@/lib/home-context-storage";
 import type {
   CityManagerHomeBlockDTO,
@@ -84,11 +85,16 @@ export default function HomeScreen() {
   const { user: appUser } = useAppUser();
   const router = useRouter();
 
-  const [greeting, setGreeting] = useState("С возвращением");
+  // Sprint: LIVE QA FIX QA-01B — computed on the first render (lazy
+  // initializer), not swapped in by a post-paint effect: the old
+  // "С возвращением" -> "Добрый день" swap repainted the header text on
+  // every single Home visit. Safe to read the clock here: Home only ever
+  // renders client-side, behind EmployeeBootGate (whose server render is
+  // always its own loader), so there is no server/hydration pass to mismatch.
+  const [greeting] = useState(computeGreeting);
   const [showWelcome, setShowWelcome] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
-
-  useEffect(() => setGreeting(computeGreeting()), []);
+  const entranceInitial = useRootScreenEntrance();
 
   useEffect(() => {
     if (hydrated && !isOnboarded) router.replace("/welcome");
@@ -99,22 +105,26 @@ export default function HomeScreen() {
   // different account's last-selected cabinet.
   const ownerKey = telegramUser?.id != null ? String(telegramUser.id) : "demo";
 
-  // Sprint: mini-app-performance — `undefined` (not yet resolved from
-  // storage) keeps the query key null (nothing fetched); once resolved it's
-  // either the persisted context or "no preference" (also undefined, but
-  // now a deliberate value passed to fetchHome) — resolvedRequestedContext
-  // (below) tells the two apart so the key is only ever built once.
-  const [requestedContext, setRequestedContext] = useState<StoredHomeContext | undefined>(undefined);
-  const [contextResolved, setContextResolved] = useState(false);
-  useEffect(() => {
-    if (!isOnboarded) return;
-    setRequestedContext(loadStoredContext(ownerKey) ?? undefined);
-    setContextResolved(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOnboarded]);
+  // Sprint: mini-app-performance — the persisted context (or "no
+  // preference", undefined) is what fetchHome is asked for and what the
+  // cache key embeds.
+  //
+  // Sprint: LIVE QA FIX QA-01B — read SYNCHRONOUSLY on the first render (a
+  // lazy initializer) instead of in a post-paint effect that also had to
+  // flip a separate `contextResolved` flag. That effect meant every Home
+  // mount rendered its first frame with a NULL SWR key — so a skeleton, and
+  // a PERSONAL greeting header even for a CITY_MANAGER/CLUB_MANAGER — before
+  // the (already cached) dashboard could appear one frame later: the
+  // skeleton/header flash seen on every return to Home. Still read exactly
+  // once per mount, never re-keyed by Home's own later saveStoredContext
+  // write; same client-only reasoning as `greeting` above. The key stays
+  // null until onboarding is complete, exactly as the old effect's guard did.
+  const [requestedContext, setRequestedContext] = useState<StoredHomeContext | undefined>(
+    () => loadStoredContext(ownerKey) ?? undefined,
+  );
 
   const isPreviewing = Boolean(appUser?.viewContext);
-  const homeKey = contextResolved
+  const homeKey = isOnboarded
     ? cacheKeys.home({
         context: requestedContext?.type,
         clubId: requestedContext?.clubId,
@@ -192,7 +202,7 @@ export default function HomeScreen() {
   useEffect(() => {
     if (!dash) return;
     runWhenIdle(() => {
-      if (dash.kind === "full") prefetchPersonalDestinations();
+      if (dash.kind === "full") prefetchPersonalDestinations(ownerKey);
       // Sprint: mini-app-cold-start, section 7 — never warm management routes
       // (team/city clubs/training) off a merely-cached, unconfirmed "kind" —
       // only once the real session has confirmed this actor genuinely holds
@@ -200,7 +210,7 @@ export default function HomeScreen() {
       else if (dash.kind === "city_manager" && identityConfirmed) prefetchCityManagerDestinations();
       else if (dash.kind === "club_manager" && !dash.block.isPreviewing && identityConfirmed) prefetchClubManagerDestinations();
     });
-  }, [dash, identityConfirmed]);
+  }, [dash, identityConfirmed, ownerKey]);
 
   const switchContext = (ctx: HomeContextDTO) => {
     setSwitcherOpen(false);
@@ -337,7 +347,7 @@ export default function HomeScreen() {
       </header>
       <RevalidatingBar show={Boolean(dash) && dashValidating} />
 
-      <motion.main variants={staggerStack} initial="hidden" animate="show" className="flex flex-col gap-6 px-5 pt-4">
+      <motion.main variants={staggerStack} initial={entranceInitial} animate="show" className="flex flex-col gap-6 px-5 pt-4">
         {showWelcome && (
           <motion.div variants={cardIn}>
             <FirstRunWelcome

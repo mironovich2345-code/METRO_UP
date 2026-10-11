@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { fetchRatingBoard } from "@/lib/api/home-client";
 import { useQuery, QUERY_POLICY } from "@/lib/client/query-cache";
 import { cacheKeys } from "@/lib/client/cache-keys";
+import { useRootScreenEntrance } from "@/lib/client/root-screen-entrance";
 import type { RatingBoardDTO, RatingBoardRowDTO } from "@/lib/api/home-types";
 
 type RatingMode = "managers" | "clubs";
@@ -43,6 +44,7 @@ type RatingMode = "managers" | "clubs";
  */
 export default function RankingScreen() {
   const [mode, setMode] = useState<RatingMode>("managers");
+  const entranceInitial = useRootScreenEntrance();
   const { data: board, error, isLoading, isValidating, mutate } = useQuery<RatingBoardDTO>(
     cacheKeys.ratingBoard(),
     fetchRatingBoard,
@@ -94,7 +96,7 @@ export default function RankingScreen() {
         </motion.div>
       )}
 
-      <motion.main variants={staggerStack} initial="hidden" animate="show" className="px-5">
+      <motion.main variants={staggerStack} initial={entranceInitial} animate="show" className="px-5">
         {status === "loading" && (
           <div className="space-y-3">
             <div className="h-16 w-full animate-pulse rounded-3xl bg-muted" />

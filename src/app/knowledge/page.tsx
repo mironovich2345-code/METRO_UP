@@ -6,6 +6,7 @@ import { ArrowRight, BookOpen, ScrollText } from "lucide-react";
 import { AppHeader } from "@/components/app-header";
 import { BottomNavigation } from "@/components/bottom-navigation";
 import { cardIn, staggerStack } from "@/lib/motion";
+import { useRootScreenEntrance } from "@/lib/client/root-screen-entrance";
 import { useApp } from "@/providers/app-provider";
 
 const SCRIPT_POSITIONS = ["CLIENT_MANAGER", "NIGHT_MANAGER"];
@@ -13,12 +14,13 @@ const SCRIPT_POSITIONS = ["CLIENT_MANAGER", "NIGHT_MANAGER"];
 /** Employee knowledge hub — one entry point, avoids overloading the bottom nav. */
 export default function KnowledgeHub() {
   const { profile } = useApp();
+  const entranceInitial = useRootScreenEntrance();
   const canScripts = !!profile?.positionId && SCRIPT_POSITIONS.includes(profile.positionId);
 
   return (
     <div className="relative min-h-[100dvh] pb-32">
       <AppHeader title="База знаний" subtitle="Скрипты и рабочие инструкции" />
-      <motion.main variants={staggerStack} initial="hidden" animate="show" className="flex flex-col gap-4 px-5 pt-2">
+      <motion.main variants={staggerStack} initial={entranceInitial} animate="show" className="flex flex-col gap-4 px-5 pt-2">
         {canScripts && (
           <HubCard
             href="/scripts"

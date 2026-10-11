@@ -7,6 +7,7 @@ import { AlertCircle, BookOpen, ChevronDown, Drama, FileText, GraduationCap, Rot
 import { MetricCharacter } from "@/components/ui/metric-character";
 import { BottomNavigation } from "@/components/bottom-navigation";
 import { cardIn, staggerStack } from "@/lib/motion";
+import { useRootScreenEntrance } from "@/lib/client/root-screen-entrance";
 import { hapticSelection } from "@/lib/telegram";
 import { useApp } from "@/providers/app-provider";
 import { ApiError } from "@/lib/api/client";
@@ -43,6 +44,7 @@ export default function MetricScreen() {
   const [rolePlayActive, setRolePlayActive] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const entranceInitial = useRootScreenEntrance();
 
   useEffect(() => {
     metricApi.conversation()
@@ -133,7 +135,7 @@ export default function MetricScreen() {
         )}
 
         {status === "ready" && ready && empty && (
-          <motion.div variants={staggerStack} initial="hidden" animate="show" className="space-y-5">
+          <motion.div variants={staggerStack} initial={entranceInitial} animate="show" className="space-y-5">
             <motion.div variants={cardIn} className="rounded-3xl border border-border bg-card p-5">
               <p className="text-[15px] leading-relaxed">
                 Привет{firstName ? `, ${firstName}` : ""} 👋<br />

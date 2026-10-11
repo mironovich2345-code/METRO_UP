@@ -66,6 +66,14 @@ export const cacheKeys = {
    * start/end is the safety net for this key, same as every other
    * non-home/team key below.) */
   academyOverview: (section: string) => key("academy-overview", section),
+  /** Sprint: LIVE QA FIX QA-01B — Home's "Продолжить обучение" card
+   * (ContinueLearningCard, GET /api/academy/state?section=). Its category
+   * starts with "academy", so LessonRenderer's existing
+   * invalidatePrefix(cacheKeyPrefixes.academy) on lesson completion already
+   * covers it. Deliberately NOT added to persistent-cache-core's L2
+   * allowlist: in-memory for the session only, which is all tab-switch
+   * stability needs. */
+  academyState: (section: string) => key("academy-state", section),
   academyDay: (dayId: string) => key("academy-day", dayId),
   academyLesson: (slug: string, preview: boolean) => key("academy-lesson", slug, preview ? "preview" : "live"),
 

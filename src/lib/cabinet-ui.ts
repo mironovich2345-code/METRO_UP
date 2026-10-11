@@ -130,6 +130,30 @@ export function resolveManagedClubSelection(clubs: ClubRef[]): ManagedClubSelect
   return { kind: "select", clubs };
 }
 
+/**
+ * Sprint: LIVE QA FIX QA-01B — /team's effective club, derived DURING RENDER
+ * from whatever the managed-clubs list already is, instead of being copied
+ * into state by a post-paint useEffect. The old effect meant the first
+ * render of every /team visit had no club yet (so a null SWR key and a
+ * skeleton), even when both the clubs list and that club's roster were
+ * already cached — the skeleton -> roster swap seen on every return to /team.
+ *
+ * An explicit user choice (the multi-club picker) always wins. Otherwise the
+ * same resolveManagedClubSelection rule applies unchanged: exactly one club
+ * is auto-selected, never "the first of several" — zero or 2+ clubs (or a
+ * list not loaded yet) resolve to null, leaving the existing "no club" /
+ * picker UI in charge exactly as before.
+ */
+export function resolveTeamSelectedClubId(params: {
+  explicitChoice: string | null;
+  clubs: ClubRef[] | null | undefined;
+}): string | null {
+  if (params.explicitChoice) return params.explicitChoice;
+  if (!params.clubs) return null;
+  const selection = resolveManagedClubSelection(params.clubs);
+  return selection.kind === "auto" ? selection.club.id : null;
+}
+
 export interface TeamMemberLike {
   accessStatus: "LIMITED" | "PENDING_APPROVAL" | "FULL" | "SUSPENDED";
 }
@@ -215,6 +239,21 @@ export function resolveActiveAcademySection(
  * it trains as MANAGER. */
 export function homeContextToAcademySection(contextType: HomeContextType): AcademyTargetRoleDTO {
   return contextType === "PERSONAL" ? "MANAGER" : contextType;
+}
+
+/**
+ * Sprint: LIVE QA FIX QA-01B — the ONE derivation of the Academy overview's
+ * cache-key section, shared by /academy's first render AND Home's prefetch
+ * (prefetch.ts) so the two can never disagree. Both previously computed it
+ * differently: /academy derived it from the stored Home context (a MANAGER's
+ * stored PERSONAL -> "MANAGER") while prefetch always warmed "default" —
+ * two different SWR keys for the same response, so the prefetch was never
+ * used and /academy cold-loaded right after Home had just warmed it.
+ * "default" stays reserved for "nothing stored yet" (the server's own
+ * MANAGER-first fallback), exactly as before.
+ */
+export function resolveInitialAcademySectionKey(stored: { type: HomeContextType } | null | undefined): string {
+  return stored ? homeContextToAcademySection(stored.type) : "default";
 }
 
 /* ------------------------- /team access mode (manual-test-round-3) ------------------------- */

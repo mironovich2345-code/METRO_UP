@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
 import { Building2, GraduationCap, Home, Library, ListChecks, MessageSquare, Trophy, Users, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { hapticSelection } from "@/lib/telegram";
-import { visibleBottomNavRoutes, isActiveNavRoute, resolveEffectiveNavContext, type BottomNavRoute, type ManagementNavContext } from "@/lib/nav-items";
+import { visibleBottomNavRoutes, isActiveNavRoute, isSameRouteNavTap, applyNavTap, resolveEffectiveNavContext, type BottomNavRoute, type ManagementNavContext } from "@/lib/nav-items";
 import { MetricCharacter } from "@/components/ui/metric-character";
 import { useApp } from "@/providers/app-provider";
 import { useAppUser } from "@/providers/AppUserProvider";
@@ -53,15 +53,36 @@ const ICONS: Record<string, LucideIcon> = {
  * (home-context-storage.ts) for the lifetime of this hook — a same-tab,
  * event-driven re-read with no polling and no race (the event fires
  * synchronously at the moment of the write, not before).
+ *
+ * Sprint: LIVE QA FIX QA-01B — root cause of the WRONG-ROLE BAR flashed on
+ * every same-role tab switch. BottomNavigation is rendered inside each page,
+ * so it remounts on every navigation — and this hook used to start at
+ * `useState(null)`, reading storage only in a post-paint useEffect. Every
+ * remount's FIRST painted frame therefore resolved `null` -> "PERSONAL": a
+ * CLUB_MANAGER/CITY_MANAGER saw the 5-tab PERSONAL bar (raised Метрик
+ * circle and all) on each tab switch, then the 4-tab management bar one
+ * frame later. The same hook drives /academy's avatar and /plan's
+ * header/back button (and, through AppHeader, Telegram's NATIVE
+ * BackButton), which blinked the same way.
+ *
+ * Now read with useSyncExternalStore over the SAME storage + change event:
+ * a client mount reads the real value on its very first render (no null
+ * frame), and the onStoredContextChanged subscription still lives for the
+ * component's whole lifetime (Round B.1's fix, unchanged in behavior).
+ * `getServerSnapshot` returns null, so a server/hydration render keeps the
+ * old PERSONAL default instead of touching localStorage — in practice never
+ * exercised (every page that renders this is behind EmployeeBootGate, whose
+ * server render is always its own loader), but it keeps this hook safe if
+ * that ever changes. The snapshot is a primitive (string|null), so repeated
+ * reads compare equal and never trigger a spurious re-render.
  */
+const subscribeStoredContext = (onStoreChange: () => void) => onStoredContextChanged(onStoreChange);
+const readStoredContextType = () => loadStoredContext(getOwnerKey())?.type ?? null;
+const readStoredContextTypeOnServer = () => null;
+
 export function useEffectiveNavContext(): ManagementNavContext {
   const { user } = useAppUser();
-  const [storedType, setStoredType] = useState<"PERSONAL" | "CLUB_MANAGER" | "CITY_MANAGER" | null>(null);
-  useEffect(() => {
-    const readStoredContext = () => setStoredType(loadStoredContext(getOwnerKey())?.type ?? null);
-    readStoredContext();
-    return onStoredContextChanged(readStoredContext);
-  }, []);
+  const storedType = useSyncExternalStore(subscribeStoredContext, readStoredContextType, readStoredContextTypeOnServer);
   return resolveEffectiveNavContext({ storedContextType: storedType, previewRole: user?.viewContext?.previewRole ?? null });
 }
 
@@ -77,10 +98,11 @@ export function BottomNavigation() {
       <div className="pointer-events-auto mx-3 flex w-full max-w-[460px] items-center justify-around overflow-visible rounded-[26px] border border-[var(--glass-border)] bg-[var(--glass-bg)] px-1.5 py-2 shadow-[var(--shadow-float)] backdrop-blur-2xl">
         {routes.map((item) => {
           const active = isActiveNavRoute(pathname, item);
+          const isCurrentRoute = isSameRouteNavTap(pathname, item.href);
           return item.central ? (
-            <MetricNavItem key={item.href} item={item} active={active} />
+            <MetricNavItem key={item.href} item={item} active={active} isCurrentRoute={isCurrentRoute} />
           ) : (
-            <StandardNavItem key={item.href} item={item} active={active} />
+            <StandardNavItem key={item.href} item={item} active={active} isCurrentRoute={isCurrentRoute} />
           );
         })}
       </div>
@@ -88,12 +110,13 @@ export function BottomNavigation() {
   );
 }
 
-function StandardNavItem({ item, active }: { item: BottomNavRoute; active: boolean }) {
+function StandardNavItem({ item, active, isCurrentRoute }: { item: BottomNavRoute; active: boolean; isCurrentRoute: boolean }) {
   const Icon = ICONS[item.href] ?? Home;
   return (
     <Link
       href={item.href}
-      onClick={() => hapticSelection()}
+      onClick={(e) => applyNavTap(e, isCurrentRoute, hapticSelection)}
+      aria-current={isCurrentRoute ? "page" : undefined}
       className="relative flex flex-1 flex-col items-center gap-1 py-1.5"
     >
       {active && (
@@ -121,11 +144,12 @@ function StandardNavItem({ item, active }: { item: BottomNavRoute; active: boole
  * holding the Metric mascot. The circle is overflow-visible with top headroom so
  * the mascot's marker/spark above its head is never clipped.
  */
-function MetricNavItem({ item, active }: { item: BottomNavRoute; active: boolean }) {
+function MetricNavItem({ item, active, isCurrentRoute }: { item: BottomNavRoute; active: boolean; isCurrentRoute: boolean }) {
   return (
     <Link
       href={item.href}
-      onClick={() => hapticSelection()}
+      onClick={(e) => applyNavTap(e, isCurrentRoute, hapticSelection)}
+      aria-current={isCurrentRoute ? "page" : undefined}
       aria-label="Метрик — ИИ-помощник"
       className="relative flex flex-1 flex-col items-center gap-1"
     >

@@ -18,9 +18,11 @@ import { haptic, hapticSelection, hapticSuccess } from "@/lib/telegram";
 import { completePlanTask, fetchPlanToday, skipPlanTask, toggleChecklistItem } from "@/lib/api/home-client";
 import { useQuery, QUERY_POLICY, invalidatePrefix } from "@/lib/client/query-cache";
 import { cacheKeys, cacheKeyPrefixes } from "@/lib/client/cache-keys";
+import { useRootScreenEntrance } from "@/lib/client/root-screen-entrance";
 import type { DailyPlanDTO, DailyTaskDTO } from "@/lib/api/home-types";
 
 export default function PlanScreen() {
+  const entranceInitial = useRootScreenEntrance();
   // Round A.1, section A — /plan is ALSO a plain PERSONAL employee's own
   // screen (Home's "Открыть план" card); the avatar entry + dropped back
   // button only apply when the viewer's effective context is actually
@@ -65,7 +67,7 @@ export default function PlanScreen() {
       />
       <RevalidatingBar show={Boolean(plan) && isValidating} />
 
-      <motion.main variants={staggerStack} initial="hidden" animate="show" className="px-5">
+      <motion.main variants={staggerStack} initial={entranceInitial} animate="show" className="px-5">
         {status === "loading" && (
           <div className="space-y-3">
             <div className="h-24 w-full animate-pulse rounded-3xl bg-muted" />
