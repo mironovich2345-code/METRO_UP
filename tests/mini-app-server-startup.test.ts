@@ -136,8 +136,11 @@ test("PREFETCH-IDLE-A: Home's prefetch effect is wrapped in runWhenIdle — not 
   const src = read("src/app/home/page.tsx");
   const effectIdx = src.indexOf("runWhenIdle(() => {");
   assert.ok(effectIdx >= 0, "expected the prefetch call sites to be wrapped in runWhenIdle(...)");
-  const prefetchCallIdx = src.indexOf("prefetchPersonalDestinations()");
-  assert.ok(prefetchCallIdx > effectIdx, "expected prefetchPersonalDestinations() to be INSIDE the runWhenIdle callback");
+  // Sprint: LIVE QA FIX QA-01B — the call now passes Home's own ownerKey
+  // (so the Academy prefetch reads the same stored-context slot /academy
+  // does); the "inside runWhenIdle" ordering this test guards is unchanged.
+  const prefetchCallIdx = src.indexOf("prefetchPersonalDestinations(ownerKey)");
+  assert.ok(prefetchCallIdx > effectIdx, "expected prefetchPersonalDestinations(ownerKey) to be INSIDE the runWhenIdle callback");
 });
 
 test("PREFETCH-IDLE-B: runWhenIdle falls back to setTimeout when requestIdleCallback is unavailable (Safari/iOS WKWebView) — never silently never-runs", () => {

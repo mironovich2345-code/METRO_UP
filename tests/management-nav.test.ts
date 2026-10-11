@@ -525,9 +525,11 @@ test("STALE-NAV-B: onStoredContextChanged returns an unsubscribe function — th
   assert.match(fnSrc, /return \(\) => window\.removeEventListener/);
 });
 
-test("STALE-NAV-C: useEffectiveNavContext subscribes to onStoredContextChanged for its own lifetime (not just a one-time mount read) and returns its unsubscribe as the effect's own cleanup — the root-cause fix for 'nav stays stale until the next real navigation'", () => {
+test("STALE-NAV-C: useEffectiveNavContext subscribes to onStoredContextChanged for its own lifetime (not just a one-time mount read) — the root-cause fix for 'nav stays stale until the next real navigation'. Sprint: LIVE QA FIX QA-01B — the subscription is now useSyncExternalStore's own `subscribe` (it returns onStoredContextChanged's unsubscribe, which React calls on unmount), replacing the old useEffect + useState(null) pair whose null first frame flashed the PERSONAL bar for management roles on every tab switch", () => {
   const src = read("src/components/bottom-navigation.tsx");
-  assert.match(src, /return onStoredContextChanged\(readStoredContext\)/);
+  assert.match(src, /const subscribeStoredContext = \(onStoreChange: \(\) => void\) => onStoredContextChanged\(onStoreChange\);/);
+  assert.match(src, /useSyncExternalStore\(subscribeStoredContext, readStoredContextType, readStoredContextTypeOnServer\)/);
+  assert.doesNotMatch(src, /useState<"PERSONAL" \| "CLUB_MANAGER" \| "CITY_MANAGER" \| null>\(null\)/, "the null-initialised state copy must be gone, not layered alongside the store");
 });
 
 test("STALE-NAV-D: ReturnToCityCabinetCard confirms the new identity (clearing the stale previewRole) in addition to ending the preview, and now does BOTH inside the global switchContext atomic gate — the SAME switchContext+confirmIdentity composition the global ViewAsBanner's own 'end' flow uses. Sprint: LIVE QA FIX QA-01 — supersedes the old bare refresh()/refreshAppUser() call this test used to assert: refresh() never throws, so it could not fail the whole switch the way confirmIdentity() now correctly does", () => {
