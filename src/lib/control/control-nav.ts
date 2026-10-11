@@ -15,10 +15,6 @@ import { canAccessSpm, canManageClub } from "@/lib/roles";
  * Pages and APIs keep their own server-side guards regardless of this list.
  */
 
-/** QA-05.1 — window event a page dispatches to open the mobile «Разделы»
- * sheet owned by ControlShell (one menu, never a second copy). */
-export const CONTROL_OPEN_SECTIONS_EVENT = "metro-up:control-open-sections";
-
 export interface ControlNavFlags {
   role: AppRole;
   hasSystemAccess: boolean;
@@ -167,18 +163,13 @@ export function resolveActiveControlNavItem(groups: ControlNavGroup[], pathname:
   return resolveActiveControlNav(groups, pathname)?.item ?? null;
 }
 
-/** QA-05.1 — the mobile selector's text: the current section (strongest),
- * its group as quiet context, and the full accessible name. */
+/** The closed mobile selector: ONLY the current section's name (QA-05.2 —
+ * the group lives in the sheet, not here) plus the full accessible name. */
 export function describeControlNavSelector(groups: ControlNavGroup[], pathname: string | null | undefined): {
   label: string;
-  context: string | null;
   ariaLabel: string;
 } {
   const active = resolveActiveControlNav(groups, pathname);
-  if (!active) return { label: "Выберите раздел", context: null, ariaLabel: "Открыть разделы" };
-  return {
-    label: active.item.label,
-    context: active.group.title,
-    ariaLabel: `Открыть разделы. Текущий раздел: ${active.item.label}`,
-  };
+  if (!active) return { label: "Выберите раздел", ariaLabel: "Открыть разделы" };
+  return { label: active.item.label, ariaLabel: `Открыть разделы. Текущий раздел: ${active.item.label}` };
 }

@@ -228,7 +228,7 @@ test("NAV-MOBILE: the mobile header no longer renders the horizontally scrolling
   const shell = read("src/components/control/ControlShell.tsx");
   assert.doesNotMatch(shell, /overflow-x-auto/);
   assert.match(shell, /const groups = buildControlNav\(\{ role, hasSystemAccess: isAdmin, isClubManager, isCityManager, isOperationsDirector \}\);/);
-  assert.match(shell, /<span className="font-semibold text-foreground">\{selector\.label\}<\/span>/);
+  assert.match(shell, /<span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">\{selector\.label\}<\/span>/);
   assert.match(shell, /\{menuOpen && <ControlSectionsSheet groups=\{groups\} pathname=\{pathname\} onClose=\{closeMenu\} \/>\}/);
   // Desktop sidebar renders the same groups.
   assert.match(shell, /<nav className="mt-8[^"]*" aria-label="Разделы">\s*\n\s*<ControlNavGroups groups=\{groups\} pathname=\{pathname\} \/>/);

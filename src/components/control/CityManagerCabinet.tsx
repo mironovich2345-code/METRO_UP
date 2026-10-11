@@ -143,7 +143,49 @@ export function CityManagerCabinet() {
         {dashboard.clubManagers.length === 0 ? (
           <p className="mt-3 text-sm text-muted-foreground">Пока никто не назначен управляющим.</p>
         ) : (
-          <div className="mt-3 overflow-x-auto rounded-3xl border border-border">
+          <ClubManagersList managers={dashboard.clubManagers} busyId={busyId} onRevoke={revokeManager} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * QA-05.2 — the Управляющие list from ONE array: cards below `md` (phones),
+ * the original table from `md`. Same fields (name, club link, assignment
+ * date) and the same «Отозвать» in both — no business logic here.
+ */
+export function ClubManagersList({
+  managers,
+  busyId,
+  onRevoke,
+}: {
+  managers: ClubManagerAssignmentDTO[];
+  busyId: string | null;
+  onRevoke: (assignmentId: string) => void;
+}) {
+  return (
+    <>
+      <ul className="mt-3 flex flex-col gap-2 md:hidden" aria-label="Управляющие">
+        {managers.map((cm) => (
+          <li key={cm.assignmentId} data-manager-card={cm.assignmentId} className="rounded-3xl border border-border bg-card p-4">
+            <p className="font-semibold [overflow-wrap:anywhere]">{cm.displayName}</p>
+            <Link href={`/control/city/club?clubId=${cm.clubId}`} className="mt-0.5 block text-sm text-muted-foreground hover:text-brand hover:underline [overflow-wrap:anywhere]">
+              {cm.clubName}
+            </Link>
+            <p className="mt-0.5 text-xs text-muted-foreground">Назначен {formatAssignedDate(cm.startedAt)}</p>
+            <button
+              type="button"
+              onClick={() => onRevoke(cm.assignmentId)}
+              disabled={busyId === cm.assignmentId}
+              className="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-2xl border border-border text-sm font-semibold disabled:opacity-50"
+            >
+              <ShieldOff className="size-3.5" aria-hidden /> {busyId === cm.assignmentId ? "…" : "Отозвать"}
+            </button>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-3 hidden overflow-x-auto rounded-3xl border border-border md:block">
             <table className="w-full min-w-[560px] text-sm">
               <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
                 <tr>
@@ -154,16 +196,18 @@ export function CityManagerCabinet() {
                 </tr>
               </thead>
               <tbody>
-                {dashboard.clubManagers.map((cm) => (
-                  <ClubManagerRow key={cm.assignmentId} cm={cm} busy={busyId === cm.assignmentId} onRevoke={() => revokeManager(cm.assignmentId)} />
+                {managers.map((cm) => (
+                  <ClubManagerRow key={cm.assignmentId} cm={cm} busy={busyId === cm.assignmentId} onRevoke={() => onRevoke(cm.assignmentId)} />
                 ))}
               </tbody>
             </table>
-          </div>
-        )}
       </div>
-    </div>
+    </>
   );
+}
+
+function formatAssignedDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("ru-RU");
 }
 
 /** Sprint: role-cabinets, step 6 — the two V1-supported categories only;
@@ -256,16 +300,17 @@ function Stat({ label, value, muted, highlight }: { label: string; value: string
 
 function ClubManagerRow({ cm, busy, onRevoke }: { cm: ClubManagerAssignmentDTO; busy: boolean; onRevoke: () => void }) {
   return (
-    <tr className="border-t border-border">
+    <tr data-manager-row={cm.assignmentId} className="border-t border-border">
       <td className="px-4 py-2.5 font-medium">{cm.displayName}</td>
       <td className="px-4 py-2.5 text-muted-foreground">
         <Link href={`/control/city/club?clubId=${cm.clubId}`} className="hover:text-brand hover:underline">
           {cm.clubName}
         </Link>
       </td>
-      <td className="px-4 py-2.5 text-muted-foreground">{new Date(cm.startedAt).toLocaleDateString("ru-RU")}</td>
+      <td className="px-4 py-2.5 text-muted-foreground">{formatAssignedDate(cm.startedAt)}</td>
       <td className="px-4 py-2.5 text-right">
         <button
+          type="button"
           onClick={onRevoke}
           disabled={busy}
           className="inline-flex items-center gap-1.5 rounded-xl border border-border px-3 py-1.5 text-xs font-semibold disabled:opacity-50"

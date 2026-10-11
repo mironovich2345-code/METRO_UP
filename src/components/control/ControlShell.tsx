@@ -29,7 +29,6 @@ import type { AppRole } from "@prisma/client";
 import { cn } from "@/lib/utils";
 import { ThemeSegmented, ThemeSwitcher } from "@/components/ui/theme-switcher";
 import {
-  CONTROL_OPEN_SECTIONS_EVENT,
   buildControlNav,
   describeControlNavSelector,
   resolveActiveControlNavItem,
@@ -107,13 +106,6 @@ export function ControlShell({
   const selector = describeControlNavSelector(groups, pathname);
   const [menuOpen, setMenuOpen] = useState(false);
   const closeMenu = useCallback(() => setMenuOpen(false), []);
-  // QA-05.1 — lets a page (Control Home's «Открыть разделы») open the SAME
-  // sheet instead of rebuilding navigation itself.
-  useEffect(() => {
-    const open = () => setMenuOpen(true);
-    window.addEventListener(CONTROL_OPEN_SECTIONS_EVENT, open);
-    return () => window.removeEventListener(CONTROL_OPEN_SECTIONS_EVENT, open);
-  }, []);
 
   const logout = async () => {
     try {
@@ -192,13 +184,9 @@ export function ControlShell({
               aria-label={selector.ariaLabel}
               className="flex min-h-11 w-full items-center gap-2 rounded-2xl border border-border bg-background px-4 py-2 text-left"
             >
-              {/* QA-05.1 — the current section is the strongest text; its
-                  group is quiet context. No «Разделы» prefix: the sheet it
-                  opens is already titled «Разделы». */}
-              <span className="min-w-0 flex-1 truncate text-sm">
-                <span className="font-semibold text-foreground">{selector.label}</span>
-                {selector.context && <span className="text-muted-foreground"> · {selector.context}</span>}
-              </span>
+              {/* QA-05.2 — ONLY the current section. The group is not repeated
+                  here: the sheet this opens shows the groups itself. */}
+              <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{selector.label}</span>
               <ChevronDown className="size-4 shrink-0 text-muted-foreground" aria-hidden />
             </button>
           </div>

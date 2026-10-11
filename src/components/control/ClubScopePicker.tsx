@@ -29,12 +29,13 @@ export function ClubScopePicker({
   label?: string;
 }) {
   return (
-    <label className="flex flex-col">
+    <label className="flex min-w-0 flex-col">
       <span className="mb-1 flex items-center gap-1 text-xs font-medium text-muted-foreground">
         <Building2 className="size-3.5" /> {label}
       </span>
+      {/* QA-05.2 — full width (and 44px tall) on phones; 220px minimum from sm. */}
       <select
-        className={`${fieldCls} min-w-[220px]`}
+        className={`${fieldCls} min-h-11 w-full min-w-0 sm:min-w-[220px]`}
         value={value ?? ""}
         onChange={(e) => onChange(e.target.value)}
       >

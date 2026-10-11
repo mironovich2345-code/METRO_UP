@@ -119,18 +119,29 @@ export default function ControlPlanPage() {
           <h1 className="text-2xl font-bold">План дня</h1>
           <p className="mt-1 text-sm text-muted-foreground">{plan?.clubName ?? (isAdmin || canPickManagerClub ? "Выберите клуб" : "Ваш клуб")}</p>
         </div>
-        <div className="flex flex-wrap items-end gap-3">
+        {/* QA-05.2 — root cause of the iPhone overlap: the date input had a
+            fixed 170px box, but iOS draws its native date control wider than
+            that ("12 окт. 2026 г." + picker chrome), so the glyphs spilled into
+            the button sharing the wrapped row. On phones every control is now
+            its own full-width row (Клуб / Дата / Создать задачу); from `sm`
+            up it is the original single horizontal row. */}
+        <div data-plan-controls className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:flex-wrap sm:items-end">
           {isAdmin && scope && (
             <ClubScopePicker clubs={scope.clubs} value={selectedClubId ?? scope.clubId} onChange={setSelectedClubId} />
           )}
           {canPickManagerClub && managedClubs && (
             <ClubScopePicker clubs={managedClubs} value={selectedClubId ?? plan?.clubId ?? null} onChange={setSelectedClubId} label="Ваш клуб" />
           )}
-          <label className="flex flex-col">
+          <label className="flex min-w-0 flex-col">
             <span className="mb-1 text-xs font-medium text-muted-foreground">Дата</span>
-            <input type="date" className={`${fieldCls} w-[170px]`} value={date} onChange={(e) => setDate(e.target.value)} />
+            <input type="date" className={`${fieldCls} min-h-11 w-full min-w-0 sm:w-[170px]`} value={date} onChange={(e) => setDate(e.target.value)} />
           </label>
-          <button onClick={() => setShowCreate(true)} disabled={!plan?.clubId} className="flex h-11 items-center gap-1.5 rounded-2xl bg-brand px-5 text-sm font-semibold text-brand-foreground disabled:opacity-50">
+          <button
+            type="button"
+            onClick={() => setShowCreate(true)}
+            disabled={!plan?.clubId}
+            className="flex h-11 w-full items-center justify-center gap-1.5 rounded-2xl bg-brand px-5 text-sm font-semibold text-brand-foreground disabled:opacity-50 sm:w-auto"
+          >
             <Plus className="size-4" /> Создать задачу
           </button>
         </div>

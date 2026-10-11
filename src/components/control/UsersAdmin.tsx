@@ -7,10 +7,11 @@ import { usersAdminApi } from "@/lib/api/knowledge-client";
 import type { AdminUserRowDTO, AdminUserDetailDTO, AdminUserFacetsDTO } from "@/lib/api/knowledge-types";
 import { Field, fieldCls } from "@/components/admin/ui";
 import { Modal } from "@/components/control/Modal";
+import { USER_ACCESS_LABEL, USER_POSITION_LABEL, USER_ROLE_LABEL, describeAdminUserRow } from "@/lib/control/users-view";
 
-const ROLE_LABEL: Record<string, string> = { EMPLOYEE: "Сотрудник", CLUB_MANAGER: "Управляющий", SPM: "СПМ", ADMIN: "Администратор" };
-const POSITION_LABEL: Record<string, string> = { CLIENT_MANAGER: "Менеджер по работе с клиентами", NIGHT_MANAGER: "Ночной менеджер", ADMINISTRATOR: "Администратор клуба" };
-const ACCESS_LABEL: Record<string, string> = { LIMITED: "Ограничен", PENDING_APPROVAL: "Ожидает", FULL: "Полный", SUSPENDED: "Заблокирован" };
+const ROLE_LABEL = USER_ROLE_LABEL;
+const POSITION_LABEL = USER_POSITION_LABEL;
+const ACCESS_LABEL = USER_ACCESS_LABEL;
 
 export function UsersAdmin({ currentUserId }: { currentUserId: string }) {
   const [users, setUsers] = useState<AdminUserRowDTO[]>([]);
@@ -54,7 +55,8 @@ export function UsersAdmin({ currentUserId }: { currentUserId: string }) {
       <h1 className="text-2xl font-bold">Сотрудники</h1>
       <p className="mt-1 text-sm text-muted-foreground">Роли, должности и клубы. Изменения фиксируются в журнале.</p>
 
-      <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
+      {/* Filters unchanged; QA-05.2 — 44px controls on phones, no overflow. */}
+      <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5 [&>*]:min-h-11 [&>*]:min-w-0">
         <select value={filter.cityId} onChange={(e) => setFilter((f) => ({ ...f, cityId: e.target.value, clubId: "" }))} className={fieldCls}>
           <option value="">Все города</option>
           {facets.cities.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -74,7 +76,79 @@ export function UsersAdmin({ currentUserId }: { currentUserId: string }) {
         <input value={filter.q} onChange={(e) => setFilter((f) => ({ ...f, q: e.target.value }))} placeholder="Поиск по имени / @username" className={fieldCls} />
       </div>
 
-      <div className="mt-4 overflow-x-auto rounded-3xl border border-border">
+      <UsersResults users={users} status={status} currentUserId={currentUserId} onEdit={openEdit} />
+
+      {editing && (
+        <UserEditor
+          initial={editing}
+          facets={facets}
+          isSelf={editing.id === currentUserId}
+          onClose={() => setEditing(null)}
+          onSaved={load}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * QA-05.2 — the results, from ONE list (the same `users` state the filters
+ * load): cards below `md` (phones), the original 8-column table from `md`.
+ * Both render describeAdminUserRow() and the same «Изменить» action, so no
+ * field or action exists in one layout only.
+ */
+export function UsersResults({
+  users,
+  status,
+  currentUserId,
+  onEdit,
+}: {
+  users: AdminUserRowDTO[];
+  status: "loading" | "ready" | "error" | "denied";
+  currentUserId: string;
+  onEdit: (id: string) => void;
+}) {
+  const rows = users.map((u) => describeAdminUserRow(u, currentUserId));
+  const empty = status === "ready" && rows.length === 0;
+  return (
+    <>
+      <ul className="mt-4 flex flex-col gap-2 md:hidden" aria-label="Сотрудники">
+        {status === "loading" && <li className="rounded-3xl border border-border p-6 text-center text-sm text-muted-foreground">Загрузка…</li>}
+        {empty && <li className="rounded-3xl border border-border p-6 text-center text-sm text-muted-foreground">Сотрудники не найдены</li>}
+        {rows.map((r) => (
+          <li key={r.id} data-user-card={r.id} className="rounded-3xl border border-border bg-card p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-semibold [overflow-wrap:anywhere]">
+                  {r.name}
+                  {r.isSelf && <span className="ml-1.5 whitespace-nowrap text-xs font-normal text-muted-foreground">(вы)</span>}
+                </p>
+                <p className="text-sm text-muted-foreground [overflow-wrap:anywhere]">{r.telegram}</p>
+              </div>
+              <RolePill role={r.role} />
+            </div>
+            <dl className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">
+              <dt className="text-muted-foreground">Город</dt>
+              <dd className="[overflow-wrap:anywhere]">{r.city}</dd>
+              <dt className="text-muted-foreground">Клуб</dt>
+              <dd className="[overflow-wrap:anywhere]">{r.club}</dd>
+              <dt className="text-muted-foreground">Должность</dt>
+              <dd className="[overflow-wrap:anywhere]">{r.position}</dd>
+              <dt className="text-muted-foreground">Статус</dt>
+              <dd>{r.access}</dd>
+            </dl>
+            <button
+              type="button"
+              onClick={() => onEdit(r.id)}
+              className="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-2xl border border-border text-sm font-semibold text-brand hover:bg-muted"
+            >
+              <Pencil className="size-3.5" aria-hidden /> Изменить
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      <div className="mt-4 hidden overflow-x-auto rounded-3xl border border-border md:block">
         <table className="w-full min-w-[880px] text-sm">
           <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
             <tr>
@@ -90,18 +164,18 @@ export function UsersAdmin({ currentUserId }: { currentUserId: string }) {
           </thead>
           <tbody>
             {status === "loading" && <tr><td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">Загрузка…</td></tr>}
-            {status === "ready" && users.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">Сотрудники не найдены</td></tr>}
-            {users.map((u) => (
-              <tr key={u.id} className="border-t border-border">
-                <td className="px-4 py-3 font-medium">{u.displayName}{u.id === currentUserId && <span className="ml-1.5 text-xs text-muted-foreground">(вы)</span>}</td>
-                <td className="px-4 py-3 text-muted-foreground">{u.telegramUsername ? `@${u.telegramUsername}` : "—"}</td>
-                <td className="px-4 py-3 text-muted-foreground">{u.cityName ?? "—"}</td>
-                <td className="px-4 py-3 text-muted-foreground">{u.clubName ?? "—"}</td>
-                <td className="px-4 py-3 text-muted-foreground">{u.positionId ? POSITION_LABEL[u.positionId] : "—"}</td>
-                <td className="px-4 py-3"><RolePill role={u.role} /></td>
-                <td className="px-4 py-3 text-muted-foreground">{u.accessStatus ? ACCESS_LABEL[u.accessStatus] : "—"}</td>
+            {empty && <tr><td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">Сотрудники не найдены</td></tr>}
+            {rows.map((r) => (
+              <tr key={r.id} data-user-row={r.id} className="border-t border-border">
+                <td className="px-4 py-3 font-medium">{r.name}{r.isSelf && <span className="ml-1.5 text-xs text-muted-foreground">(вы)</span>}</td>
+                <td className="px-4 py-3 text-muted-foreground">{r.telegram}</td>
+                <td className="px-4 py-3 text-muted-foreground">{r.city}</td>
+                <td className="px-4 py-3 text-muted-foreground">{r.club}</td>
+                <td className="px-4 py-3 text-muted-foreground">{r.position}</td>
+                <td className="px-4 py-3"><RolePill role={r.role} /></td>
+                <td className="px-4 py-3 text-muted-foreground">{r.access}</td>
                 <td className="px-4 py-3 text-right">
-                  <button onClick={() => openEdit(u.id)} className="inline-flex items-center gap-1 text-sm font-semibold text-brand hover:underline">
+                  <button type="button" onClick={() => onEdit(r.id)} className="inline-flex items-center gap-1 text-sm font-semibold text-brand hover:underline">
                     <Pencil className="size-3.5" /> Изменить
                   </button>
                 </td>
@@ -110,17 +184,7 @@ export function UsersAdmin({ currentUserId }: { currentUserId: string }) {
           </tbody>
         </table>
       </div>
-
-      {editing && (
-        <UserEditor
-          initial={editing}
-          facets={facets}
-          isSelf={editing.id === currentUserId}
-          onClose={() => setEditing(null)}
-          onSaved={load}
-        />
-      )}
-    </div>
+    </>
   );
 }
 

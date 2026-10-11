@@ -95,13 +95,10 @@ test("HOME-REAL-DATA: the learning summary keeps its real counts from the SAME e
   assert.match(dash, /\{hasSystemAccess && \(/);
 });
 
-test("HOME-SECTIONS-BUTTON: «Открыть разделы» opens the shell's existing sheet via one shared event — navigation is not rebuilt on Home", () => {
-  const dash = read("src/components/control/ControlDashboard.tsx");
-  assert.match(dash, /window\.dispatchEvent\(new Event\(CONTROL_OPEN_SECTIONS_EVENT\)\)/);
-  const shell = read("src/components/control/ControlShell.tsx");
-  assert.match(shell, /window\.addEventListener\(CONTROL_OPEN_SECTIONS_EVENT, open\)/);
-  assert.match(shell, /return \(\) => window\.removeEventListener\(CONTROL_OPEN_SECTIONS_EVENT, open\);/);
-  assert.doesNotMatch(dash, /buildControlNav/);
+test("HOME-SECTIONS-BUTTON (updated for QA-05.2): Home no longer duplicates the section selector — no «Открыть разделы», no event plumbing, no navigation rebuilt", () => {
+  const dash = read("src/components/control/ControlDashboard.tsx").replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.doesNotMatch(dash, /Открыть разделы|dispatchEvent|CONTROL_OPEN_SECTIONS_EVENT|buildControlNav/);
+  assert.doesNotMatch(read("src/components/control/ControlShell.tsx"), /CONTROL_OPEN_SECTIONS_EVENT/);
 });
 
 /* ===================================================================== *
@@ -245,15 +242,14 @@ test("NAV-SAME-PERMISSIONS: for every permission combination the only difference
   }
 });
 
-test("NAV-SELECTOR: the mobile selector shows the current section strongest, its group as context, no «Разделы» prefix, and a full accessible name", () => {
+test("NAV-SELECTOR (updated for QA-05.2): the closed mobile selector shows ONLY the current section — no group suffix — with a full accessible name; the sheet keeps its safe area", () => {
   const groups = buildControlNav(ADMIN_ALL);
-  assert.deepEqual(describeControlNavSelector(groups, "/admin/content"), { label: "Обучение", context: "Контент", ariaLabel: "Открыть разделы. Текущий раздел: Обучение" });
-  assert.deepEqual(describeControlNavSelector(groups, "/control"), { label: "Главная", context: null, ariaLabel: "Открыть разделы. Текущий раздел: Главная" });
-  assert.deepEqual(describeControlNavSelector(groups, "/admin"), { label: "Выберите раздел", context: null, ariaLabel: "Открыть разделы" });
+  assert.deepEqual(describeControlNavSelector(groups, "/admin/content"), { label: "Обучение", ariaLabel: "Открыть разделы. Текущий раздел: Обучение" });
+  assert.deepEqual(describeControlNavSelector(groups, "/control"), { label: "Главная", ariaLabel: "Открыть разделы. Текущий раздел: Главная" });
+  assert.deepEqual(describeControlNavSelector(groups, "/admin"), { label: "Выберите раздел", ariaLabel: "Открыть разделы" });
   const shell = read("src/components/control/ControlShell.tsx");
   assert.match(shell, /aria-label=\{selector\.ariaLabel\}/);
   assert.doesNotMatch(shell, />Разделы<\/span>/);
-  // The sheet keeps its safe-area bottom padding and scrollable list.
   assert.match(shell, /pb-\[calc\(env\(safe-area-inset-bottom\)\+12px\)\]/);
   assert.match(shell, /<nav className="flex min-h-0 flex-col gap-4 overflow-y-auto overscroll-contain px-3 pb-2"/);
 });

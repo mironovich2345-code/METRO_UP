@@ -2,10 +2,9 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, GraduationCap, LayoutGrid } from "lucide-react";
+import { ArrowRight, GraduationCap } from "lucide-react";
 import type { AppRole } from "@prisma/client";
 import { adminApi, type AdminDashboard } from "@/lib/api/content-client";
-import { CONTROL_OPEN_SECTIONS_EVENT } from "@/lib/control/control-nav";
 
 const ROLE_LABEL: Record<string, string> = { ADMIN: "Администратор", SPM: "СПМ", CLUB_MANAGER: "Управляющий" };
 
@@ -17,8 +16,9 @@ const ROLE_LABEL: Record<string, string> = { ADMIN: "Администратор"
  * «Метрик», once Home-only, included since QA-05). What remains is the one
  * block that carried real live data — the learning summary — fed by the SAME
  * existing adminApi.dashboard() call as before (no new query, nothing
- * invented), plus one compact «Открыть разделы» that opens the existing
- * mobile sheet (ControlShell) rather than rebuilding navigation here.
+ * invented). QA-05.2 — no explanatory copy and no «Открыть разделы»: the
+ * section selector sits directly above the page on mobile, the sidebar on
+ * desktop.
  *
  * The role flags stay in the props for the page's existing call; only
  * `hasSystemAccess` decides anything here (the learning summary is a
@@ -48,27 +48,12 @@ export function ControlDashboard({
     }
   }, [hasSystemAccess]);
 
-  const openSections = () => window.dispatchEvent(new Event(CONTROL_OPEN_SECTIONS_EVENT));
-
   return (
     <div>
       <h1 className="text-2xl font-bold">METRO UP Control</h1>
       <p className="mt-1 text-sm text-muted-foreground">
         {displayName} · {ROLE_LABEL[role] ?? role}
       </p>
-      <p className="mt-3 max-w-xl text-sm text-muted-foreground">
-        Разделы панели — в меню{" "}
-        <span className="hidden md:inline">слева</span>
-        <span className="md:hidden">«Разделы» вверху</span>. Здесь — то, что имеет текущее состояние.
-      </p>
-
-      <button
-        type="button"
-        onClick={openSections}
-        className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-2xl border border-border bg-card px-4 py-2.5 text-sm font-semibold md:hidden"
-      >
-        <LayoutGrid className="size-4" aria-hidden /> Открыть разделы
-      </button>
 
       {hasSystemAccess && (
         <section className="mt-6 max-w-xl rounded-3xl border border-border bg-card p-5" aria-labelledby="home-learning-title">
