@@ -164,10 +164,11 @@ test("CMDASH-G: legacy ADMIN sees the cards — current behavior preserved exact
   assert.equal(dashboardCardVisible("ADMIN", false), true);
 });
 
-test("CMDASH-WIRE-A (updated for QA-05.1 — Home's navigation cards were removed; the club destinations now live only in the Control nav): the club group (Управляющий / План дня) is shown on canManageClub(role) || isClubManager — never canManageClub(role) alone", () => {
+test("CMDASH-WIRE-A (updated for QA-06 — Control nav is the PROJECT_ADMIN/SPM workspace): the club group (Управляющий / План дня) is shown to a REAL club manager — legacy AppRole=CLUB_MANAGER or an active CLUB_MANAGER grant — not to a legacy ADMIN via canManageClub(ADMIN)", () => {
   const src = read("src/lib/control/control-nav.ts");
-  assert.match(src, /const managesClub = canManageClub\(flags\.role\) \|\| flags\.isClubManager;/);
-  assert.match(src, /if \(managesClub\) \{/);
+  assert.match(src, /const isRealClubManager = flags\.role === "CLUB_MANAGER" \|\| flags\.isClubManager;/);
+  assert.match(src, /if \(isRealClubManager\) \{/);
+  assert.doesNotMatch(src, /import \{[^}]*canManageClub/);
   assert.doesNotMatch(read("src/components/control/ControlDashboard.tsx"), /key: "plan"|key: "team"/);
 });
 

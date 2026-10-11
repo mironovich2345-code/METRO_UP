@@ -62,16 +62,20 @@ const REMOVED_HOME_CARDS: { href: string; can: (f: ControlNavFlags) => boolean }
   { href: "/spm/rating", can: (f) => canAccessSpm(f.role) },
 ];
 
-test("HOME-REACH: for EVERY permission combination, every destination a removed Home card offered is still in that actor's nav (Команда via «Управляющий», which links on to /control/team)", () => {
+test("HOME-REACH (updated for QA-06): every destination a removed Home card offered is still in the actor's nav — except the club cabinet for an actor who is not a real club manager (a QA-06 product decision; the routes still exist)", () => {
   for (const f of allFlagCombos()) {
     const nav = navHrefs(f);
+    const realClubManager = f.role === "CLUB_MANAGER" || f.isClubManager;
     for (const card of REMOVED_HOME_CARDS) {
       if (!card.can(f)) continue;
       const expected = card.href === "/control/team" ? "/control/club" : card.href;
+      if (["/control/club", "/control/plan"].includes(expected) && !realClubManager) {
+        assert.ok(!nav.includes(expected), `${JSON.stringify(f)} should not list ${expected}`);
+        continue;
+      }
       assert.ok(nav.includes(expected), `${JSON.stringify(f)} lost ${card.href}`);
     }
   }
-  // «Метрик» specifically (it used to be Home-only).
   assert.ok(navHrefs({ role: "EMPLOYEE", hasSystemAccess: true, isClubManager: false, isCityManager: false, isOperationsDirector: false }).includes("/control/metric"));
 });
 
@@ -211,29 +215,34 @@ test("NAV-NO-TEAM: «Команда» is not a primary item for anyone; /control
   assert.equal(resolveActiveControlNavItem(groups, "/control/teamx"), null);
 });
 
-test("NAV-IA-V2: the grouped IA matches the target (empty groups never shown)", () => {
+test("NAV-IA-V2 (updated for QA-06): the grouped IA matches the QA-06 target (empty groups never shown)", () => {
   const groups = buildControlNav(ADMIN_ALL);
   assert.deepEqual(
     groups.map((g) => [g.title, g.items.map((i) => i.label)]),
     [
       [null, ["Главная"]],
-      ["Контент", ["Обучение", "Скрипты", "Инструкции", "Метрик"]],
-      ["Люди и доступ", ["Сотрудники", "Роли"]],
+      ["Система", ["Метрик", "Роли", "Сотрудники", "Логи"]],
+      ["Контент", ["Обучение", "Скрипты", "Инструкции"]],
+      ["Контроль и результаты", ["Тайный покупатель", "Продажи", "Рейтинг сотрудников"]],
       ["Клуб", ["Управляющий", "План дня"]],
       ["Город", ["Мои клубы"]],
       ["Сеть", ["Сеть"]],
-      ["Продажи и рейтинг", ["Продажи", "Тайный покупатель", "Рейтинг"]],
     ],
   );
   for (const f of allFlagCombos()) for (const g of buildControlNav(f)) assert.ok(g.items.length > 0);
 });
 
-test("NAV-SAME-PERMISSIONS: for every permission combination the only difference from QA-05 is the removed «Команда»", () => {
+test("NAV-SAME-PERMISSIONS (updated for QA-06): across every permission combination nothing is offered beyond the role's server guard; the club cabinet only to real club managers", () => {
   for (const f of allFlagCombos()) {
-    const before = REMOVED_HOME_CARDS.filter((c) => c.can(f)).map((c) => c.href).filter((h) => h !== "/control/team");
-    const nav = navHrefs(f).filter((h) => h !== "/control" && h !== "/control/club");
-    assert.deepEqual([...nav].sort(), [...before].sort(), JSON.stringify(f));
-    assert.equal(navHrefs(f).includes("/control/club"), canManageClub(f.role) || f.isClubManager);
+    const nav = navHrefs(f);
+    const realClubManager = f.role === "CLUB_MANAGER" || f.isClubManager;
+    assert.equal(nav.includes("/control/club"), realClubManager, JSON.stringify(f));
+    assert.equal(nav.includes("/control/logs"), f.hasSystemAccess, JSON.stringify(f));
+    assert.equal(nav.includes("/control/roles"), f.hasSystemAccess, JSON.stringify(f));
+    assert.equal(nav.includes("/admin/content"), f.hasSystemAccess, JSON.stringify(f));
+    assert.equal(nav.includes("/spm/rating"), canAccessSpm(f.role), JSON.stringify(f));
+    assert.equal(nav.includes("/control/city"), f.isCityManager, JSON.stringify(f));
+    assert.equal(nav.includes("/control/network"), f.isOperationsDirector, JSON.stringify(f));
   }
 });
 

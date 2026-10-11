@@ -1,18 +1,28 @@
 import type { AppRole } from "@prisma/client";
-import { canAccessSpm, canManageClub } from "@/lib/roles";
+import { canAccessSpm } from "@/lib/roles";
 
 /**
- * Sprint: LIVE QA QA-05, part C — the ONE Control navigation model, rendered
- * by both the desktop sidebar and the mobile «Разделы» sheet (ControlShell).
- * Pure, so who-sees-what and route resolution are unit-tested.
+ * The ONE Control navigation model, rendered by both the desktop sidebar and
+ * the mobile «Разделы» sheet (ControlShell). Pure, so who-sees-what and route
+ * resolution are unit-tested.
  *
- * VISIBILITY IS UNCHANGED: every item keeps exactly the condition the old
- * flat list in ControlShell used (system access, legacy canManageClub(role)
- * OR an active CLUB_MANAGER grant, CITY_MANAGER grant, OPERATIONS_DIRECTOR
- * grant, legacy canAccessSpm(role)). The only addition is «Метрик», an
- * existing system-access page that was reachable solely through its Home
- * card; it gets the same system-access condition that page itself enforces.
- * Pages and APIs keep their own server-side guards regardless of this list.
+ * Sprint: LIVE QA QA-06 — Control is the PROJECT_ADMIN / SPM workspace, so
+ * their navigation no longer mirrors the club/city cabinets:
+ *   - PROJECT_ADMIN (system access): Система (Метрик, Роли, Сотрудники, Логи),
+ *     Контент (Обучение, Скрипты, Инструкции), and — when their legacy role
+ *     also passes canAccessSpm — Контроль и результаты.
+ *   - SPM (canAccessSpm): Контроль и результаты (Тайный покупатель, Продажи,
+ *     Рейтинг сотрудников) — exactly what the /spm guards admit. Контент is
+ *     not shown to SPM: its pages and APIs are system-access only today
+ *     (requireSystemAccess); a nav item would only lead to «доступ запрещён».
+ *   - The club cabinet (Управляющий, План дня) is shown to a REAL club
+ *     manager only (legacy AppRole=CLUB_MANAGER or an active CLUB_MANAGER
+ *     grant) — no longer to a legacy ADMIN merely because canManageClub(ADMIN)
+ *     is true. City (Мои клубы) and Сеть keep their grant conditions.
+ * No route is removed; every page keeps its own server-side guard, which is
+ * what actually authorises access — this list only decides what is offered.
+ * «Расходы Метрика», «Посещаемость» and «Рейтинг клубов» are NOT listed: the
+ * data behind them is not recorded yet (QA-06 report) — no empty destinations.
  */
 
 export interface ControlNavFlags {
@@ -29,6 +39,7 @@ export type ControlNavIcon =
   | "scripts"
   | "instructions"
   | "metric"
+  | "logs"
   | "users"
   | "roles"
   | "club"
@@ -52,7 +63,7 @@ export interface ControlNavItem {
 }
 
 export interface ControlNavGroup {
-  id: "home" | "content" | "people" | "club" | "city" | "network" | "spm";
+  id: "home" | "system" | "content" | "results" | "club" | "city" | "network";
   /** null = ungrouped (Главная). */
   title: string | null;
   items: ControlNavItem[];
@@ -60,11 +71,24 @@ export interface ControlNavGroup {
 
 export function buildControlNav(flags: ControlNavFlags): ControlNavGroup[] {
   const isAdmin = flags.hasSystemAccess;
-  const managesClub = canManageClub(flags.role) || flags.isClubManager;
+  const isRealClubManager = flags.role === "CLUB_MANAGER" || flags.isClubManager;
   const groups: ControlNavGroup[] = [
     { id: "home", title: null, items: [{ href: "/control", label: "Главная", icon: "home", exact: true }] },
   ];
   if (isAdmin) {
+    groups.push({
+      id: "system",
+      title: "Система",
+      items: [
+        { href: "/control/metric", label: "Метрик", icon: "metric" },
+        { href: "/control/roles", label: "Роли", icon: "roles" },
+        // Kept (QA-06 audit): the ONLY place to set the legacy role (incl.
+        // SPM/ADMIN), move an employee's city/club, change position or
+        // access status network-wide — «Роли» covers none of these.
+        { href: "/control/users", label: "Сотрудники", icon: "users" },
+        { href: "/control/logs", label: "Логи", icon: "logs" },
+      ],
+    });
     groups.push({
       id: "content",
       title: "Контент",
@@ -72,26 +96,27 @@ export function buildControlNav(flags: ControlNavFlags): ControlNavGroup[] {
         { href: "/admin/content", label: "Обучение", icon: "learning" },
         { href: "/control/scripts", label: "Скрипты", icon: "scripts" },
         { href: "/control/instructions", label: "Инструкции", icon: "instructions" },
-        { href: "/control/metric", label: "Метрик", icon: "metric" },
-      ],
-    });
-    groups.push({
-      id: "people",
-      title: "Люди и доступ",
-      items: [
-        { href: "/control/users", label: "Сотрудники", icon: "users" },
-        { href: "/control/roles", label: "Роли", icon: "roles" },
       ],
     });
   }
-  if (managesClub) {
+  if (canAccessSpm(flags.role)) {
+    groups.push({
+      id: "results",
+      title: "Контроль и результаты",
+      items: [
+        { href: "/spm/mystery", label: "Тайный покупатель", icon: "mystery" },
+        { href: "/spm/sales", label: "Продажи", icon: "sales" },
+        { href: "/spm/rating", label: "Рейтинг сотрудников", icon: "rating" },
+      ],
+    });
+  }
+  if (isRealClubManager) {
     groups.push({
       id: "club",
       title: "Клуб",
       items: [
-        // QA-05.1 — «Управляющий» is the club-management surface and now
-        // carries the team + access lifecycle; «Команда» (/control/team) is a
-        // compatibility page reached from it, no longer a primary item.
+        // «Управляющий» carries the team + access lifecycle; /control/team is
+        // its compatibility page (QA-05.1).
         { href: "/control/club", label: "Управляющий", icon: "club", aliases: ["/control/team"] },
         { href: "/control/plan", label: "План дня", icon: "plan" },
       ],
@@ -102,17 +127,6 @@ export function buildControlNav(flags: ControlNavFlags): ControlNavGroup[] {
   }
   if (flags.isOperationsDirector) {
     groups.push({ id: "network", title: "Сеть", items: [{ href: "/control/network", label: "Сеть", icon: "network" }] });
-  }
-  if (canAccessSpm(flags.role)) {
-    groups.push({
-      id: "spm",
-      title: "Продажи и рейтинг",
-      items: [
-        { href: "/spm/sales", label: "Продажи", icon: "sales" },
-        { href: "/spm/mystery", label: "Тайный покупатель", icon: "mystery" },
-        { href: "/spm/rating", label: "Рейтинг", icon: "rating" },
-      ],
-    });
   }
   return groups;
 }

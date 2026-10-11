@@ -168,35 +168,33 @@ test("NAV-ROUTES: every nav item points at a real page (no dead links), for ever
   for (const href of hrefs(everything)) assert.ok(routes.has(href), `missing page for ${href}`);
 });
 
-test("NAV-ADMIN: a PROJECT_ADMIN (legacy ADMIN) reaches every section it could before, plus «Метрик» (previously only via its Home card)", () => {
+test("NAV-ADMIN (updated for QA-06): a legacy ADMIN gets Система, Контент and Контроль и результаты — no club/city cabinets unless they really hold those roles", () => {
   assert.deepEqual(hrefs({ ...NONE, role: "ADMIN", hasSystemAccess: true }), [
     "/control",
+    "/control/metric",
+    "/control/roles",
+    "/control/users",
+    "/control/logs",
     "/admin/content",
     "/control/scripts",
     "/control/instructions",
-    "/control/metric",
-    "/control/users",
-    "/control/roles",
-    "/control/club",
-    "/control/plan",
-    "/spm/sales",
     "/spm/mystery",
+    "/spm/sales",
     "/spm/rating",
   ]);
 });
 
-test("NAV-RBAC: no permission widening — each group appears only under the exact condition the old flat list used", () => {
+test("NAV-RBAC (updated for QA-06): each group appears only for the role whose server guard admits it — no widening", () => {
   assert.deepEqual(hrefs(NONE), ["/control"]);
-  // PROJECT_ADMIN by grant only (AppRole EMPLOYEE): content + people, NOT club/SPM.
-  assert.deepEqual(hrefs({ ...NONE, hasSystemAccess: true }), ["/control", "/admin/content", "/control/scripts", "/control/instructions", "/control/metric", "/control/users", "/control/roles"]);
-  // Legacy CLUB_MANAGER or a CLUB_MANAGER grant -> club group only.
+  // PROJECT_ADMIN by grant only (AppRole EMPLOYEE): system + content; /spm stays legacy-role gated.
+  assert.deepEqual(hrefs({ ...NONE, hasSystemAccess: true }), ["/control", "/control/metric", "/control/roles", "/control/users", "/control/logs", "/admin/content", "/control/scripts", "/control/instructions"]);
   for (const f of [{ ...NONE, role: "CLUB_MANAGER" as const }, { ...NONE, isClubManager: true }]) {
     assert.deepEqual(hrefs(f), ["/control", "/control/club", "/control/plan"]);
   }
   assert.deepEqual(hrefs({ ...NONE, isCityManager: true }), ["/control", "/control/city"]);
   assert.deepEqual(hrefs({ ...NONE, isOperationsDirector: true }), ["/control", "/control/network"]);
-  // SPM: sales/mystery/rating only — never the CMS or role administration.
-  assert.deepEqual(hrefs({ ...NONE, role: "SPM" }), ["/control", "/spm/sales", "/spm/mystery", "/spm/rating"]);
+  // SPM: results only — never system, content or role administration.
+  assert.deepEqual(hrefs({ ...NONE, role: "SPM" }), ["/control", "/spm/mystery", "/spm/sales", "/spm/rating"]);
 });
 
 test("NAV-ACTIVE: the current section is resolved for every page, sub-routes included; segment-aware; null outside the nav", () => {
@@ -216,9 +214,9 @@ test("NAV-ACTIVE: the current section is resolved for every page, sub-routes inc
   assert.equal(controlNavItemMatches(home, "/control/roles"), false); // Главная is exact
 });
 
-test("NAV-GROUPS: sections are grouped; every group has items; no duplicate destinations", () => {
+test("NAV-GROUPS (updated for QA-06): sections are grouped; every group has items; no duplicate destinations", () => {
   const groups = buildControlNav({ role: "ADMIN", hasSystemAccess: true, isClubManager: true, isCityManager: true, isOperationsDirector: true });
-  assert.deepEqual(groups.map((g) => g.title), [null, "Контент", "Люди и доступ", "Клуб", "Город", "Сеть", "Продажи и рейтинг"]);
+  assert.deepEqual(groups.map((g) => g.title), [null, "Система", "Контент", "Контроль и результаты", "Клуб", "Город", "Сеть"]);
   for (const g of groups) assert.ok(g.items.length > 0);
   const all = hrefs({ role: "ADMIN", hasSystemAccess: true, isClubManager: true, isCityManager: true, isOperationsDirector: true });
   assert.equal(new Set(all).size, all.length);

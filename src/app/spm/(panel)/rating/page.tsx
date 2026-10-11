@@ -43,7 +43,7 @@ export default function SpmRatingPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold">Рейтинг</h1>
+      <h1 className="text-2xl font-bold">Рейтинг сотрудников</h1>
       <div className="mt-5"><SpmToolbar period={period} onPeriod={setPeriod} showFilters={false} /></div>
       {msg && <div className="mt-3 rounded-2xl bg-brand/12 px-4 py-2 text-sm">{msg}</div>}
       {status === "error" && <p className="mt-6 text-sm text-red-500">Не удалось загрузить.</p>}
