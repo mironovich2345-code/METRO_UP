@@ -2,7 +2,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { hasActiveRole, anyGrantCoversClub } from "../src/lib/server/rbac/scope-core";
+import {
+  hasActiveRole,
+  anyGrantCoversClub,
+  resolveManagerEligibleClubIds,
+  resolveManagerRequestedClub,
+} from "../src/lib/server/rbac/scope-core";
 import type { RoleGrant } from "../src/lib/server/rbac/types";
 import type { AppRole } from "@prisma/client";
 import { canManageClub } from "../src/lib/roles";
@@ -273,19 +278,22 @@ test("CMMULTI-H: one ACTIVE grant (A) + one SUSPENDED grant (B), no explicit clu
  *  resolveScopedClubId's FULL decision tree (R4.2, sections 2/5/6/7/12)
  * ===================================================================== */
 /**
- * Sprint: REMEDIATION R4.2, F-05 — resolveScopedClubId (the WRITE-side
- * resolver used by create/delete task + the three template functions) is
- * now brought into parity with getManagerScope: its grant-bridge branch is
- * the IDENTICAL logic managerScopeClubId above already mirrors (both
- * functions literally share the same filter/some/length===1 shape after
- * this round's fix), so it is reused here rather than re-implemented a
- * second time. This composed function adds the ONE piece managerScopeClubId
- * deliberately does not model — the legacy own-EmployeeProfile.clubId
- * branch, which runs BEFORE any grant is even consulted.
+ * Sprint: REMEDIATION R4.3 — this is now a REAL (not mirrored) composition:
+ * both calls are the exact two shared pure functions resolveScopedClubId/
+ * getManagerScope/resolveClubManagerClubs all call (scope-core.ts), imported
+ * directly rather than re-implemented. `ownClubId` maps to a legacy
+ * AppRole=CLUB_MANAGER identity (the only legacyRole resolveManagerEligibleClubIds
+ * ever consults) — passing "EMPLOYEE" when there is no legacy club keeps every
+ * existing grant-only call site below unchanged. Sprint: REMEDIATION R4.3 —
+ * replaces the PRE-R4.3 "if (ownClubId) return ownClubId" short-circuit this
+ * function used to encode: that modeled the exact bug this round closes (a
+ * legacy club made a separate, legitimate CLUB_MANAGER grant unreachable).
+ * Legacy and grant identity are now UNIONED into one eligible set first; the
+ * resolver only ever auto-picks when that set has exactly one member.
  */
 function resolveScopedClubIdFor(ownClubId: string | null, grants: RoleGrant[], requestedClubId: string | null): string | null {
-  if (ownClubId) return ownClubId;
-  return managerScopeClubId(grants, requestedClubId);
+  const eligible = resolveManagerEligibleClubIds(ownClubId ? "CLUB_MANAGER" : "EMPLOYEE", ownClubId, grants);
+  return resolveManagerRequestedClub(eligible, requestedClubId);
 }
 
 test("CMRESOLVE-A: legacy own club A, no requested club — resolves to A", () => {
@@ -316,10 +324,17 @@ test("CMRESOLVE-F: multiple active grants (A+B), requested foreign C — denied 
   assert.equal(resolveScopedClubIdFor(null, grants, "club-C"), null);
 });
 
-test("CMRESOLVE-G: THE REPORTED PRECEDENCE (section 5) — a real user with a legacy own club A AND a separate active CLUB_MANAGER grant for a DIFFERENT club B is locked to A unconditionally; the grant for B is never reachable through this function for them, even when B is explicitly requested. Pre-existing precedence (not introduced by this round), traced and left unchanged, never guessed", () => {
+test("CMRESOLVE-G: THE R4.3 FIX — a real user with a legacy own club A AND a separate active CLUB_MANAGER grant for a DIFFERENT club B now has BOTH in the eligible set: no explicit request is ambiguous (null — selection required), while an explicit request for EITHER A or B legitimately resolves, and a foreign C is still denied. Before R4.3, the legacy club won unconditionally and B was permanently unreachable through this function — the exact mixed-identity gap R4.2 reported and this round closes", () => {
   const grants = [grant({ clubId: "club-B" })];
+  assert.equal(resolveScopedClubIdFor("club-A", grants, null), null);
+  assert.equal(resolveScopedClubIdFor("club-A", grants, "club-A"), "club-A");
+  assert.equal(resolveScopedClubIdFor("club-A", grants, "club-B"), "club-B");
+  assert.equal(resolveScopedClubIdFor("club-A", grants, "club-C"), null);
+});
+
+test("CMRESOLVE-G2: legacy own club A AND a CLUB_MANAGER grant for the SAME club A — deduplicated to one unique eligible club, so it still auto-resolves with no explicit request (never mistaken for the 2+-eligible ambiguous case just because the identity came from two axes)", () => {
+  const grants = [grant({ clubId: "club-A" })];
   assert.equal(resolveScopedClubIdFor("club-A", grants, null), "club-A");
-  assert.equal(resolveScopedClubIdFor("club-A", grants, "club-B"), "club-A");
 });
 
 test("CMRESOLVE-H: CITY_MANAGER(A+B) with NO CLUB_MANAGER grant — not sufficient, no club resolved even with an explicit request", () => {
@@ -338,15 +353,115 @@ test("CMRESOLVE-J: OPERATIONS_DIRECTOR grant alone — denied as CLUB_MANAGER, s
   assert.equal(resolveScopedClubIdFor(null, grants, null), null);
 });
 
-test("CMRESOLVE-K: ADMIN's own switching semantics are untouched by this round — resolveScopedClubId's `honored` branch (requestedClubForRole, club-scope.ts) runs BEFORE the legacy-own-club check and before any grant is consulted at all, exactly as before R4.2; this round only ever added code inside the branch that already required `!honored`", () => {
+test("CMRESOLVE-K: ADMIN's own switching semantics are untouched — resolveScopedClubId's `honored` branch (requestedClubForRole, club-scope.ts) still runs FIRST and returns before any manager eligible-club computation happens at all. Sprint: REMEDIATION R4.3 — the SEPARATE 'legacy own club short-circuits before any grant is consulted' branch this test previously asserted is gone: legacy and grant identity are now unioned by resolveManagerEligibleClubIds for every non-admin actor, closing the mixed-identity gap R4.2 reported", () => {
   const src = read("src/lib/server/club-plan.ts");
   const fnStart = src.indexOf("async function resolveScopedClubId");
   const fnEnd = src.indexOf("\n/** Clubs an ADMIN", fnStart);
   const fnSrc = src.slice(fnStart, fnEnd);
   const honoredIdx = fnSrc.indexOf("requestedClubForRole(user.role, requestedClubId)");
-  const ownIdx = fnSrc.indexOf("const own = user.employeeProfile?.clubId");
-  const gateIdx = fnSrc.indexOf("const actor = await getActorContext(user)");
-  assert.ok(honoredIdx > 0 && ownIdx > honoredIdx && gateIdx > ownIdx, "order must stay: ADMIN honored -> legacy own club -> grant bridge");
+  const eligibleIdx = fnSrc.indexOf("resolveManagerEligibleClubIds(user.role, user.employeeProfile?.clubId, actor.grants)");
+  assert.ok(honoredIdx > 0 && eligibleIdx > honoredIdx, "order must stay: ADMIN honored branch first, then the shared eligible-club computation");
+  assert.doesNotMatch(fnSrc, /const own = user\.employeeProfile\?\.clubId/, "the old standalone legacy-only short-circuit must be gone, not layered alongside the union");
+});
+
+/* ===================================================================== *
+ *  Eligible-club-set matrix (R4.3, brief section 11) — resolveManagerEligibleClubIds
+ *  is pure and lives in scope-core.ts (no "server-only"), so it is imported
+ *  and exercised DIRECTLY here — real tests, not a mirror, not a
+ *  source-regex-only proof.
+ * ===================================================================== */
+
+test("CMELIGIBLE-A: legacy AppRole=CLUB_MANAGER with EmployeeProfile.clubId=A, no grants — eligible set is [A]", () => {
+  assert.deepEqual(resolveManagerEligibleClubIds("CLUB_MANAGER", "club-A", []), ["club-A"]);
+});
+
+test("CMELIGIBLE-B: no legacy club, one active CLUB_MANAGER grant for A — eligible set is [A]", () => {
+  assert.deepEqual(resolveManagerEligibleClubIds("EMPLOYEE", null, [grant({ clubId: "club-A" })]), ["club-A"]);
+});
+
+test("CMELIGIBLE-C: no legacy club, two active CLUB_MANAGER grants (A+B) — eligible set is [A, B]", () => {
+  const grants = [grant({ id: "g1", clubId: "club-A" }), grant({ id: "g2", clubId: "club-B" })];
+  assert.deepEqual(resolveManagerEligibleClubIds("EMPLOYEE", null, grants), ["club-A", "club-B"]);
+});
+
+test("CMELIGIBLE-D: THE R4.3 FIX — legacy club A UNION a separate active CLUB_MANAGER grant for B — eligible set is [A, B], neither axis shadows the other", () => {
+  assert.deepEqual(resolveManagerEligibleClubIds("CLUB_MANAGER", "club-A", [grant({ clubId: "club-B" })]), ["club-A", "club-B"]);
+});
+
+test("CMELIGIBLE-E: legacy club A UNION a CLUB_MANAGER grant for the SAME club A — deduplicated to one unique eligible club [A], not [A, A]", () => {
+  assert.deepEqual(resolveManagerEligibleClubIds("CLUB_MANAGER", "club-A", [grant({ clubId: "club-A" })]), ["club-A"]);
+});
+
+test("CMELIGIBLE-F: a CITY_MANAGER grant (covering cities/clubs A+B via CITY scope) contributes NOTHING to the CLUB_MANAGER eligible set — CITY_MANAGER authority never adds manager clubs on its own", () => {
+  const grants = [grant({ role: "CITY_MANAGER", scopeType: "CITY", cityId: "voronezh", clubId: null })];
+  assert.deepEqual(resolveManagerEligibleClubIds("EMPLOYEE", null, grants), []);
+});
+
+test("CMELIGIBLE-G: OPERATIONS_DIRECTOR/PROJECT_ADMIN grants contribute nothing to the eligible set either — only an active CLUB_MANAGER identity (legacy role or grant) ever does", () => {
+  const grants = [
+    grant({ role: "OPERATIONS_DIRECTOR", scopeType: "NETWORK", clubId: null }),
+    grant({ role: "PROJECT_ADMIN", scopeType: "SYSTEM", clubId: null }),
+  ];
+  assert.deepEqual(resolveManagerEligibleClubIds("EMPLOYEE", null, grants), []);
+});
+
+test("CMELIGIBLE-H: a CITY_MANAGER(A+B) actor who ALSO separately holds an active CLUB_MANAGER grant for A — eligible set is [A] only, never widened to B just because the same actor can read B as CITY_MANAGER", () => {
+  const grants = [
+    grant({ id: "g1", role: "CITY_MANAGER", scopeType: "CITY", cityId: "voronezh", clubId: null }),
+    grant({ id: "g2", role: "CLUB_MANAGER", clubId: "club-A" }),
+  ];
+  assert.deepEqual(resolveManagerEligibleClubIds("EMPLOYEE", null, grants), ["club-A"]);
+});
+
+test("CMELIGIBLE-I: a SUSPENDED CLUB_MANAGER grant never contributes — only ACTIVE grants count toward eligibility", () => {
+  const grants = [grant({ clubId: "club-A", status: "SUSPENDED" })];
+  assert.deepEqual(resolveManagerEligibleClubIds("EMPLOYEE", null, grants), []);
+});
+
+test("CMELIGIBLE-J: no legacy club, no grants at all — eligible set is empty, never a crash/undefined", () => {
+  assert.deepEqual(resolveManagerEligibleClubIds("EMPLOYEE", null, []), []);
+});
+
+test("CMELIGIBLE-K: legacyRole=CLUB_MANAGER but legacyClubId is null (no EmployeeProfile) — the legacy axis contributes nothing on its own; a separate grant still can", () => {
+  assert.deepEqual(resolveManagerEligibleClubIds("CLUB_MANAGER", null, []), []);
+  assert.deepEqual(resolveManagerEligibleClubIds("CLUB_MANAGER", null, [grant({ clubId: "club-A" })]), ["club-A"]);
+});
+
+/* ===================================================================== *
+ *  Scope-decision matrix (R4.3, brief section 12) — resolveManagerRequestedClub
+ *  is pure (scope-core.ts), imported and exercised DIRECTLY — real tests.
+ * ===================================================================== */
+
+test("CMREQCLUB-A: THE single-eligible-club default — eligible=[A], no request — auto-resolves to A. This is the exact guard CMWIRE-F/CMWIRE-G reference as 'real, non-structural coverage'", () => {
+  assert.equal(resolveManagerRequestedClub(["club-A"], null), "club-A");
+});
+
+test("CMREQCLUB-B: eligible=[A, B], no request — selection required (null), never an arbitrary 'first eligible wins' guess", () => {
+  assert.equal(resolveManagerRequestedClub(["club-A", "club-B"], null), null);
+});
+
+test("CMREQCLUB-C: eligible=[A, B], requested=A — resolves to A", () => {
+  assert.equal(resolveManagerRequestedClub(["club-A", "club-B"], "club-A"), "club-A");
+});
+
+test("CMREQCLUB-D: eligible=[A, B], requested=B — resolves to B", () => {
+  assert.equal(resolveManagerRequestedClub(["club-A", "club-B"], "club-B"), "club-B");
+});
+
+test("CMREQCLUB-E: eligible=[A, B], requested=C (outside the set) — denied (null), per 'requested-inside-set -> allowed; requested-outside-set -> denied'", () => {
+  assert.equal(resolveManagerRequestedClub(["club-A", "club-B"], "club-C"), null);
+});
+
+test("CMREQCLUB-F: eligible=[] (no scope at all), no request — null, the honest 'no club' case", () => {
+  assert.equal(resolveManagerRequestedClub([], null), null);
+});
+
+test("CMREQCLUB-G: eligible=[] and an explicit request anyway — still denied (null); an empty eligible set can never be talked into a club by a client-supplied id", () => {
+  assert.equal(resolveManagerRequestedClub([], "club-A"), null);
+});
+
+test("CMREQCLUB-H: eligible=[A] (exactly one legitimate club) but the explicit request is a DIFFERENT, foreign club B — denied (null), NOT silently redirected to the one real option. An explicit wrong request must fail honestly, never fall back to a default the caller didn't ask for", () => {
+  assert.equal(resolveManagerRequestedClub(["club-A"], "club-B"), null);
 });
 
 /* ===================================================================== *
@@ -417,30 +532,28 @@ test("CMWIRE-C: requireClubManager itself still exists in authz.ts (not removed/
   assert.match(src, /export const requireClubManager = \(\) => requireRole\("CLUB_MANAGER", "ADMIN"\);/);
 });
 
-test("CMWIRE-D: getManagerScope (club-plan.ts) now has the same RoleAssignment-grant bridge resolveScopedClubId already had — the downstream legacy assumption fix for GET /api/control/plan", () => {
+test("CMWIRE-D: getManagerScope (club-plan.ts) calls the SAME shared eligible-club/requested-club helpers resolveScopedClubId uses (resolveManagerEligibleClubIds/resolveManagerRequestedClub, scope-core.ts) — the downstream legacy assumption fix for GET /api/control/plan, now expressed as one shared function instead of each resolver re-deriving its own copy", () => {
   const src = read("src/lib/server/club-plan.ts");
   const fnStart = src.indexOf("export async function getManagerScope");
   const fnEnd = src.indexOf("\nexport ", fnStart + 10);
   const fnSrc = src.slice(fnStart, fnEnd);
-  assert.match(fnSrc, /g\.role === "CLUB_MANAGER" && g\.status === "ACTIVE"/);
-  assert.match(fnSrc, /clubManagerGrants\.some\(\(g\) => g\.clubId === requestedClubId\)/);
+  assert.match(fnSrc, /resolveManagerEligibleClubIds\(user\.role, user\.employeeProfile\?\.clubId, actor\.grants\)/);
+  assert.match(fnSrc, /resolveManagerRequestedClub\(eligible, requestedClubId\)/);
 });
 
-test("CMWIRE-F: Sprint: REMEDIATION R4.1 — getManagerScope defaults to the single active CLUB_MANAGER grant's club when no explicit clubId is given AND there is exactly one such grant — the fix for a single-grant manager whose client-side page has no mechanism to send a clubId at all (ClubScopePicker renders ADMIN-only)", () => {
-  const src = read("src/lib/server/club-plan.ts");
-  const fnStart = src.indexOf("export async function getManagerScope");
-  const fnEnd = src.indexOf("\nexport ", fnStart + 10);
-  const fnSrc = src.slice(fnStart, fnEnd);
-  assert.match(fnSrc, /clubManagerGrants\.length === 1 && clubManagerGrants\[0\]\.clubId/);
+test("CMWIRE-F: Sprint: REMEDIATION R4.1/R4.3 — the single-eligible-club default (no explicit clubId needed when there is exactly one legitimate club) now lives in resolveManagerRequestedClub (scope-core.ts, pure, shared) rather than duplicated inside getManagerScope/resolveScopedClubId — real, non-structural coverage of the exact guard is CMREQCLUB-A below", () => {
+  const src = read("src/lib/server/rbac/scope-core.ts");
+  const fnStart = src.indexOf("export function resolveManagerRequestedClub");
+  const fnSrc = src.slice(fnStart, fnStart + 400);
+  assert.match(fnSrc, /eligibleClubIds\.length === 1/);
 });
 
-test("CMWIRE-G: the single-grant default guard is an exact equality (=== 1), never a >= 1 or unconditional 'pick the first grant' — the ambiguous multi-grant case is left exactly as R4 produced it (no club resolved without an explicit clubId), never an arbitrary 'first grant wins' guess", () => {
-  const src = read("src/lib/server/club-plan.ts");
-  const fnStart = src.indexOf("export async function getManagerScope");
-  const fnEnd = src.indexOf("\nexport ", fnStart + 10);
-  const fnSrc = src.slice(fnStart, fnEnd);
-  assert.match(fnSrc, /clubManagerGrants\.length === 1/);
-  assert.doesNotMatch(fnSrc, /clubManagerGrants\.length (>=|>) /);
+test("CMWIRE-G: the single-eligible-club default guard is an exact equality (=== 1), never a >= 1 or unconditional 'pick the first club' — the ambiguous 2+-eligible case is never guessed at", () => {
+  const src = read("src/lib/server/rbac/scope-core.ts");
+  const fnStart = src.indexOf("export function resolveManagerRequestedClub");
+  const fnSrc = src.slice(fnStart, fnStart + 400);
+  assert.match(fnSrc, /eligibleClubIds\.length === 1/);
+  assert.doesNotMatch(fnSrc, /eligibleClubIds\.length (>=|>) /);
 });
 
 test("CMWIRE-E: deleteManagerTask's ownership check compares the task owner's employeeProfile.clubId against the resolved club — never actor.role — so the wider role gate cannot turn into cross-club delete access", () => {
@@ -456,15 +569,15 @@ test("CMWIRE-E: deleteManagerTask's ownership check compares the task owner's em
  *  R4.2 wiring — resolveScopedClubId parity + /control/plan UI
  * ===================================================================== */
 
-test("CMWIRE-H: resolveScopedClubId's grant bridge now runs UNCONDITIONALLY (getActorContext/clubManagerGrants computed every time own club is absent), never gated behind `if (requestedClubId)` as it was before R4.2 — the exact change that lets the single-grant default apply with no explicit clubId", () => {
+test("CMWIRE-H: resolveScopedClubId's eligible-club computation now runs UNCONDITIONALLY for every non-admin actor (getActorContext + resolveManagerEligibleClubIds, not gated behind any requestedClubId check or a legacy-own-club short-circuit) — the exact change that unions legacy and grant identity instead of letting one win unconditionally", () => {
   const src = read("src/lib/server/club-plan.ts");
   const fnStart = src.indexOf("async function resolveScopedClubId");
   const fnEnd = src.indexOf("\n/** Clubs an ADMIN", fnStart);
   const fnSrc = src.slice(fnStart, fnEnd);
   const actorIdx = fnSrc.indexOf("const actor = await getActorContext(user)");
-  const requestedIfIdx = fnSrc.indexOf("if (requestedClubId)");
-  assert.ok(actorIdx > 0 && requestedIfIdx > actorIdx, "getActorContext must run BEFORE the requestedClubId branch, not inside it");
-  assert.match(fnSrc, /clubManagerGrants\.length === 1 && clubManagerGrants\[0\]\.clubId/);
+  const eligibleIdx = fnSrc.indexOf("resolveManagerEligibleClubIds(user.role, user.employeeProfile?.clubId, actor.grants)");
+  const resolvedIdx = fnSrc.indexOf("resolveManagerRequestedClub(eligible, requestedClubId)");
+  assert.ok(actorIdx > 0 && eligibleIdx > actorIdx && resolvedIdx > eligibleIdx, "order must stay: getActorContext -> eligible-club union -> requested-club resolution, all unconditional");
 });
 
 test("CMWIRE-I: /control/plan writes are scoped by plan.clubId (the server-RESOLVED club), never a raw selection state — ScopeContext.Provider now receives plan?.clubId, closing the exact gap R4.1 reported (a single-grant manager could read but not write)", () => {
@@ -523,6 +636,91 @@ test(
 
 test(
   "CMHTTP-B: a multi-grant RoleAssignment-only CLUB_MANAGER(A+B) — with no selected club every one of the six endpoints is unresolved (409/empty); after selecting A, every read/write operates on A; after switching to B, every read/write operates on B; a forged clubId=C is denied regardless of which club was last selected",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
+/* ===================================================================== *
+ *  R4.3 — /control/team scoped-club parity with /control/plan
+ *  (brief sections 6/7/8/14)
+ * ===================================================================== */
+
+const readTeamRoute = () => read("src/app/api/control/team/route.ts");
+const readTeamPage = () => read("src/app/control/(portal)/team/page.tsx");
+
+test("CMTEAM-WIRE-A: GET /api/control/team's manager branch now admits canManageClub(role) OR an active CLUB_MANAGER grant (hasActiveRole(actor.grants, \"CLUB_MANAGER\")) — THE R4.3 FIX, mirroring requireClubManagerAccess's own admission rule so a RoleAssignment-only CLUB_MANAGER (no legacy AppRole) reaches getClubTeam/getManagerScope instead of falling through to the bare 400 club_required branch", () => {
+  const src = readTeamRoute();
+  assert.match(src, /canManageClub\(user\.role\) \|\| hasActiveRole\(actor\.grants, "CLUB_MANAGER"\)/);
+});
+
+test("CMTEAM-WIRE-B: the actor's grants (getActorContext) are resolved BEFORE the manager-branch check, not only inside the generic club.read fallback — otherwise the widened condition in CMTEAM-WIRE-A would have nothing to read", () => {
+  const src = readTeamRoute();
+  const actorIdx = src.indexOf("const actor = await getActorContext(user)");
+  const gateIdx = src.indexOf('canManageClub(user.role) || hasActiveRole(actor.grants, "CLUB_MANAGER")');
+  assert.ok(actorIdx > 0 && gateIdx > actorIdx, "getActorContext must run before the widened manager-branch condition");
+});
+
+test("CMTEAM-WIRE-C: the View-As CLUB_MANAGER preview branch (tier 1) still runs BEFORE the widened manager branch (tier 2) — a preview must keep taking priority, exactly as before this round", () => {
+  const src = readTeamRoute();
+  const viewAsIdx = src.indexOf('viewContext.previewRole === "CLUB_MANAGER"');
+  const gateIdx = src.indexOf('canManageClub(user.role) || hasActiveRole(actor.grants, "CLUB_MANAGER")');
+  assert.ok(viewAsIdx > 0 && gateIdx > viewAsIdx, "View-As preview branch must stay first");
+});
+
+test("CMTEAM-WIRE-D: requireNoManagerPersonaPreview is still called before any branch runs — R2.2's MANAGER-persona confinement is untouched by this round's gate widening", () => {
+  const src = readTeamRoute();
+  const guardIdx = src.indexOf("await requireNoManagerPersonaPreview(user)");
+  const gateIdx = src.indexOf('canManageClub(user.role) || hasActiveRole(actor.grants, "CLUB_MANAGER")');
+  assert.ok(guardIdx > 0 && gateIdx > guardIdx);
+});
+
+test("CMTEAM-WIRE-E: the team page fetches the manager's own eligible clubs via the SAME cabinetApi.myManagedClubs() endpoint control/plan uses — never a new/duplicate 'manager clubs' API", () => {
+  const src = readTeamPage();
+  assert.match(src, /import \{ cabinetApi \} from "@\/lib\/api\/cabinet-client";/);
+  assert.match(src, /cabinetApi\.myManagedClubs\(\)/);
+});
+
+test("CMTEAM-WIRE-F: the team page reuses resolvePlanScopeUiState (control-plan-ui.ts) for its own empty/selection panel — the SAME shared decision control/plan uses, never a second competing state machine", () => {
+  const src = readTeamPage();
+  assert.match(src, /import \{ resolvePlanScopeUiState \} from "@\/lib\/control-plan-ui";/);
+  assert.match(src, /resolvePlanScopeUiState\(\{/);
+});
+
+test("CMTEAM-WIRE-G: the team page reuses the shared ClubScopePicker component (clubs=... prop) for both the ADMIN and the multi-club-manager case — never a second, competing picker implementation", () => {
+  const src = readTeamPage();
+  assert.match(src, /import \{ ClubScopePicker \} from "@\/components\/control\/ClubScopePicker";/);
+  const adminPickerIdx = src.indexOf("{isAdmin && scope && (");
+  const managerPickerIdx = src.indexOf("{canPickManagerClub && managedClubs && (");
+  assert.ok(adminPickerIdx > 0 && managerPickerIdx > adminPickerIdx);
+  assert.doesNotMatch(src, /<ClubScopePicker scope=\{/);
+});
+
+test("CMTEAM-WIRE-H: the team page's picker-visibility guard is the exact same shape as control/plan's (canPickManagerClub requires managedClubs.length > 1) — a single-club manager, legacy or single-grant, never sees an unnecessary picker on Team either", () => {
+  const src = readTeamPage();
+  assert.match(src, /const canPickManagerClub = !isAdmin && managedClubs !== null && managedClubs\.length > 1;/);
+});
+
+test("CMTEAM-WIRE-I: THE SECTION-8 FIX — Team mutations (approve/setAccess) are scoped by the server-RESOLVED team.clubId, never the raw selectedClubId — closing on Team the exact R4.1-class gap control/plan already closed for its own writes (ScopeContext sourced from plan.clubId, not selection state)", () => {
+  const src = readTeamPage();
+  assert.match(src, /const scopeClubId = team\?\.clubId \?\? null;/);
+  assert.match(src, /managerApi\.approve\(userId, action\.target === "SUSPENDED" \? "FULL" : action\.target, scopeClubId\)/);
+  assert.match(src, /managerApi\.setAccess\(userId, action\.target, scopeClubId\)/);
+});
+
+test("CMTEAM-WIRE-J: the team page's main table and the empty/selection panel are driven by the SAME uiState value — never two independently-computed conditions that could disagree about whether a club is actually resolved (mirrors CMWIRE-M for Plan)", () => {
+  const src = readTeamPage();
+  assert.match(src, /\{uiState && uiState !== "active" && \(/);
+  assert.match(src, /\{uiState === "active" && team && \(/);
+});
+
+test(
+  "CMTEAM-HTTP-A: a mixed-identity CLUB_MANAGER — legacy EmployeeProfile.clubId=A AND a separate active CLUB_MANAGER grant for B — sees BOTH A and B via GET /api/control/club/clubs; with no selection GET /api/control/team is unresolved (empty/409-equivalent per getManagerScope); selecting A resolves Team/approve/access to A; selecting B resolves all three to B; a forged clubId=C is denied on every one",
+  { skip: "integration: requires Postgres + running server" },
+  () => {},
+);
+
+test(
+  "CMTEAM-HTTP-B: a RoleAssignment-only CLUB_MANAGER with a SINGLE grant for A — GET /api/control/team auto-resolves A with no explicit clubId (THE R4.3 FIX — previously 400 club_required), and approve/access on a real employee of A succeed with no explicit clubId either",
   { skip: "integration: requires Postgres + running server" },
   () => {},
 );
