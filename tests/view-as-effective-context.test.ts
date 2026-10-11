@@ -120,10 +120,13 @@ test(
 test(
   "EFFCTX-J: the Mini-App ViewAsBanner (app-shell-frame.tsx) renders on every " +
     "non-control route while user.viewContext is non-null, and its 'end " +
-    "preview' button calls appUser.refresh() (re-fetches /api/auth/me) rather " +
-    "than router.refresh() — a purely client-rendered tree has no Server " +
-    "Component to re-run, so router.refresh() alone would leave the stale " +
-    "persona's data on screen after ending",
+    "preview' button (Sprint: LIVE QA FIX QA-01) runs the FULL end-preview " +
+    "lifecycle — viewAsApi.end() + confirmIdentity() — inside the global " +
+    "switchContext atomic gate rather than a bare router.refresh() or an " +
+    "un-awaited appUser.refresh(): a purely client-rendered tree has no " +
+    "Server Component to re-run, so anything less than an awaited, " +
+    "gate-wrapped identity confirmation would leave the stale persona's " +
+    "data (or UI) on screen after ending",
   { skip: "integration: requires a running server + browser/DOM (component behavior)" },
   () => {},
 );

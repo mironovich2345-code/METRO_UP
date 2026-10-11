@@ -530,30 +530,31 @@ test("STALE-NAV-C: useEffectiveNavContext subscribes to onStoredContextChanged f
   assert.match(src, /return onStoredContextChanged\(readStoredContext\)/);
 });
 
-test("STALE-NAV-D: ReturnToCityCabinetCard refreshes AppUserProvider's user (clearing the stale previewRole) in addition to ending the preview — the SAME refresh() call the global ViewAsBanner's own 'end' flow already makes", () => {
+test("STALE-NAV-D: ReturnToCityCabinetCard confirms the new identity (clearing the stale previewRole) in addition to ending the preview, and now does BOTH inside the global switchContext atomic gate — the SAME switchContext+confirmIdentity composition the global ViewAsBanner's own 'end' flow uses. Sprint: LIVE QA FIX QA-01 — supersedes the old bare refresh()/refreshAppUser() call this test used to assert: refresh() never throws, so it could not fail the whole switch the way confirmIdentity() now correctly does", () => {
   const src = read("src/app/home/page.tsx");
   const fnSrc = src.slice(src.indexOf("function ReturnToCityCabinetCard"), src.indexOf("function ClubManagerHomeSection"));
-  assert.match(fnSrc, /const \{ refresh: refreshAppUser \} = useAppUser\(\);/);
-  assert.match(fnSrc, /await viewAsApi\.end\(\);\s*\n\s*await refreshAppUser\(\);/);
+  assert.match(fnSrc, /const \{ switchContext, confirmIdentity \} = useAppUser\(\);/);
+  assert.match(fnSrc, /await switchContext\(async \(\) => \{\s*\n\s*await viewAsApi\.end\(\);\s*\n\s*await confirmIdentity\(\);\s*\n\s*\}\);/);
 });
 
-test("STALE-NAV-E: ending the preview still unconditionally calls onReturned() (Home's own reloadDash) in a finally block regardless of whether end()/refreshAppUser() succeed — matches the pre-existing 'always reload' behavior, untouched", () => {
+test("STALE-NAV-E: THE QA-01 FIX — ending the preview now calls onReturned() (Home's own reloadDash) ONLY on success, not unconditionally in a bare finally as before; a failed switch surfaces an inline error instead of silently declaring the preview ended. The OLD 'always reload regardless of success' behavior this test used to certify was itself one of the two latent 'declares success on failure' bugs this round fixed (ViewAsBanner had the identical shape) — see the QA-01 report's Error Recovery section", () => {
   const src = read("src/app/home/page.tsx");
   const fnSrc = src.slice(src.indexOf("function ReturnToCityCabinetCard"), src.indexOf("function ClubManagerHomeSection"));
-  assert.match(fnSrc, /finally \{\s*\n\s*onReturned\(\);\s*\n\s*\}/);
+  assert.match(fnSrc, /await switchContext\([\s\S]*?\);\s*\n\s*onReturned\(\);\s*\n\s*\} catch \{/);
+  assert.doesNotMatch(fnSrc, /finally \{\s*\n\s*onReturned\(\);\s*\n\s*\}/);
 });
 
-test("STALE-NAV-G2 (Management Round E0, section 1 — the symmetric gap on the START side): /city/club's viewAsClubManager refreshes AppUserProvider's user BEFORE navigating to /home — the root cause of 'View-As CLUB_MANAGER -> /team -> Раздел недоступен'. /team/page.tsx's own isPreviewing check reads user.viewContext.previewRole directly (not the storage-fallback-aware resolveEffectiveNavContext STALE-NAV-F already covers) — viewAsApi.start() only flushes the SWR cache, so without this explicit refresh, that check stayed stale-false immediately after starting a preview, and /team ran the REAL actor's own (CITY_MANAGER, not CLUB_MANAGER) 'clubs I manage' lookup, which correctly 403s them", () => {
+test("STALE-NAV-G2 (Management Round E0, section 1 — the symmetric gap on the START side): /city/club's viewAsClubManager confirms the new identity BEFORE navigating to /home, now wrapped in the global switchContext atomic gate — the root cause of 'View-As CLUB_MANAGER -> /team -> Раздел недоступен'. /team/page.tsx's own isPreviewing check reads user.viewContext.previewRole directly (not the storage-fallback-aware resolveEffectiveNavContext STALE-NAV-F already covers) — viewAsApi.start() only flushes the SWR cache, so without an identity confirmation BEFORE the push, that check stayed stale-false immediately after starting a preview, and /team ran the REAL actor's own (CITY_MANAGER, not CLUB_MANAGER) 'clubs I manage' lookup, which correctly 403s them. Sprint: LIVE QA FIX QA-01 — the confirm+push now ALSO happen inside switchContext's action, so the global transition overlay covers this entire round trip too, not just the identity ordering", () => {
   const src = read("src/app/city/club/page.tsx");
   const fnSrc = src.slice(src.indexOf("const viewAsClubManager ="), src.indexOf("<AppHeader title={dashboard?.clubName"));
-  assert.match(fnSrc, /await viewAsApi\.start\(\{ role: "CLUB_MANAGER", clubId \}\);\s*\n\s*await refreshAppUser\(\);/);
+  assert.match(fnSrc, /await switchContext\(async \(\) => \{\s*\n\s*await viewAsApi\.start\(\{ role: "CLUB_MANAGER", clubId \}\);\s*\n\s*await confirmIdentity\(\);\s*\n\s*router\.push\("\/home"\);\s*\n\s*\}\);/);
 });
 
-test("STALE-NAV-G3: ClubDetail declares refreshAppUser via the same useAppUser() hook AppUserProvider exports elsewhere", () => {
+test("STALE-NAV-G3: ClubDetail declares switchContext/confirmIdentity via the same useAppUser() hook AppUserProvider exports elsewhere", () => {
   const src = read("src/app/city/club/page.tsx");
   assert.match(src, /import \{ useAppUser \} from "@\/providers\/AppUserProvider";/);
   const fnSrc = src.slice(src.indexOf("function ClubDetail"), src.indexOf("const viewAsClubManager ="));
-  assert.match(fnSrc, /const \{ refresh: refreshAppUser \} = useAppUser\(\);/);
+  assert.match(fnSrc, /const \{ switchContext, confirmIdentity \} = useAppUser\(\);/);
 });
 
 test("STALE-NAV-F: the full scenario, expressed via the pure resolver — during preview: CLUB_MANAGER; mid-transition (previewRole just cleared, storage not yet rewritten): still correctly CLUB_MANAGER via the stored-context fallback, never a PERSONAL flash; once storage catches up: CITY_MANAGER — exactly the task's own mandated 'start preview -> nav=CLUB_MANAGER -> end preview -> nav=CITY_MANAGER immediately' scenario", () => {
@@ -567,9 +568,9 @@ test("STALE-NAV-F: the full scenario, expressed via the pure resolver — during
   assert.equal(afterBothSettle, "CITY_MANAGER");
 });
 
-test("STALE-NAV-G: Home's own effect still saves whatever the server just confirmed as the active context (unchanged from before this round) — this is the write the STALE-NAV-A..C fix ensures the nav reactively picks back up, instead of only on the next route change", () => {
+test("STALE-NAV-G: Home's own effect saves whatever the server just confirmed as the active context — this is the write the STALE-NAV-A..C fix ensures the nav reactively picks back up, instead of only on the next route change. Sprint: LIVE QA FIX QA-01 — THIS SAVE IS NOW SKIPPED WHILE PREVIEWING (no longer unconditional, as this test used to claim): persisting a preview's own activeContext as if it were the real actor's last-used context was the exact source of the 'stale CLUB_MANAGER bottom nav for one fetch after ending the preview' flicker this round traced and closed — see the QA-01 report's 'One source of truth' section", () => {
   const src = read("src/app/home/page.tsx");
-  assert.match(src, /saveStoredContext\(ownerKey, \{ type: dash\.activeContext\.type, clubId: dash\.activeContext\.clubId \}\)/);
+  assert.match(src, /if \(dash && dash\.kind !== "onboarding" && !isPreviewing\) \{\s*\n\s*saveStoredContext\(ownerKey, \{ type: dash\.activeContext\.type, clubId: dash\.activeContext\.clubId \}\);/);
 });
 
 /* --------- section 3: compact empty attention state --------- */
