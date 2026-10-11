@@ -50,6 +50,9 @@ pnpm-debug.log*
 .pnpm-debug.log*
 logs
 *.log
+# Next.js route segments named "logs" are source code, not log output
+# (QA-06: /control/logs page + /api/control/logs route).
+!src/app/**/logs/
 
 # ---------------------------------------------------------------------------
 # Prisma

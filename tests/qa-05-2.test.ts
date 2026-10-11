@@ -31,7 +31,7 @@ test("HOME: the explanatory copy and the duplicate «Открыть раздел
   assert.match(dash, /<h1 className="text-2xl font-bold">METRO UP Control<\/h1>/);
   assert.match(dash, /\{displayName\} · \{ROLE_LABEL\[role\] \?\? role\}/);
   for (const f of ["dash.totals.programs", "dash.totals.lessonsPublished", "dash.totals.lessonsDraft"]) assert.ok(dash.includes(f), f);
-  assert.deepEqual(dash.match(/href="[^"]+"/g), ['href="/admin/content"']);
+  assert.deepEqual([...new Set(dash.match(/href="[^"]+"/g) ?? [])].sort(), ['href="/admin/content"', 'href="/control/logs"', 'href="/questions"']);
   assert.doesNotMatch(dash, /const CARDS/);
 });
 

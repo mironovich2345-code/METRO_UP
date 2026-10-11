@@ -75,23 +75,18 @@ test("HOME-REACH: for EVERY permission combination, every destination a removed 
   assert.ok(navHrefs({ role: "EMPLOYEE", hasSystemAccess: true, isClubManager: false, isCityManager: false, isOperationsDirector: false }).includes("/control/metric"));
 });
 
-test("HOME-NO-WALL: Home has no navigation-card table and links to exactly one destination (the learning summary's own section)", () => {
+test("HOME-NO-WALL (updated for QA-06): Home has no navigation-card table; its only links are the «Все …» links of its real-data cards", () => {
   const dash = read("src/components/control/ControlDashboard.tsx");
   assert.doesNotMatch(dash, /const CARDS|CardDef|\.filter\(\(c\) => c\.can/);
-  const links = dash.match(/href="[^"]+"/g) ?? [];
-  assert.deepEqual(links, ['href="/admin/content"']);
+  assert.deepEqual([...new Set(dash.match(/href="[^"]+"/g) ?? [])].sort(), ['href="/admin/content"', 'href="/control/logs"', 'href="/questions"']);
 });
 
-test("HOME-REAL-DATA: the learning summary keeps its real counts from the SAME existing call — no new API, no invented metric", () => {
+test("HOME-REAL-DATA (updated for QA-06): every Home card reads a real existing source — no invented metric", () => {
   const dash = read("src/components/control/ControlDashboard.tsx");
-  assert.match(dash, /adminApi\s*\n?\s*\.dashboard\(\)/);
   for (const field of ["dash.totals.programs", "dash.totals.lessonsPublished", "dash.totals.lessonsDraft"]) assert.ok(dash.includes(field), field);
-  // The only data source is adminApi.dashboard; gated by system access exactly like the old card.
   const codeOnly = dash.replace(/\/\*[\s\S]*?\*\//g, "");
   const apis = new Set(codeOnly.match(/\b\w+Api\b/g) ?? []);
-  assert.deepEqual([...apis], ["adminApi"]);
-  assert.deepEqual(codeOnly.match(/adminApi\s*\n?\s*\.(\w+)\(/g)?.map((m) => m.replace(/\s+/g, "")), ["adminApi.dashboard("]);
-  assert.match(dash, /if \(hasSystemAccess\) \{/);
+  assert.deepEqual([...apis].sort(), ["adminApi", "controlAdminApi"]);
   assert.match(dash, /\{hasSystemAccess && \(/);
 });
 

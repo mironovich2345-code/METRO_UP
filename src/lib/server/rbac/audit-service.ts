@@ -5,6 +5,7 @@ import { AuthError } from "../authz";
 import type { CurrentUser } from "../session";
 import { getActorContext } from "./context";
 import { hasSystemAccess, hasNetworkAccess } from "./authorize-core";
+import { getCityById, getClubById } from "@/content/cities";
 
 /**
  * Scoped UserAuditLog read (Sprint 1 / Phase 2B, section 21). Mirrors
@@ -45,6 +46,8 @@ export interface ListAuditLogFilter {
   action?: string;
   clubId?: string;
   cityId?: string;
+  /** QA-06 — only events from the last N minutes (the Home «Логи» card). */
+  sinceMinutes?: number;
   page?: number;
   limit?: number;
 }
@@ -103,6 +106,9 @@ export async function listAuditLog(user: CurrentUser, filter: ListAuditLogFilter
   if (filter.action) conditions.push({ action: filter.action });
   if (filter.clubId) conditions.push({ clubId: filter.clubId });
   if (filter.cityId) conditions.push({ cityId: filter.cityId });
+  if (filter.sinceMinutes && filter.sinceMinutes > 0) {
+    conditions.push({ createdAt: { gte: new Date(Date.now() - filter.sinceMinutes * 60_000) } });
+  }
   const where: Prisma.UserAuditLogWhereInput = conditions.length > 1 ? { AND: conditions } : conditions[0];
 
   const [rows, total] = await Promise.all([
@@ -133,4 +139,32 @@ export async function listAuditLog(user: CurrentUser, filter: ListAuditLogFilter
       createdAt: r.createdAt.toISOString(),
     })),
   };
+}
+
+/** QA-06 — an audit row with the human names the admin Logs surface shows. */
+export interface AdminAuditLogRowDTO extends AuditLogRowDTO {
+  actorName: string | null;
+  targetName: string | null;
+  clubName: string | null;
+  cityName: string | null;
+}
+
+/**
+ * QA-06 — resolve display names for a page of audit rows in ONE user query
+ * (never per row); club/city names from the content catalog. Only names —
+ * no Telegram ids or other identity fields are added.
+ */
+export async function withAuditNames(rows: AuditLogRowDTO[]): Promise<AdminAuditLogRowDTO[]> {
+  const ids = [...new Set(rows.flatMap((r) => [r.actorUserId, r.targetUserId]))];
+  const users = ids.length
+    ? await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, displayName: true } })
+    : [];
+  const name = new Map(users.map((u) => [u.id, u.displayName]));
+  return rows.map((r) => ({
+    ...r,
+    actorName: name.get(r.actorUserId) ?? null,
+    targetName: name.get(r.targetUserId) ?? null,
+    clubName: r.clubId ? getClubById(r.clubId)?.name ?? null : null,
+    cityName: r.cityId ? getCityById(r.cityId)?.name ?? null : null,
+  }));
 }
