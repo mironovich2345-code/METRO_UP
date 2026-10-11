@@ -22,6 +22,7 @@ import { setOwnerKey, getOwnerKey, deriveOwnerKey } from "@/lib/client/owner";
 import { cacheKeys } from "@/lib/client/cache-keys";
 import { getEntry, persistEntry, deleteEntry } from "@/lib/client/persistent-cache";
 import { logBootEvent } from "@/lib/client/perf-boot";
+import { runContextTransition, type ContextTransitionPhase } from "@/lib/context-transition";
 import type { AppUserDTO, OnboardingInputDTO } from "@/lib/api/types";
 
 /** Hard ceiling for the Telegram bootstrap; production must never load forever. */
@@ -87,6 +88,47 @@ interface AppUserContextValue {
   retry: () => void;
   saveOnboarding: (input: OnboardingInputDTO) => Promise<AppUserDTO>;
   signOut: () => Promise<void>;
+  /**
+   * Sprint: LIVE QA FIX QA-01 — "idle" | "switching". True GLOBAL signal
+   * that a View-As start/end (or any future identity-confirming context
+   * switch) is in flight — see lib/context-transition.ts for the pure
+   * transition table this is driven by. AppShellFrame is the ONE place
+   * that reads this to decide whether to render the real, persona-
+   * dependent app body or a neutral transition surface; every other
+   * consumer (Home, bottom nav, ViewAsBanner, management layouts) sits
+   * downstream of that single gate, so none of them can render from a
+   * stale/intermediate identity while a switch is in flight.
+   */
+  contextTransitionPhase: ContextTransitionPhase;
+  /** Convenience boolean — `contextTransitionPhase !== "idle"`. */
+  isContextSwitching: boolean;
+  /**
+   * Runs `action` as one atomic context switch (brief section 5/6): marks
+   * the transition ACTIVE before `action` is invoked, keeps it active for
+   * `action`'s entire duration (server call, query-cache clear, identity
+   * confirmation, any navigation — whatever `action` itself awaits), then
+   * marks it INACTIVE once `action` settles — success or failure alike.
+   * Rethrows on failure so the caller's own existing error UI (message,
+   * retry button) runs exactly as it did before this gate existed; never
+   * swallows an error silently.
+   */
+  switchContext: (action: () => Promise<void>) => Promise<void>;
+  /**
+   * Throwing sibling of `refresh()` — confirms the identity the server
+   * currently honors and updates `user`/`status` on success. Used INSIDE
+   * `switchContext`'s `action` so a failed confirmation correctly fails
+   * the whole switch (refresh() itself never throws — see its own doc
+   * comment below — so it cannot be used for this). Retries the fetch
+   * ONCE before giving up: by the time this runs, the server-side switch
+   * has already succeeded, so a single transient network hiccup should
+   * not strand the user on a stale identity if an immediate second
+   * attempt would resolve it. If the retry also fails, rethrows and
+   * leaves `user`/`status` at their last CONFIRMED value — `setUser` is
+   * only ever called on success, so a failed confirmation never produces
+   * a half-updated identity (see the QA-01 report's "Error recovery"
+   * section for the full reasoning on this specific failure mode).
+   */
+  confirmIdentity: () => Promise<void>;
 }
 
 const AppUserContext = createContext<AppUserContextValue | null>(null);
@@ -171,14 +213,64 @@ export function AppUserProvider({ children }: { children: React.ReactNode }) {
     void bootstrap();
   }, [isReady, bootstrap]);
 
+  /** The one place `fetchMe()` is applied to `user`/`status` on success —
+   * `refresh()` and `confirmIdentity()` below are two different ERROR
+   * contracts over the SAME success path: `refresh()` swallows a failure
+   * (existing, unchanged behavior for every pre-QA-01 caller); `confirmIdentity()`
+   * (QA-01) rethrows instead, because `switchContext`'s action needs to KNOW
+   * whether the new identity was actually confirmed, not just "we tried". */
+  const applyFetchedIdentity = useCallback(async () => {
+    const me = await fetchMe();
+    setUser(me);
+    setStatus(me ? "authenticated" : "anonymous");
+    if (me) persistIdentitySnapshot(me);
+  }, []);
+
   const refresh = useCallback(async () => {
     try {
-      const me = await fetchMe();
-      setUser(me);
-      setStatus(me ? "authenticated" : "anonymous");
-      if (me) persistIdentitySnapshot(me);
+      await applyFetchedIdentity();
     } catch {
       /* keep current state */
+    }
+  }, [applyFetchedIdentity]);
+
+  /** Sprint: LIVE QA FIX QA-01, section 9 — see this value's own doc comment
+   * on AppUserContextValue for the full contract. One immediate retry before
+   * giving up; `user`/`status` are untouched unless `applyFetchedIdentity`
+   * itself succeeds, so a failure here never produces a half-updated
+   * identity — it leaves the LAST confirmed one in place and rethrows. */
+  const confirmIdentity = useCallback(async () => {
+    try {
+      await applyFetchedIdentity();
+    } catch {
+      await applyFetchedIdentity(); // one immediate retry; a second failure propagates
+    }
+  }, [applyFetchedIdentity]);
+
+  const [transitionPhase, setTransitionPhase] = useState<ContextTransitionPhase>("idle");
+  /** Section 18 — double-submit protection, at the GLOBAL layer, as a
+   * backstop independent of any one screen's own disabled-button state. A
+   * ref (not the `transitionPhase` state value) so this check is always
+   * read synchronously and freshly, with no stale-closure risk from a
+   * `useCallback` dependency array and no extra re-render it would cost. */
+  const switchingRef = useRef(false);
+
+  /** Sprint: LIVE QA FIX QA-01 — see AppUserContextValue's own doc comment.
+   * `runContextTransition` (context-transition.ts) owns the actual phase
+   * table; this is the React wiring (stable setter identity + the
+   * double-submit guard above). A second call while already switching is a
+   * no-op (resolves immediately, runs no action) rather than queuing or
+   * throwing — the two realistic triggers are a rapid double-tap on the
+   * SAME control (ignoring the duplicate is correct) or two DIFFERENT
+   * controls racing (also correct to ignore the second — only one switch
+   * may be in flight at a time, full stop). */
+  const switchContext = useCallback(async (action: () => Promise<void>) => {
+    if (switchingRef.current) return;
+    switchingRef.current = true;
+    try {
+      await runContextTransition(action, setTransitionPhase);
+    } finally {
+      switchingRef.current = false;
     }
   }, []);
 
@@ -223,8 +315,12 @@ export function AppUserProvider({ children }: { children: React.ReactNode }) {
       retry,
       saveOnboarding,
       signOut,
+      contextTransitionPhase: transitionPhase,
+      isContextSwitching: transitionPhase !== "idle",
+      switchContext,
+      confirmIdentity,
     }),
-    [status, user, refresh, retry, saveOnboarding, signOut],
+    [status, user, refresh, retry, saveOnboarding, signOut, transitionPhase, switchContext, confirmIdentity],
   );
 
   return (

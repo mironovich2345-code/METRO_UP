@@ -147,12 +147,30 @@ export default function HomeScreen() {
 
   // Persist exactly what the server resolved — never a client guess — so a
   // revoked/invalid persisted context self-corrects (section 9).
+  //
+  // Sprint: LIVE QA FIX QA-01, section 10 — traced an independently-stale
+  // source bottom-nav's own fallback (useEffectiveNavContext's `storedType`,
+  // bottom-navigation.tsx) can read from: this effect used to save
+  // `dash.activeContext` unconditionally, INCLUDING while a View-As preview
+  // is active, so a CITY_MANAGER previewing CLUB_MANAGER had their own real
+  // "last context" silently overwritten with the PREVIEWED one. That alone
+  // was harmless while the preview was active (previewRole takes priority
+  // over storedType in resolveEffectiveNavContext regardless), but the
+  // INSTANT the preview ended, previewRole became null and the nav fell
+  // back to storedType — which was now wrong until Home's own NEXT (real)
+  // dash resolved and re-saved it, exactly the kind of "bottom nav lags
+  // behind the real identity for one fetch" gap this round's "one source
+  // of truth" requirement calls out. A preview's own activeContext is
+  // never the real actor's own context to begin with, so it must never be
+  // persisted as one — skipping the save while previewing leaves the
+  // LAST genuinely-real value in place, which is already correct the
+  // instant the preview ends (no window where it's wrong at all).
   useEffect(() => {
-    if (dash && dash.kind !== "onboarding") {
+    if (dash && dash.kind !== "onboarding" && !isPreviewing) {
       saveStoredContext(ownerKey, { type: dash.activeContext.type, clubId: dash.activeContext.clubId });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dash]);
+  }, [dash, isPreviewing]);
 
   // Sprint: mini-app-performance, section 8 — warm the cache for the
   // destinations this context's own bottom-nav/cards point at, right after
@@ -934,30 +952,34 @@ function CityManagerHomeSection({ block, router }: { block: CityManagerHomeBlock
  * Ends the EXISTING View As session (viewAsApi.end — no new mechanism) and
  * reloads Home, which naturally resolves back to the real actor's own
  * context once the preview is gone.
+ *
+ * Sprint: LIVE QA FIX QA-01 — this card already awaited end()+refresh() in
+ * the right order (Round B.1 fixed that half of the bug), but nothing
+ * previously hid the still-mounted CLUB_MANAGER Home body WHILE that round
+ * trip was in flight, nor did a failure here ever surface to the user (the
+ * old bare `finally` called `onReturned()` unconditionally, success or
+ * not). Both closed the same way as the global banner: switchContext wraps
+ * the full lifecycle so app-shell-frame.tsx's transition overlay covers
+ * the screen for its entire duration, and a genuine failure now shows an
+ * inline error instead of silently declaring the preview ended.
  */
 function ReturnToCityCabinetCard({ onReturned }: { onReturned: () => void }) {
-  // Management UX Round B.1, section 2 (P0/P1 fix) — root cause of the
-  // stale-nav bug's OTHER half: viewAsApi.end() already flushes the SWR
-  // query cache (so Home's own /api/home refetch correctly returns
-  // city_manager data), but nothing previously refreshed AppUserProvider's
-  // SEPARATE, plain-React-state `user.viewContext` — it is not part of the
-  // SWR cache at all, so clearing that cache never touched it. Left
-  // uncorrected, `user.viewContext.previewRole` stayed "CLUB_MANAGER",
-  // which resolveEffectiveNavContext checks and overrides on — before it
-  // even looks at the (by-then-correct) stored context — so the nav stayed
-  // wrong regardless of anything storage-side. refreshAppUser() is the
-  // SAME call the global ViewAsBanner's own "Выйти из режима просмотра"
-  // already makes after ending a preview (see AppShellFrame's `onEnded`) —
-  // this card was simply missing it.
-  const { refresh: refreshAppUser } = useAppUser();
+  const { switchContext, confirmIdentity } = useAppUser();
   const [ending, setEnding] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const end = async () => {
     setEnding(true);
+    setError(null);
     try {
-      await viewAsApi.end();
-      await refreshAppUser();
-    } finally {
+      await switchContext(async () => {
+        await viewAsApi.end();
+        await confirmIdentity();
+      });
       onReturned();
+    } catch {
+      setError("Не удалось выйти из режима просмотра. Попробуйте ещё раз.");
+    } finally {
+      setEnding(false);
     }
   };
   return (
@@ -974,6 +996,7 @@ function ReturnToCityCabinetCard({ onReturned }: { onReturned: () => void }) {
       <Button size="sm" variant="secondary" block className="mt-3" onClick={end} disabled={ending}>
         {ending ? "…" : "Вернуться к кабинету Ст. города"}
       </Button>
+      {error && <p className="mt-2 text-sm text-red-500">{error}</p>}
     </GlassCard>
   );
 }

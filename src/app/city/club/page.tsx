@@ -60,7 +60,7 @@ function invalidateAfterClubRoleChange() {
 
 function ClubDetail({ clubId }: { clubId: string }) {
   const router = useRouter();
-  const { refresh: refreshAppUser } = useAppUser();
+  const { switchContext, confirmIdentity } = useAppUser();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [assigning, setAssigning] = useState(false);
@@ -234,17 +234,32 @@ function ClubDetail({ clubId }: { clubId: string }) {
    * dash.block.isPreviewing), not this client-side flag — which is why the
    * bottom nav correctly showed "Команда" while /team still 403'd. Fixed
    * the same way Round B.1 fixed the symmetric gap on viewAsApi.end(): an
-   * explicit refreshAppUser() before navigating, so every consumer of
+   * explicit refresh before navigating, so every consumer of
    * AppUserProvider's user.viewContext (not just this screen) is already
    * correct by the time Home/the nav/'/team mount.
+   *
+   * Sprint: LIVE QA FIX QA-01 — that fix made the DATA correct by push-time,
+   * but nothing told THIS screen (still mounted/visible for the whole
+   * `start()`+confirm round trip) to stop rendering, so a human eye still
+   * saw the CITY_MANAGER's club-detail screen sit there, fully interactive,
+   * until the push happened — the exact "old cabinet lingers" flicker this
+   * round fixes. Now wrapped in switchContext: the global transition
+   * overlay (app-shell-frame.tsx) covers this whole screen the INSTANT the
+   * button is tapped, for the entire duration of start() + confirmIdentity()
+   * + the push — no intermediate frame of this page, and none of /home's
+   * either, is ever VISIBLE before the new identity is confirmed (this
+   * component stays mounted underneath, which is what lets the `catch`
+   * below still update its own `msg` state correctly if the switch fails).
    */
   const viewAsClubManager = async () => {
     setStartingPreview(true);
     setMsg(null);
     try {
-      await viewAsApi.start({ role: "CLUB_MANAGER", clubId });
-      await refreshAppUser();
-      router.push("/home");
+      await switchContext(async () => {
+        await viewAsApi.start({ role: "CLUB_MANAGER", clubId });
+        await confirmIdentity();
+        router.push("/home");
+      });
     } catch (e) {
       setStartingPreview(false);
       setMsg(describeRoleAssignmentError(e instanceof ApiError ? e.code : null));

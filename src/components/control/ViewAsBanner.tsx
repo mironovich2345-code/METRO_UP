@@ -23,9 +23,24 @@ const ROLE_LABEL: Record<string, string> = {
  * `onEnded` — the control portal (Server Components) needs `router.refresh()`
  * to re-run the layout/page and pick up the now-absent viewContext; the
  * Mini App is entirely client-rendered (AppUserProvider's fetch-based state),
- * where a router refresh has nothing server-rendered to re-run, so it passes
- * its own `appUser.refresh()` here instead. Defaults to router.refresh() so
- * existing control-portal callers are unchanged.
+ * where a router refresh has nothing server-rendered to re-run. Defaults to
+ * the pre-existing raw fetch + router.refresh() so the desktop /control
+ * portal (ControlShell, no onEnded passed) is completely unaffected by this
+ * component's own QA-01 changes below.
+ *
+ * Sprint: LIVE QA FIX QA-01 — `onEnded`'s contract changed: it now owns the
+ * ENTIRE end-preview operation (the server call included), not just a
+ * post-hoc cleanup step. Root cause this closes: this component used to
+ * call `fetch(".../view-as/end")` directly — bypassing viewAsApi.end()'s
+ * own clearAllQueries() — and then fired `onEnded()` WITHOUT awaiting it,
+ * so `end()` returned (re-enabling this button) before the Mini App's
+ * AppUser had even started refreshing; nothing told the still-mounted
+ * preview screen underneath to stop rendering for that whole window. The
+ * Mini App (app-shell-frame.tsx) now passes an `onEnded` that wraps the
+ * server call + confirmIdentity() inside its own global switchContext gate
+ * and is awaited here to full completion — success or failure — before
+ * this button re-enables, and a failure now surfaces inline instead of
+ * being silently swallowed by the old bare `finally`.
  */
 export function ViewAsBanner({
   previewRole,
@@ -39,18 +54,30 @@ export function ViewAsBanner({
    * (CLUB_MANAGER/MANAGER previews are always club-scoped); omitted for a
    * CITY_MANAGER self-preview, which has no single club to name. */
   scopeLabel?: string | null;
-  onEnded?: () => void;
+  onEnded?: () => Promise<void>;
 }) {
   const router = useRouter();
   const [ending, setEnding] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const end = async () => {
     setEnding(true);
+    setError(null);
     try {
-      await fetch("/api/control/view-as/end", { method: "POST", credentials: "same-origin" });
+      if (onEnded) {
+        await onEnded();
+      } else {
+        await fetch("/api/control/view-as/end", { method: "POST", credentials: "same-origin" });
+        router.refresh();
+      }
+    } catch {
+      // Section 9 — do not leave the app stuck, do not pretend success:
+      // surface a retryable error instead of silently declaring the
+      // preview ended (the old bare `finally` above used to do exactly
+      // that regardless of whether the request actually succeeded).
+      setError("Не удалось выйти из режима просмотра. Попробуйте ещё раз.");
     } finally {
-      if (onEnded) onEnded();
-      else router.refresh();
+      setEnding(false);
     }
   };
 
@@ -70,6 +97,7 @@ export function ViewAsBanner({
         <X className="size-3.5" />
         {ending ? "…" : "Выйти из режима просмотра"}
       </button>
+      {error && <p className="w-full basis-full text-xs font-normal text-red-100">{error}</p>}
     </div>
   );
 }
