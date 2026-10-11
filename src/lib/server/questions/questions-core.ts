@@ -279,43 +279,21 @@ export function canChangeQuestionStatus(actor: ActorContext, q: QuestionScope): 
  * OPERATIONS_DIRECTOR, which is exactly why this checks hasSystemAccess
  * specifically and NOT hasNetworkAccess.
  */
-export function shouldRevealAuthor(
-  actor: ActorContext,
-  q: { authorUserId: string; anonymous: boolean; cityIdSnapshot: string; clubIdSnapshot: string | null },
-): boolean {
+export function shouldRevealAuthor(actor: ActorContext, q: { authorUserId: string; anonymous: boolean }): boolean {
   if (!q.anonymous) return true;
+  // 1. The author always sees their own identity.
   if (actor.userId === q.authorUserId) return true;
-  // QA-04.2B — the promise on the form is "Руководители не увидят ваше имя".
-  // A PROJECT_ADMIN keeps the moderation exception ONLY when they are not
-  // also one of this question's leaders: someone who reaches it through a
-  // CITY_MANAGER / CLUB_MANAGER / OPERATIONS_DIRECTOR role covering it reads
-  // it AS that leader — masked — even if they additionally hold system
-  // access. (Before this, a CITY_MANAGER account that was also legacy
-  // AppRole=ADMIN saw every anonymous author in their own leadership inbox.)
-  if (isLeadershipViewer(actor, q)) return false;
-  return hasSystemAccess(actor);
-}
-
-/**
- * QA-04.2B — does this actor hold a leadership role whose scope covers the
- * question? Real grants (and the legacy CLUB_MANAGER club) only; a View-As
- * persona never feeds this (every question route resolves the REAL actor).
- */
-export function isLeadershipViewer(actor: ActorContext, q: { cityIdSnapshot: string; clubIdSnapshot: string | null }): boolean {
-  if (actor.appRole === "CLUB_MANAGER" && q.clubIdSnapshot !== null && actor.employeeClubId === q.clubIdSnapshot) return true;
-  return actor.grants.some((g) => {
-    if (!isGrantActive(g)) return false;
-    switch (g.role) {
-      case "OPERATIONS_DIRECTOR":
-        return true;
-      case "CITY_MANAGER":
-        return q.clubIdSnapshot ? grantCoversClub(g, q.clubIdSnapshot, q.cityIdSnapshot) : grantCoversCity(g, q.cityIdSnapshot);
-      case "CLUB_MANAGER":
-        return q.clubIdSnapshot !== null && g.clubId === q.clubIdSnapshot;
-      default:
-        return false;
-    }
-  });
+  // 2. PROJECT_ADMIN audit exception — hasSystemAccess, the canonical
+  //    system-access primitive (active PROJECT_ADMIN/SYSTEM grant, or legacy
+  //    AppRole=ADMIN, which it deliberately bridges to PROJECT_ADMIN). This
+  //    takes precedence over any operational role the same account also
+  //    holds (QA-04.2.1): a PROJECT_ADMIN who is also a CITY_MANAGER /
+  //    CLUB_MANAGER of the question's scope still sees the real author.
+  if (hasSystemAccess(actor)) return true;
+  // 3/4. Everyone else — CITY_MANAGER, CLUB_MANAGER, OPERATIONS_DIRECTOR and
+  //    any other authorized reader — gets the masked author. Who may READ the
+  //    question at all is canReadQuestion's separate decision, unchanged.
+  return false;
 }
 
 /** Client-safe shape — NEVER includes telegramId/username/avatar/phone or
@@ -338,9 +316,6 @@ export interface QuestionRecordForSanitize {
   authorUserId: string;
   authorDisplayName: string;
   senderRole: string;
-  /** QA-04.2B — scope snapshots, needed to tell a leader from a moderator. */
-  cityIdSnapshot: string;
-  clubIdSnapshot: string | null;
   cityNameSnapshot: string;
   clubNameSnapshot: string | null;
   createdAt: Date;
@@ -364,7 +339,7 @@ export interface QuestionRecordForSanitize {
  * substring search, Object.keys), not just the common ones.
  */
 export function sanitizeQuestionForActor(actor: ActorContext, record: QuestionRecordForSanitize): EmployeeQuestionDTO {
-  const reveal = shouldRevealAuthor(actor, record);
+  const reveal = shouldRevealAuthor(actor, { authorUserId: record.authorUserId, anonymous: record.anonymous });
   return {
     id: record.id,
     category: record.category,

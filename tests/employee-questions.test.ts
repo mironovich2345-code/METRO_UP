@@ -306,27 +306,27 @@ test("STATUS-G: a CITY_MANAGER filing their OWN question cannot change ITS statu
 
 test("ANON-A: a non-anonymous question reveals the author to anyone otherwise authorized to read it", () => {
   const cm = actor({ grants: [grant({ role: "CITY_MANAGER", scopeType: "CITY", cityId: "city-1" })] });
-  assert.equal(shouldRevealAuthor(cm, { authorUserId: "x", anonymous: false, cityIdSnapshot: "city-1", clubIdSnapshot: "club-1" }), true);
+  assert.equal(shouldRevealAuthor(cm, { authorUserId: "x", anonymous: false }), true);
 });
 
 test("ANON-B: CITY_MANAGER never receives the real author identity for an anonymous question", () => {
   const cm = actor({ grants: [grant({ role: "CITY_MANAGER", scopeType: "CITY", cityId: "city-1" })] });
-  assert.equal(shouldRevealAuthor(cm, { authorUserId: "x", anonymous: true, cityIdSnapshot: "city-1", clubIdSnapshot: "club-1" }), false);
+  assert.equal(shouldRevealAuthor(cm, { authorUserId: "x", anonymous: true }), false);
 });
 
 test("ANON-C: OPERATIONS_DIRECTOR never receives the real author identity for an anonymous question", () => {
   const od = actor({ grants: [grant({ role: "OPERATIONS_DIRECTOR", scopeType: "NETWORK" })] });
-  assert.equal(shouldRevealAuthor(od, { authorUserId: "x", anonymous: true, cityIdSnapshot: "city-1", clubIdSnapshot: "club-1" }), false);
+  assert.equal(shouldRevealAuthor(od, { authorUserId: "x", anonymous: true }), false);
 });
 
 test("ANON-D: PROJECT_ADMIN DOES see the real author even for an anonymous question (moderation/abuse investigation)", () => {
   const admin = actor({ appRole: "ADMIN" });
-  assert.equal(shouldRevealAuthor(admin, { authorUserId: "x", anonymous: true, cityIdSnapshot: "city-1", clubIdSnapshot: "club-1" }), true);
+  assert.equal(shouldRevealAuthor(admin, { authorUserId: "x", anonymous: true }), true);
 });
 
 test("ANON-E: the author themselves always sees their own identity, anonymous or not", () => {
   const a = actor({ userId: "author-1" });
-  assert.equal(shouldRevealAuthor(a, { authorUserId: "author-1", anonymous: true, cityIdSnapshot: "city-1", clubIdSnapshot: "club-1" }), true);
+  assert.equal(shouldRevealAuthor(a, { authorUserId: "author-1", anonymous: true }), true);
 });
 
 const sanitizeRecord = (overrides: Partial<QuestionRecordForSanitize> = {}): QuestionRecordForSanitize => ({
@@ -338,8 +338,6 @@ const sanitizeRecord = (overrides: Partial<QuestionRecordForSanitize> = {}): Que
   authorUserId: "author-1",
   authorDisplayName: "Ева Губанкова",
   senderRole: "MANAGER",
-  cityIdSnapshot: "city-1",
-  clubIdSnapshot: "club-1",
   cityNameSnapshot: "Екатеринбург",
   clubNameSnapshot: "Полтавская",
   createdAt: new Date("2026-01-01T00:00:00.000Z"),

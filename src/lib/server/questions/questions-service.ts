@@ -68,8 +68,6 @@ function toSanitizeInput(row: {
   status: QuestionStatus;
   authorUserId: string;
   senderRole: string;
-  cityIdSnapshot: string;
-  clubIdSnapshot: string | null;
   cityNameSnapshot: string;
   clubNameSnapshot: string | null;
   createdAt: Date;
@@ -86,8 +84,6 @@ function toSanitizeInput(row: {
     authorUserId: row.authorUserId,
     authorDisplayName: row.author.displayName,
     senderRole: row.senderRole,
-    cityIdSnapshot: row.cityIdSnapshot,
-    clubIdSnapshot: row.clubIdSnapshot,
     cityNameSnapshot: row.cityNameSnapshot,
     clubNameSnapshot: row.clubNameSnapshot,
     createdAt: row.createdAt,

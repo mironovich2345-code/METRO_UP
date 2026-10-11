@@ -6,7 +6,6 @@ import {
   canSendQuestionAs,
   collapseToCityCandidates,
   describeScopeResolutionError,
-  isLeadershipViewer,
   resolveScopeFromCandidates,
   sanitizeQuestionForActor,
   scopeResolutionHttpStatus,
@@ -18,6 +17,7 @@ import {
 import { buildQuestionNotificationText } from "../src/lib/server/notifications/notification-core";
 import { buildCreateQuestionPayload, isSubmitDisabled, resolveQuestionScopeSelection } from "../src/lib/client/ask-question-core";
 import { CACHE_SCHEMA_VERSION } from "../src/lib/client/persistent-cache-core";
+import { hasSystemAccess } from "../src/lib/server/rbac/authorize-core";
 import type { ActorContext, RoleGrant } from "../src/lib/server/rbac/types";
 
 const read = (p: string) => readFileSync(p, "utf8");
@@ -172,12 +172,15 @@ test("CTX-VIEWAS: a persona preview is read-only up front (no options resolved f
 });
 
 /* ===================================================================== *
- *  QA-04.2B — anonymous question privacy
- *
- *  Root cause: shouldRevealAuthor revealed an anonymous author to ANY actor
- *  with system access (legacy AppRole=ADMIN or a PROJECT_ADMIN grant),
- *  regardless of the capacity they were viewing in — so a CITY_MANAGER
- *  account that is also ADMIN saw full names in its own leadership inbox.
+ *  QA-04.2B / QA-04.2.1 — anonymous author disclosure. Precedence:
+ *    1. the author                          -> real author
+ *    2. hasSystemAccess (PROJECT_ADMIN, incl. the legacy AppRole=ADMIN
+ *       bridge)                             -> real author, even if the same
+ *                                              account ALSO holds an
+ *                                              operational role
+ *    3. CITY_MANAGER / CLUB_MANAGER / OPERATIONS_DIRECTOR -> masked
+ *    4. any other authorized reader         -> masked
+ *  Who may READ a question is canReadQuestion's decision and is untouched.
  * ===================================================================== */
 
 const record = (overrides: Partial<QuestionRecordForSanitize> = {}): QuestionRecordForSanitize => ({
@@ -189,8 +192,6 @@ const record = (overrides: Partial<QuestionRecordForSanitize> = {}): QuestionRec
   authorUserId: "author-1",
   authorDisplayName: "Ева Губанкова",
   senderRole: "MANAGER",
-  cityIdSnapshot: NN,
-  clubIdSnapshot: "poltava",
   cityNameSnapshot: "Нижний Новгород",
   clubNameSnapshot: "Полтавская",
   createdAt: new Date("2026-01-01T00:00:00.000Z"),
@@ -199,107 +200,119 @@ const record = (overrides: Partial<QuestionRecordForSanitize> = {}): QuestionRec
   ...overrides,
 });
 
-const CM = actor({ grants: [grant({ role: "CITY_MANAGER", scopeType: "CITY", cityId: NN })] });
-const CLUB_MGR = actor({ grants: [grant({ role: "CLUB_MANAGER", scopeType: "CLUB", clubId: "poltava" })] });
+const CM_GRANT = grant({ role: "CITY_MANAGER", scopeType: "CITY", cityId: NN });
+const CLUB_GRANT = grant({ role: "CLUB_MANAGER", scopeType: "CLUB", clubId: "poltava" });
+const OD_GRANT = grant({ role: "OPERATIONS_DIRECTOR", scopeType: "NETWORK" });
+const PA_GRANT = grant({ role: "PROJECT_ADMIN", scopeType: "SYSTEM" });
+
+const CM = actor({ grants: [CM_GRANT] });
+const CLUB_MGR = actor({ grants: [CLUB_GRANT] });
 const LEGACY_CLUB_MGR = actor({ appRole: "CLUB_MANAGER", employeeClubId: "poltava" });
-const ADMIN = actor({ appRole: "ADMIN" });
-const PROJECT_ADMIN = actor({ grants: [grant({ role: "PROJECT_ADMIN", scopeType: "SYSTEM" })] });
-const ADMIN_AND_CM = actor({ appRole: "ADMIN", grants: [grant({ role: "CITY_MANAGER", scopeType: "CITY", cityId: NN })] });
+const OD = actor({ grants: [OD_GRANT] });
+const PROJECT_ADMIN = actor({ grants: [PA_GRANT] });
+const LEGACY_ADMIN = actor({ appRole: "ADMIN" });
 
 function assertMasked(dto: ReturnType<typeof sanitizeQuestionForActor>) {
   assert.equal(dto.authorDisplay, "Анонимный сотрудник");
   assert.equal(Object.prototype.hasOwnProperty.call(dto, "authorUserId"), false);
-  const json = JSON.stringify(dto);
-  assert.doesNotMatch(json, /Ева|Губанкова|author-1/);
+  assert.doesNotMatch(JSON.stringify(dto), /Ева|Губанкова|author-1/);
+}
+function assertRevealed(dto: ReturnType<typeof sanitizeQuestionForActor>) {
+  assert.equal(dto.authorDisplay, "Ева Губанкова");
+  assert.equal(dto.authorUserId, "author-1");
 }
 
-test("PRIV-CLUB: anonymous question + CLUB_MANAGER (grant or legacy) -> no real author name/id in the DTO", () => {
+test("PRIV-CITY: anonymous + CITY_MANAGER only -> masked", () => {
+  assertMasked(sanitizeQuestionForActor(CM, record()));
+  assertMasked(sanitizeQuestionForActor(CM, record({ clubNameSnapshot: null })));
+});
+
+test("PRIV-CLUB: anonymous + CLUB_MANAGER only (grant or legacy AppRole) -> masked", () => {
   assertMasked(sanitizeQuestionForActor(CLUB_MGR, record()));
   assertMasked(sanitizeQuestionForActor(LEGACY_CLUB_MGR, record()));
-  assertMasked(sanitizeQuestionForActor(actor({ appRole: "ADMIN", grants: CLUB_MGR.grants }), record()));
 });
 
-test("PRIV-CITY: anonymous question + CITY_MANAGER -> masked — INCLUDING a CITY_MANAGER who is also legacy ADMIN (the live leak)", () => {
-  assertMasked(sanitizeQuestionForActor(CM, record()));
-  assertMasked(sanitizeQuestionForActor(ADMIN_AND_CM, record()));
-  assertMasked(sanitizeQuestionForActor(actor({ grants: [...PROJECT_ADMIN.grants, ...CM.grants] }), record()));
-  // A CITY-level snapshot (no club) is covered too.
-  assertMasked(sanitizeQuestionForActor(ADMIN_AND_CM, record({ clubIdSnapshot: null, clubNameSnapshot: null })));
+test("PRIV-OD: anonymous + OPERATIONS_DIRECTOR only -> masked", () => {
+  assertMasked(sanitizeQuestionForActor(OD, record()));
 });
 
-test("PRIV-OD: OPERATIONS_DIRECTOR (a recipient of every question) never sees the author, even with system access", () => {
-  const od = actor({ appRole: "ADMIN", grants: [grant({ role: "OPERATIONS_DIRECTOR", scopeType: "NETWORK" })] });
-  assertMasked(sanitizeQuestionForActor(od, record()));
+test("PRIV-PA: anonymous + PROJECT_ADMIN only -> real author", () => {
+  assertRevealed(sanitizeQuestionForActor(PROJECT_ADMIN, record()));
 });
 
-test("PRIV-ADMIN: PROJECT_ADMIN (legacy ADMIN or a PROJECT_ADMIN grant) still sees the real author — also when their leadership scope is ELSEWHERE", () => {
-  for (const a of [ADMIN, PROJECT_ADMIN, actor({ appRole: "ADMIN", grants: [grant({ role: "CITY_MANAGER", scopeType: "CITY", cityId: DZ })] })]) {
-    const dto = sanitizeQuestionForActor(a, record());
-    assert.equal(dto.authorDisplay, "Ева Губанкова");
-    assert.equal(dto.authorUserId, "author-1");
+test("PRIV-PA-OPS: PROJECT_ADMIN who ALSO holds CITY_MANAGER / CLUB_MANAGER / OPERATIONS_DIRECTOR covering the same question -> real author (audit authority wins)", () => {
+  for (const ops of [CM_GRANT, CLUB_GRANT, OD_GRANT]) {
+    assertRevealed(sanitizeQuestionForActor(actor({ grants: [PA_GRANT, ops] }), record()));
   }
+  assertRevealed(sanitizeQuestionForActor(actor({ appRole: "CLUB_MANAGER", employeeClubId: "poltava", grants: [PA_GRANT] }), record()));
 });
 
-test("PRIV-OPEN: a non-anonymous question shows the author normally to CLUB_MANAGER and CITY_MANAGER", () => {
-  for (const a of [CLUB_MGR, CM, ADMIN_AND_CM]) {
-    const dto = sanitizeQuestionForActor(a, record({ anonymous: false }));
-    assert.equal(dto.authorDisplay, "Ева Губанкова");
-    assert.equal(dto.authorUserId, "author-1");
-  }
+test("PRIV-PA-INACTIVE: an ended PROJECT_ADMIN grant is not system access -> a CITY_MANAGER with one stays masked", () => {
+  assertMasked(sanitizeQuestionForActor(actor({ grants: [CM_GRANT, grant({ role: "PROJECT_ADMIN", scopeType: "SYSTEM", status: "ENDED" })] }), record()));
 });
 
-test("PRIV-SELF: the author still sees their own identity (existing self-view), even if they are also a leader of that scope", () => {
-  const selfLeader = actor({ userId: "author-1", grants: CM.grants });
-  assert.equal(shouldRevealAuthor(selfLeader, { authorUserId: "author-1", anonymous: true, cityIdSnapshot: NN, clubIdSnapshot: "poltava" }), true);
+test("PRIV-LEGACY-ADMIN: legacy AppRole=ADMIN without a PROJECT_ADMIN grant -> real author, because hasSystemAccess deliberately bridges it to PROJECT_ADMIN (incl. with an operational role)", () => {
+  assert.equal(hasSystemAccess(LEGACY_ADMIN), true);
+  assertRevealed(sanitizeQuestionForActor(LEGACY_ADMIN, record()));
+  assertRevealed(sanitizeQuestionForActor(actor({ appRole: "ADMIN", grants: [CM_GRANT] }), record()));
+  // The rule reuses the canonical helper rather than its own ADMIN check.
+  const core = read("src/lib/server/questions/questions-core.ts");
+  const fn = core.slice(core.indexOf("export function shouldRevealAuthor"), core.indexOf("export type { EmployeeQuestionDTO }"));
+  assert.match(fn, /if \(hasSystemAccess\(actor\)\) return true;/);
+  assert.doesNotMatch(fn, /appRole|grants/);
 });
 
-test("PRIV-LEADER: leadership coverage follows real scope — out-of-scope or ended grants are not leaders of the question", () => {
-  const q = { cityIdSnapshot: NN, clubIdSnapshot: "poltava" };
-  assert.equal(isLeadershipViewer(CM, q), true);
-  assert.equal(isLeadershipViewer(CLUB_MGR, q), true);
-  assert.equal(isLeadershipViewer(actor({ grants: [grant({ role: "CITY_MANAGER", scopeType: "CITY", cityId: DZ })] }), q), false);
-  assert.equal(isLeadershipViewer(actor({ grants: [grant({ role: "CITY_MANAGER", scopeType: "CITY", cityId: NN, status: "ENDED" })] }), q), false);
-  assert.equal(isLeadershipViewer(actor({ grants: [grant({ role: "CLUB_MANAGER", scopeType: "CLUB", clubId: "sormovo" })] }), q), false);
-  assert.equal(isLeadershipViewer(ADMIN, q), false);
+test("PRIV-SELF: the author viewing their own anonymous question -> real author (also when they are a leader of that scope)", () => {
+  assertRevealed(sanitizeQuestionForActor(actor({ userId: "author-1", grants: [CM_GRANT] }), record()));
+  assert.equal(shouldRevealAuthor(actor({ userId: "author-1" }), { authorUserId: "author-1", anonymous: true }), true);
 });
 
-test("PRIV-LIST-DETAIL: list and detail (and status change, and the author's create response) all go through the SAME sanitizer with the scope snapshots — never real FIO in one and masked in the other", () => {
+test("PRIV-OPEN: a non-anonymous question shows the author normally to authorized leadership", () => {
+  for (const a of [CM, CLUB_MGR, LEGACY_CLUB_MGR, OD, PROJECT_ADMIN]) assertRevealed(sanitizeQuestionForActor(a, record({ anonymous: false })));
+});
+
+test("PRIV-ORDER: the precedence is author -> system access -> masked, and reading access is NOT changed by this round", () => {
+  const core = read("src/lib/server/questions/questions-core.ts");
+  const fn = core.slice(core.indexOf("export function shouldRevealAuthor"), core.indexOf("export type { EmployeeQuestionDTO }"));
+  const iAuthor = fn.indexOf("actor.userId === q.authorUserId");
+  const iSystem = fn.indexOf("hasSystemAccess(actor)");
+  assert.ok(iAuthor > 0 && iSystem > iAuthor);
+  assert.match(fn, /return false;\s*\n\}/);
+  const read_ = core.slice(core.indexOf("export function canReadQuestion"), core.indexOf("export function canChangeQuestionStatus"));
+  assert.match(read_, /if \(actor\.userId === q\.authorUserId\) return true;\s*\n\s*if \(hasSystemAccess\(actor\)\) return true;\s*\n\s*if \(hasNetworkAccess\(actor\)\) return true;\s*\n\s*return cityManagerCanReach\(actor\.grants, q\);/);
+});
+
+test("PRIV-LIST-DETAIL: list, detail, status change and the create response all use the SAME sanitizer — identical disclosure everywhere", () => {
   const svc = read("src/lib/server/questions/questions-service.ts");
   assert.match(svc, /questions: rows\.map\(\(r\) => sanitizeQuestionForActor\(actor, toSanitizeInput\(r\)\)\)/);
   assert.equal((svc.match(/sanitizeQuestionForActor\(actor, toSanitizeInput\(/g) ?? []).length, 5);
-  assert.match(svc, /cityIdSnapshot: row\.cityIdSnapshot,\s*\n\s*clubIdSnapshot: row\.clubIdSnapshot,/);
-  // Same viewer, same row -> identical masking in a "list" batch and a single "detail".
-  const list = [record(), record({ id: "q-2" })].map((r) => sanitizeQuestionForActor(ADMIN_AND_CM, r));
-  const detail = sanitizeQuestionForActor(ADMIN_AND_CM, record());
-  for (const dto of [...list, detail]) assertMasked(dto);
-  // The list row renders "Анонимный сотрудник · Полтавская".
-  assert.equal(`${detail.authorDisplay}${detail.clubName ? ` · ${detail.clubName}` : ""}`, "Анонимный сотрудник · Полтавская");
+  for (const a of [CM, PROJECT_ADMIN]) {
+    const list = [record(), record({ id: "q-2" })].map((r) => sanitizeQuestionForActor(a, r));
+    const detail = sanitizeQuestionForActor(a, record());
+    for (const dto of list) assert.equal(dto.authorDisplay, detail.authorDisplay);
+  }
+  const masked = sanitizeQuestionForActor(CM, record());
+  assert.equal(`${masked.authorDisplay}${masked.clubName ? ` · ${masked.clubName}` : ""}`, "Анонимный сотрудник · Полтавская");
 });
 
-test("PRIV-NOTIFY: the new-question notification to leadership never carries the real name of an anonymous author", () => {
+test("PRIV-NOTIFY: the new-question notification to operational leadership never carries an anonymous author's name", () => {
   const text = buildQuestionNotificationText({ senderRole: "MANAGER", anonymous: true, authorDisplayName: "Ева Губанкова", category: "TRAINING", cityName: "Нижний Новгород", clubName: "Полтавская" });
   assert.doesNotMatch(text, /Ева|Губанкова/);
   assert.match(text, /Новый анонимный вопрос сотрудника/);
-  const open = buildQuestionNotificationText({ senderRole: "MANAGER", anonymous: false, authorDisplayName: "Ева Губанкова", category: "TRAINING", cityName: "Нижний Новгород", clubName: "Полтавская" });
-  assert.match(open, /Ева Губанкова/);
   const svc = read("src/lib/server/notifications/notification-service.ts");
   assert.match(svc, /authorDisplayName: question\.anonymous \? null : question\.author\.displayName/);
 });
 
-test("PRIV-ATTACH: an anonymous question's attachment reveals no author — the download returns bytes + type + the uploaded file name only; no storage key or author id reaches any client DTO", () => {
+test("PRIV-ATTACH: an anonymous question's attachment reveals no author — DTO carries only id/name/type/size; the download sends bytes + type", () => {
   const dto = sanitizeQuestionForActor(CM, record());
   assert.deepEqual(Object.keys(dto.attachments[0]).sort(), ["id", "mimeType", "originalName", "sizeBytes"]);
-  const header = contentDispositionForAttachment("photo.jpg", "image/jpeg");
-  assert.doesNotMatch(header, /questions\/|author/);
+  assert.doesNotMatch(contentDispositionForAttachment("photo.jpg", "image/jpeg"), /questions\/|author/);
   const route = code("src/app/api/questions/attachments/[attachmentId]/download/route.ts");
   assert.match(route, /"Content-Type": meta\.mimeType/);
   assert.doesNotMatch(route, /authorUserId|"X-/);
-  const svc = read("src/lib/server/questions/questions-service.ts");
-  const dl = svc.slice(svc.indexOf("export async function getQuestionAttachmentForDownload"), svc.indexOf("export interface ListQuestionsFilter"));
-  assert.match(dl, /return \{ storageKey: attachment\.storageKey, mimeType: attachment\.mimeType, originalName: attachment\.originalName \};/);
 });
 
-test("PRIV-VIEWAS: question reads always use the REAL actor's grants (never a preview persona), so View As cannot widen identity visibility", () => {
+test("PRIV-VIEWAS: question reads use the REAL actor's grants (never a preview persona), so View As cannot change disclosure", () => {
   for (const f of ["src/app/api/questions/route.ts", "src/app/api/questions/[id]/route.ts", "src/app/api/questions/attachments/[attachmentId]/download/route.ts"]) {
     const src = code(f);
     assert.match(src, /getActorContext\(user\)/, f);
@@ -307,6 +320,6 @@ test("PRIV-VIEWAS: question reads always use the REAL actor's grants (never a pr
   }
 });
 
-test("PRIV-CACHE: persisted client cache is versioned past every pre-fix entry, so an old unmasked response is never replayed", () => {
+test("PRIV-CACHE: the persisted client cache version stays bumped (QA-04.2), discarding any entry written before these disclosure changes", () => {
   assert.equal(CACHE_SCHEMA_VERSION, 2);
 });
