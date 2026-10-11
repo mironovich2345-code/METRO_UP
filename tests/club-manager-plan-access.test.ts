@@ -164,14 +164,11 @@ test("CMDASH-G: legacy ADMIN sees the cards — current behavior preserved exact
   assert.equal(dashboardCardVisible("ADMIN", false), true);
 });
 
-test("CMDASH-WIRE-A: ControlDashboard's 'plan' and 'team' cards both check canManageClub(c.role) || c.isClubManager — never canManageClub(c.role) alone", () => {
-  const src = read("src/components/control/ControlDashboard.tsx");
-  const planIdx = src.indexOf('key: "plan"');
-  const teamIdx = src.indexOf('key: "team"');
-  const planLine = src.slice(planIdx, src.indexOf("\n", planIdx));
-  const teamLine = src.slice(teamIdx, src.indexOf("\n", teamIdx));
-  assert.match(planLine, /canManageClub\(c\.role\) \|\| c\.isClubManager/);
-  assert.match(teamLine, /canManageClub\(c\.role\) \|\| c\.isClubManager/);
+test("CMDASH-WIRE-A (updated for QA-05.1 — Home's navigation cards were removed; the club destinations now live only in the Control nav): the club group (Управляющий / План дня) is shown on canManageClub(role) || isClubManager — never canManageClub(role) alone", () => {
+  const src = read("src/lib/control/control-nav.ts");
+  assert.match(src, /const managesClub = canManageClub\(flags\.role\) \|\| flags\.isClubManager;/);
+  assert.match(src, /if \(managesClub\) \{/);
+  assert.doesNotMatch(read("src/components/control/ControlDashboard.tsx"), /key: "plan"|key: "team"/);
 });
 
 test("CMDASH-WIRE-B: control/(portal)/page.tsx computes isClubManager via hasActiveRole(actor.grants, \"CLUB_MANAGER\") — reusing the existing primitive, never a new RBAC check — and passes it to ControlDashboard", () => {

@@ -179,7 +179,6 @@ test("NAV-ADMIN: a PROJECT_ADMIN (legacy ADMIN) reaches every section it could b
     "/control/roles",
     "/control/club",
     "/control/plan",
-    "/control/team",
     "/spm/sales",
     "/spm/mystery",
     "/spm/rating",
@@ -192,7 +191,7 @@ test("NAV-RBAC: no permission widening — each group appears only under the exa
   assert.deepEqual(hrefs({ ...NONE, hasSystemAccess: true }), ["/control", "/admin/content", "/control/scripts", "/control/instructions", "/control/metric", "/control/users", "/control/roles"]);
   // Legacy CLUB_MANAGER or a CLUB_MANAGER grant -> club group only.
   for (const f of [{ ...NONE, role: "CLUB_MANAGER" as const }, { ...NONE, isClubManager: true }]) {
-    assert.deepEqual(hrefs(f), ["/control", "/control/club", "/control/plan", "/control/team"]);
+    assert.deepEqual(hrefs(f), ["/control", "/control/club", "/control/plan"]);
   }
   assert.deepEqual(hrefs({ ...NONE, isCityManager: true }), ["/control", "/control/city"]);
   assert.deepEqual(hrefs({ ...NONE, isOperationsDirector: true }), ["/control", "/control/network"]);
@@ -229,7 +228,7 @@ test("NAV-MOBILE: the mobile header no longer renders the horizontally scrolling
   const shell = read("src/components/control/ControlShell.tsx");
   assert.doesNotMatch(shell, /overflow-x-auto/);
   assert.match(shell, /const groups = buildControlNav\(\{ role, hasSystemAccess: isAdmin, isClubManager, isCityManager, isOperationsDirector \}\);/);
-  assert.match(shell, />Разделы<\/span>\s*\n\s*<span[^>]*>\{activeItem\?\.label \?\? "Выберите раздел"\}<\/span>/);
+  assert.match(shell, /<span className="font-semibold text-foreground">\{selector\.label\}<\/span>/);
   assert.match(shell, /\{menuOpen && <ControlSectionsSheet groups=\{groups\} pathname=\{pathname\} onClose=\{closeMenu\} \/>\}/);
   // Desktop sidebar renders the same groups.
   assert.match(shell, /<nav className="mt-8[^"]*" aria-label="Разделы">\s*\n\s*<ControlNavGroups groups=\{groups\} pathname=\{pathname\} \/>/);
@@ -237,9 +236,11 @@ test("NAV-MOBILE: the mobile header no longer renders the horizontally scrolling
   assert.match(shell, /<div className="fixed inset-0 z-50 md:hidden">/);
 });
 
-test("NAV-HOME: the Home dashboard is unchanged this round (cards kept; «Метрик» remains reachable from Home too)", () => {
+test("NAV-HOME (updated for QA-05.1): Home no longer carries navigation cards — every former card destination is in the nav instead", () => {
   const dash = read("src/components/control/ControlDashboard.tsx");
-  for (const key of ["learning", "scripts", "instructions", "users", "roles", "metric", "plan", "team", "city", "network", "sales", "mystery", "rating"]) {
-    assert.match(dash, new RegExp(`key: "${key}"`));
+  assert.doesNotMatch(dash, /const CARDS/);
+  const all = hrefs({ role: "ADMIN", hasSystemAccess: true, isClubManager: true, isCityManager: true, isOperationsDirector: true });
+  for (const href of ["/admin/content", "/control/scripts", "/control/instructions", "/control/users", "/control/roles", "/control/metric", "/control/plan", "/control/city", "/control/network", "/spm/sales", "/spm/mystery", "/spm/rating"]) {
+    assert.ok(all.includes(href), href);
   }
 });

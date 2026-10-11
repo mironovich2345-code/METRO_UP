@@ -15,6 +15,10 @@ import { canAccessSpm, canManageClub } from "@/lib/roles";
  * Pages and APIs keep their own server-side guards regardless of this list.
  */
 
+/** QA-05.1 — window event a page dispatches to open the mobile «Разделы»
+ * sheet owned by ControlShell (one menu, never a second copy). */
+export const CONTROL_OPEN_SECTIONS_EVENT = "metro-up:control-open-sections";
+
 export interface ControlNavFlags {
   role: AppRole;
   hasSystemAccess: boolean;
@@ -46,6 +50,9 @@ export interface ControlNavItem {
   icon: ControlNavIcon;
   /** Only `/control` itself — every other item also owns its sub-routes. */
   exact?: boolean;
+  /** QA-05.1 — older routes that now belong to this section (not listed in
+   * the nav themselves), so the current-section label stays right on them. */
+  aliases?: string[];
 }
 
 export interface ControlNavGroup {
@@ -86,9 +93,11 @@ export function buildControlNav(flags: ControlNavFlags): ControlNavGroup[] {
       id: "club",
       title: "Клуб",
       items: [
-        { href: "/control/club", label: "Управляющий", icon: "club" },
+        // QA-05.1 — «Управляющий» is the club-management surface and now
+        // carries the team + access lifecycle; «Команда» (/control/team) is a
+        // compatibility page reached from it, no longer a primary item.
+        { href: "/control/club", label: "Управляющий", icon: "club", aliases: ["/control/team"] },
         { href: "/control/plan", label: "План дня", icon: "plan" },
-        { href: "/control/team", label: "Команда", icon: "team" },
       ],
     });
   }
@@ -118,19 +127,58 @@ export function flattenControlNav(groups: ControlNavGroup[]): ControlNavItem[] {
 
 /** Is `pathname` this item or one of its sub-routes? Segment-aware, so
  * `/control/cityx` never matches `/control/city`. */
+function pathMatches(base: string, pathname: string): boolean {
+  return pathname === base || pathname.startsWith(`${base}/`);
+}
+
 export function controlNavItemMatches(item: ControlNavItem, pathname: string): boolean {
   if (item.exact) return pathname === item.href;
-  return pathname === item.href || pathname.startsWith(`${item.href}/`);
+  return pathMatches(item.href, pathname) || (item.aliases ?? []).some((a) => pathMatches(a, pathname));
+}
+
+/** The longest matching path for this item (its href or an alias), or -1. */
+function matchLength(item: ControlNavItem, pathname: string): number {
+  if (item.exact) return pathname === item.href ? item.href.length : -1;
+  let best = pathMatches(item.href, pathname) ? item.href.length : -1;
+  for (const a of item.aliases ?? []) if (pathMatches(a, pathname)) best = Math.max(best, a.length);
+  return best;
 }
 
 /** The section the admin is in: the MOST specific matching item (longest
- * href), so `/control/city/club` is «Мои клубы» and `/control/metric/documents`
- * is «Метрик». null on a page outside the nav (e.g. /admin, /spm overview). */
-export function resolveActiveControlNavItem(groups: ControlNavGroup[], pathname: string | null | undefined): ControlNavItem | null {
+ * matching href or alias), so `/control/city/club` is «Мои клубы»,
+ * `/control/metric/documents` is «Метрик» and `/control/team` is
+ * «Управляющий». null on a page outside the nav (e.g. /admin, /spm overview). */
+export function resolveActiveControlNav(
+  groups: ControlNavGroup[],
+  pathname: string | null | undefined,
+): { item: ControlNavItem; group: ControlNavGroup } | null {
   if (!pathname) return null;
-  let best: ControlNavItem | null = null;
-  for (const item of flattenControlNav(groups)) {
-    if (controlNavItemMatches(item, pathname) && (!best || item.href.length > best.href.length)) best = item;
+  let best: { item: ControlNavItem; group: ControlNavGroup; len: number } | null = null;
+  for (const group of groups) {
+    for (const item of group.items) {
+      const len = matchLength(item, pathname);
+      if (len >= 0 && (!best || len > best.len)) best = { item, group, len };
+    }
   }
-  return best;
+  return best ? { item: best.item, group: best.group } : null;
+}
+
+export function resolveActiveControlNavItem(groups: ControlNavGroup[], pathname: string | null | undefined): ControlNavItem | null {
+  return resolveActiveControlNav(groups, pathname)?.item ?? null;
+}
+
+/** QA-05.1 — the mobile selector's text: the current section (strongest),
+ * its group as quiet context, and the full accessible name. */
+export function describeControlNavSelector(groups: ControlNavGroup[], pathname: string | null | undefined): {
+  label: string;
+  context: string | null;
+  ariaLabel: string;
+} {
+  const active = resolveActiveControlNav(groups, pathname);
+  if (!active) return { label: "Выберите раздел", context: null, ariaLabel: "Открыть разделы" };
+  return {
+    label: active.item.label,
+    context: active.group.title,
+    ariaLabel: `Открыть разделы. Текущий раздел: ${active.item.label}`,
+  };
 }
