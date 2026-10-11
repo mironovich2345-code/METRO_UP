@@ -15,7 +15,7 @@ import type { CityManagerDashboardDTO } from "@/lib/api/cabinet-client";
 import { useQuery, QUERY_POLICY } from "@/lib/client/query-cache";
 import { cacheKeys } from "@/lib/client/cache-keys";
 import { useRootScreenEntrance } from "@/lib/client/root-screen-entrance";
-import { attentionCardCount, clubsWithoutManager, distinctCityNames, groupPendingApprovalByClub, pluralRu } from "@/lib/cabinet-ui";
+import { attentionCardCount, clubsWithoutManager, distinctCityNames, formatCountRu, groupPendingApprovalByClub, pluralRu } from "@/lib/cabinet-ui";
 import { cardIn, staggerStack } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
@@ -120,9 +120,11 @@ export default function CityClubsPage() {
                       </span>
                       <div className="min-w-0 flex-1">
                         <p className="truncate font-semibold">{c.clubName}</p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {c.activeClubManager?.displayName ?? "Не назначен"} · {pluralRu(c.employeeCount, "сотрудник", "сотрудника", "сотрудников")}
-                          {c.trainingCompletionPercent != null && ` · Обучение ${c.trainingCompletionPercent}%`}
+                        <p className="text-xs [overflow-wrap:anywhere] text-muted-foreground">
+                          {/* QA-03.1 — wraps instead of truncating, so the employee
+                              count and the percentage are never cut at 320px. */}
+                          {c.activeClubManager?.displayName ?? "Не назначен"}{"\u00A0· "}{formatCountRu(c.employeeCount, "сотрудник", "сотрудника", "сотрудников")}
+                          {c.trainingCompletionPercent != null && `\u00A0· Обучение\u00A0${c.trainingCompletionPercent}%`}
                         </p>
                       </div>
                       {c.attentionCount > 0 && (

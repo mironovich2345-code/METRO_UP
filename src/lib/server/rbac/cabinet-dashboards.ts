@@ -806,7 +806,11 @@ export async function getCityManagerHomeBlock(actor: ActorContext, precomputedCl
       ? pluralRu(dashboard.summary.clubCount, "клуб", "клуба", "клубов")
       : cityNames.length === 1
         ? cityNames[0]
-        : `Города: ${cityNames.join(", ")}`;
+        : // Sprint: LIVE QA QA-03.1 — Home's large territory title: just the
+          // cities, no "Города:" prefix (same scope, lighter heading). The
+          // no-break space glues each "·" to the city before it, so a wrap
+          // never starts a line with an isolated separator.
+          cityNames.join("\u00A0· ");
   return {
     scopeLabel,
     clubCount: dashboard.summary.clubCount,

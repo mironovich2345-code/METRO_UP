@@ -13,7 +13,7 @@ import type { CityManagerTrainingClubRowDTO } from "@/lib/api/cabinet-client";
 import { useQuery, QUERY_POLICY } from "@/lib/client/query-cache";
 import { cacheKeys } from "@/lib/client/cache-keys";
 import { cardIn, staggerStack } from "@/lib/motion";
-import { pluralRu } from "@/lib/cabinet-ui";
+import { formatCountRu } from "@/lib/cabinet-ui";
 
 /**
  * Sprint: manual-test-round-3, section 5A — CITY_MANAGER's club-level
@@ -91,9 +91,11 @@ export default function CityTrainingPage() {
                       </span>
                       <div className="min-w-0 flex-1">
                         <p className="truncate font-semibold">{c.clubName}</p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {pluralRu(c.employeeCount, "сотрудник", "сотрудника", "сотрудников")}
-                          {c.averageProgressPercent != null && ` · Средний прогресс ${c.averageProgressPercent}%`}
+                        <p className="text-xs [overflow-wrap:anywhere] text-muted-foreground">
+                          {/* QA-03.1 — wraps instead of truncating, so the employee
+                              count and the percentage are never cut at 320px. */}
+                          {formatCountRu(c.employeeCount, "сотрудник", "сотрудника", "сотрудников")}
+                          {c.averageProgressPercent != null && `\u00A0· Средний прогресс\u00A0${c.averageProgressPercent}%`}
                         </p>
                         <p className="truncate text-xs text-muted-foreground">
                           Завершили всё: {c.employeesCompletedAll} · Проходят обучение: {c.employeesInTraining}

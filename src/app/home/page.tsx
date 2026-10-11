@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowDown,
-  ArrowLeft,
   ArrowLeftRight,
   ArrowUp,
   Award,
@@ -65,7 +64,6 @@ import {
   territoryClubs,
 } from "@/lib/management-home";
 import { fetchHome } from "@/lib/api/home-client";
-import { viewAsApi } from "@/lib/api/roles-client";
 import { useQuery, QUERY_POLICY } from "@/lib/client/query-cache";
 import { cacheKeys } from "@/lib/client/cache-keys";
 import { prefetchPersonalDestinations, prefetchCityManagerDestinations, prefetchClubManagerDestinations } from "@/lib/client/prefetch";
@@ -502,14 +500,10 @@ export default function HomeScreen() {
             cold-start guard as above. */}
         {dashStatus === "ready" && dash && dash.kind === "club_manager" && (
           identityConfirmed ? (
-            <>
-              {dash.block.isPreviewing && (
-                <motion.div variants={cardIn}>
-                  <ReturnToCityCabinetCard onReturned={() => reloadDash()} />
-                </motion.div>
-              )}
-              <ClubManagerHomeSection block={dash.block} plan={dash.plan} router={router} />
-            </>
+            // Sprint: LIVE QA QA-03.1 — a View-As preview has ONE exit: the
+            // global ViewAsBanner. The old in-page "Вернуться к кабинету Ст.
+            // города" card duplicated it and has been removed.
+            <ClubManagerHomeSection block={dash.block} plan={dash.plan} router={router} />
           ) : (
             <ConfirmingAccessPlaceholder />
           )
@@ -971,63 +965,6 @@ function CityManagerHomeSection({ block, router }: { block: CityManagerHomeBlock
         </ManagementLinkGroup>
       </motion.div>
     </>
-  );
-}
-
-/**
- * Sprint: manual-test-round-2, section 3 — a CITY_MANAGER previewing a club
- * as CLUB_MANAGER (via /city/club's "Посмотреть кабинет Управляющего") gets
- * a clearly visible, explicitly-worded return action right on Home itself,
- * on top of the global ViewAsBanner's generic "Выйти из режима просмотра".
- * Ends the EXISTING View As session (viewAsApi.end — no new mechanism) and
- * reloads Home, which naturally resolves back to the real actor's own
- * context once the preview is gone.
- *
- * Sprint: LIVE QA FIX QA-01 — this card already awaited end()+refresh() in
- * the right order (Round B.1 fixed that half of the bug), but nothing
- * previously hid the still-mounted CLUB_MANAGER Home body WHILE that round
- * trip was in flight, nor did a failure here ever surface to the user (the
- * old bare `finally` called `onReturned()` unconditionally, success or
- * not). Both closed the same way as the global banner: switchContext wraps
- * the full lifecycle so app-shell-frame.tsx's transition overlay covers
- * the screen for its entire duration, and a genuine failure now shows an
- * inline error instead of silently declaring the preview ended.
- */
-function ReturnToCityCabinetCard({ onReturned }: { onReturned: () => void }) {
-  const { switchContext, confirmIdentity } = useAppUser();
-  const [ending, setEnding] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const end = async () => {
-    setEnding(true);
-    setError(null);
-    try {
-      await switchContext(async () => {
-        await viewAsApi.end();
-        await confirmIdentity();
-      });
-      onReturned();
-    } catch {
-      setError("Не удалось выйти из режима просмотра. Попробуйте ещё раз.");
-    } finally {
-      setEnding(false);
-    }
-  };
-  return (
-    <GlassCard variant="solid" pad="md" animateIn={false} className="border border-brand/25 bg-brand/[0.06]">
-      {/* Stacked, not a single row — "Вернуться к кабинету Ст. города" is long
-          enough (with Button's whitespace-nowrap) to overflow a 320px screen
-          if it shared a row with the icon + label (section 7's mobile pass). */}
-      <div className="flex items-center gap-3">
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-2xl bg-brand/12">
-          <ArrowLeft className="size-4.5 text-brand" />
-        </span>
-        <p className="min-w-0 flex-1 text-sm text-muted-foreground">Вы просматриваете клуб как Управляющий</p>
-      </div>
-      <Button size="sm" variant="secondary" block className="mt-3" onClick={end} disabled={ending}>
-        {ending ? "…" : "Вернуться к кабинету Ст. города"}
-      </Button>
-      {error && <p className="mt-2 text-sm text-red-500">{error}</p>}
-    </GlassCard>
   );
 }
 

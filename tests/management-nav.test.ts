@@ -320,7 +320,7 @@ test("VISUAL-F (updated for Round D): /city/club is now DELIBERATELY rewired ont
 
 test("VISUAL-F2 (updated for LIVE QA QA-03): CityManagerHomeSection is still built on the shared management primitives (AttentionSection, ManagementListRow) plus QA-03's dashboard components (TerritoryOverviewCard, TerritoryClubList, ManagementLinkGroup). ManagementSummary — and its '—' training fallback, which QA-03 forbids — is no longer used on Home; /city keeps using it unchanged (CITYROOT-A)", () => {
   const src = read("src/app/home/page.tsx");
-  const fnSrc = src.slice(src.indexOf("function CityManagerHomeSection"), src.indexOf("function ReturnToCityCabinetCard"));
+  const fnSrc = src.slice(src.indexOf("function CityManagerHomeSection"), src.indexOf("function ClubManagerHomeSection"));
   for (const component of ["AttentionSection", "ManagementListRow", "TerritoryOverviewCard", "TerritoryClubList", "ManagementLinkGroup"]) {
     assert.match(fnSrc, new RegExp(`<${component}\\b`));
   }
@@ -437,7 +437,7 @@ test("B-PERSONAL-B: the PERSONAL Home body branch (dash.kind==='full') was not t
 
 test("B-CITY-A (superseded by Round C's ROUND-C-A/B/C above): the old 5-section CityManagerHomeSection (Мои клубы + separate Управляющие + oversized training card) is exactly what Round C was asked to replace — this now checks the OLD section headings are gone, not present", () => {
   const src = read("src/app/home/page.tsx");
-  const fnSrc = src.slice(src.indexOf("function CityManagerHomeSection"), src.indexOf("function ReturnToCityCabinetCard"));
+  const fnSrc = src.slice(src.indexOf("function CityManagerHomeSection"), src.indexOf("function ClubManagerHomeSection"));
   assert.doesNotMatch(fnSrc, /Мои клубы/);
   assert.doesNotMatch(fnSrc, /Управляющие/);
   assert.doesNotMatch(fnSrc, /Обучение по клубам/);
@@ -492,13 +492,14 @@ test("B-CLUBMGR-F: the attention item exists only when block.attention is genuin
   assert.doesNotMatch(fnSrc, /EmptyAttention/);
 });
 
-test("B-VIEWAS-A: the club_manager branch renders ReturnToCityCabinetCard (for an active preview) plus the SAME ClubManagerHomeSection call — a View-As-CLUB_MANAGER preview gets the exact rebuilt Home, no second code path", () => {
+test("B-VIEWAS-A (updated for LIVE QA QA-03.1): the club_manager branch renders the SAME ClubManagerHomeSection call for a View-As-CLUB_MANAGER preview — no second code path — and no longer renders the duplicate ReturnToCityCabinetCard: the global ViewAsBanner is the single exit control", () => {
   const src = read("src/app/home/page.tsx");
   const callSiteIdx = src.indexOf('dashStatus === "ready" && dash && dash.kind === "club_manager"');
   assert.ok(callSiteIdx > 0);
   const callSiteSrc = src.slice(callSiteIdx, callSiteIdx + 700);
-  assert.match(callSiteSrc, /ReturnToCityCabinetCard/);
   assert.match(callSiteSrc, /<ClubManagerHomeSection block=\{dash\.block\} plan=\{dash\.plan\} router=\{router\} \/>/);
+  assert.doesNotMatch(src, /ReturnToCityCabinetCard/);
+  assert.doesNotMatch(src, /Вернуться к кабинету Ст\. города/);
 });
 
 test("B-CACHE-A: ClubManagerHomeSection takes `plan` as a prop from the SAME dash payload — no new useQuery/fetch/API call was introduced for the rebuilt section", () => {
@@ -542,18 +543,26 @@ test("STALE-NAV-C: useEffectiveNavContext subscribes to onStoredContextChanged f
   assert.doesNotMatch(src, /useState<"PERSONAL" \| "CLUB_MANAGER" \| "CITY_MANAGER" \| null>\(null\)/, "the null-initialised state copy must be gone, not layered alongside the store");
 });
 
-test("STALE-NAV-D: ReturnToCityCabinetCard confirms the new identity (clearing the stale previewRole) in addition to ending the preview, and now does BOTH inside the global switchContext atomic gate — the SAME switchContext+confirmIdentity composition the global ViewAsBanner's own 'end' flow uses. Sprint: LIVE QA FIX QA-01 — supersedes the old bare refresh()/refreshAppUser() call this test used to assert: refresh() never throws, so it could not fail the whole switch the way confirmIdentity() now correctly does", () => {
-  const src = read("src/app/home/page.tsx");
-  const fnSrc = src.slice(src.indexOf("function ReturnToCityCabinetCard"), src.indexOf("function ClubManagerHomeSection"));
-  assert.match(fnSrc, /const \{ switchContext, confirmIdentity \} = useAppUser\(\);/);
-  assert.match(fnSrc, /await switchContext\(async \(\) => \{\s*\n\s*await viewAsApi\.end\(\);\s*\n\s*await confirmIdentity\(\);\s*\n\s*\}\);/);
+test("STALE-NAV-D (updated for LIVE QA QA-03.1 — Home's ReturnToCityCabinetCard was removed as a duplicate): the single remaining exit, the Mini-App ViewAsBanner, ends the preview AND confirms the new identity (clearing the stale previewRole) inside the global switchContext atomic gate", () => {
+  const src = read("src/components/app-shell-frame.tsx");
+  assert.match(src, /switchContext\(async \(\) => \{\s*\n\s*await viewAsApi\.end\(\);\s*\n\s*await confirmIdentity\(\);\s*\n\s*\}\)/);
+  assert.match(src, /onEnded=\{endViewAsAtomically\}/);
 });
 
-test("STALE-NAV-E: THE QA-01 FIX — ending the preview now calls onReturned() (Home's own reloadDash) ONLY on success, not unconditionally in a bare finally as before; a failed switch surfaces an inline error instead of silently declaring the preview ended. The OLD 'always reload regardless of success' behavior this test used to certify was itself one of the two latent 'declares success on failure' bugs this round fixed (ViewAsBanner had the identical shape) — see the QA-01 report's Error Recovery section", () => {
-  const src = read("src/app/home/page.tsx");
-  const fnSrc = src.slice(src.indexOf("function ReturnToCityCabinetCard"), src.indexOf("function ClubManagerHomeSection"));
-  assert.match(fnSrc, /await switchContext\([\s\S]*?\);\s*\n\s*onReturned\(\);\s*\n\s*\} catch \{/);
-  assert.doesNotMatch(fnSrc, /finally \{\s*\n\s*onReturned\(\);\s*\n\s*\}/);
+test("STALE-NAV-E (updated for LIVE QA QA-03.1): ViewAsBanner awaits onEnded to completion and surfaces a failure inline instead of silently declaring the preview ended", () => {
+  const src = read("src/components/control/ViewAsBanner.tsx");
+  assert.match(src, /await onEnded\(\);/);
+  assert.match(src, /\} catch \{[\s\S]*?setError\("Не удалось выйти из режима просмотра\. Попробуйте ещё раз\."\);/);
+});
+
+test("VIEWAS-BANNER-COMPACT (LIVE QA QA-03.1): the banner is a compact two-line block — 'Режим просмотра' eyebrow over 'Роль · Клуб' (no-break space glues the separator to the role), plus one short 'Выйти' button — no three-part 'Ваша роль' row", () => {
+  const src = read("src/components/control/ViewAsBanner.tsx");
+  assert.match(src, />Режим просмотра</);
+  assert.match(src, /\{"\\u00A0· "\}\{scopeLabel\}/);
+  assert.match(src, /\{ending \? "…" : "Выйти"\}/);
+  assert.match(src, /shrink-0/);
+  assert.doesNotMatch(src, /· Ваша роль:/);
+  assert.doesNotMatch(src, /flex-wrap/);
 });
 
 test("STALE-NAV-G2 (Management Round E0, section 1 — the symmetric gap on the START side): /city/club's viewAsClubManager confirms the new identity BEFORE navigating to /home, now wrapped in the global switchContext atomic gate — the root cause of 'View-As CLUB_MANAGER -> /team -> Раздел недоступен'. /team/page.tsx's own isPreviewing check reads user.viewContext.previewRole directly (not the storage-fallback-aware resolveEffectiveNavContext STALE-NAV-F already covers) — viewAsApi.start() only flushes the SWR cache, so without an identity confirmation BEFORE the push, that check stayed stale-false immediately after starting a preview, and /team ran the REAL actor's own (CITY_MANAGER, not CLUB_MANAGER) 'clubs I manage' lookup, which correctly 403s them. Sprint: LIVE QA FIX QA-01 — the confirm+push now ALSO happen inside switchContext's action, so the global transition overlay covers this entire round trip too, not just the identity ordering", () => {
@@ -678,7 +687,7 @@ test("GUARDRAIL-A (superseded by Round C — see ROUND-C-* below): bottom-nav ro
 
 function cityManagerHomeFnSrc(): string {
   const src = read("src/app/home/page.tsx");
-  return src.slice(src.indexOf("function CityManagerHomeSection"), src.indexOf("function ReturnToCityCabinetCard"));
+  return src.slice(src.indexOf("function CityManagerHomeSection"), src.indexOf("function ClubManagerHomeSection"));
 }
 
 test("ROUND-C-A (superseded by LIVE QA QA-03, section 15): Home shows a COMPACT territory list again — block.clubs only through territoryClubs (server order, capped at six, the rest behind /city) — never /city's full workspace: no manager roster, no per-club training card, no assign/revoke actions", () => {

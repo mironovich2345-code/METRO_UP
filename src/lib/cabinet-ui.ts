@@ -22,6 +22,14 @@ export function pluralRu(n: number, one: string, few: string, many: string): str
   return many;
 }
 
+/** A count WITH its agreed noun — "1 сотрудник" / "4 сотрудника" / "5 сотрудников".
+ * pluralRu alone returns only the noun; use this wherever the number itself
+ * must be shown alongside it. Joined by a no-break space so a narrow row
+ * never wraps the number away from its noun. */
+export function formatCountRu(n: number, one: string, few: string, many: string): string {
+  return `${n}\u00A0${pluralRu(n, one, few, many)}`;
+}
+
 /**
  * Management Round E1, section 6 — "Стаж" computed PURELY from a real
  * EmploymentAssignment.startedAt (the caller's job to never pass

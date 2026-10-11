@@ -209,8 +209,10 @@ test("CTX-Q (structural): every View-As start/end call site composes its server 
   const cityClub = read("src/app/city/club/page.tsx");
   assert.match(cityClub, /switchContext\(async \(\) => \{\s*\n\s*await viewAsApi\.start\(\{ role: "CLUB_MANAGER", clubId \}\);\s*\n\s*await confirmIdentity\(\);\s*\n\s*router\.push\("\/home"\);\s*\n\s*\}\);/);
 
+  // LIVE QA QA-03.1 — Home's duplicate ReturnToCityCabinetCard (the third
+  // call site) was removed; the global ViewAsBanner above is the single exit.
   const home = read("src/app/home/page.tsx");
-  assert.match(home, /switchContext\(async \(\) => \{\s*\n\s*await viewAsApi\.end\(\);\s*\n\s*await confirmIdentity\(\);\s*\n\s*\}\);/);
+  assert.doesNotMatch(home, /viewAsApi\.end\(/);
 });
 
 /* ===================================================================== *

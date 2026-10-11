@@ -237,9 +237,9 @@ test(
 test(
   "VIEWAS-CLUBMGR-B: during the preview, Home shows kind:'club_manager' with " +
     "block.isPreviewing:true (no assign/revoke/approve controls, no Daily " +
-    "Plan mutation) and a visible 'Вернуться к кабинету Ст. города' action " +
-    "(ReturnToCityCabinetCard) alongside the global ViewAsBanner, which now " +
-    "also names the previewed club (scopeLabel)",
+    "Plan mutation); the global ViewAsBanner names the previewed club " +
+    "(scopeLabel) and is the single exit (LIVE QA QA-03.1 removed the " +
+    "duplicate in-page return card)",
   skip,
   () => {},
 );

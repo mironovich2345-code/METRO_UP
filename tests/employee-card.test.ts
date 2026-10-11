@@ -331,7 +331,7 @@ test("UI-E: the Learning section never dumps every lesson onto the first viewpor
 
 function cityManagerHomeFnSrc(): string {
   const src = read("src/app/home/page.tsx");
-  return src.slice(src.indexOf("function CityManagerHomeSection"), src.indexOf("function ReturnToCityCabinetCard"));
+  return src.slice(src.indexOf("function CityManagerHomeSection"), src.indexOf("function ClubManagerHomeSection"));
 }
 
 test("ATTN-Q-A: CITY_MANAGER Home pushes a 'N новых вопросов' attention item, routing to /questions, gated strictly on questionsNewCount > 0", () => {

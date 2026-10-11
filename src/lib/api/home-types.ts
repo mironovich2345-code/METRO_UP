@@ -135,7 +135,7 @@ export interface CityManagerHomeClubDTO {
 /** The CITY_MANAGER context's own working-cabinet content — nothing personal
  * mixed in (Sprint: mini-app-context-switcher, section 5). */
 export interface CityManagerHomeBlockDTO {
-  /** "Нижний Новгород" (one city), "Города: А, Б" (several), or a club-only
+  /** "Нижний Новгород" (one city), "А · Б" (several), or a club-only
    * scope label — never assumes exactly one city. */
   scopeLabel: string;
   clubCount: number;

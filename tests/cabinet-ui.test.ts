@@ -1,7 +1,9 @@
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   pluralRu,
+  formatCountRu,
   distinctCityNames,
   clubsWithoutManager,
   groupPendingApprovalByClub,
@@ -44,6 +46,35 @@ test("PLURAL-A: pluralRu picks the correct Russian form for 1/2/5/11/21", () => 
   assert.equal(pluralRu(11, "клуб", "клуба", "клубов"), "клубов"); // the "teens" exception
   assert.equal(pluralRu(21, "клуб", "клуба", "клубов"), "клуб"); // 21 mod 10 = 1, but not a "teen"
   assert.equal(pluralRu(0, "клуб", "клуба", "клубов"), "клубов");
+});
+
+test("PLURAL-B (LIVE QA QA-03.1): formatCountRu always includes the number with the agreed noun — the /city and /city/training rows showed only 'сотрудника' without it", () => {
+  // the joiner is a no-break space; normalised here so the expectations read naturally
+  const f = (n: number) => formatCountRu(n, "сотрудник", "сотрудника", "сотрудников").replace("\u00A0", " ");
+  assert.equal(f(1), "1 сотрудник");
+  assert.equal(f(2), "2 сотрудника");
+  assert.equal(f(4), "4 сотрудника");
+  assert.equal(f(5), "5 сотрудников");
+  assert.equal(f(0), "0 сотрудников");
+  assert.equal(f(11), "11 сотрудников");
+  assert.equal(f(21), "21 сотрудник");
+  assert.equal(formatCountRu(4, "сотрудник", "сотрудника", "сотрудников"), "4\u00A0сотрудника");
+});
+
+test("PLURAL-C (LIVE QA QA-03.1): the /city and /city/training club rows format the employee count via formatCountRu, never the bare pluralRu noun", () => {
+  for (const file of ["src/app/city/page.tsx", "src/app/city/training/page.tsx"]) {
+    const src = readFileSync(file, "utf8");
+    assert.match(src, /formatCountRu\(c\.employeeCount, "сотрудник", "сотрудника", "сотрудников"\)/);
+    assert.doesNotMatch(src, /\{pluralRu\(c\.employeeCount/);
+  }
+});
+
+test("CITY-TITLE (LIVE QA QA-03.1): CITY_MANAGER Home's multi-city scope title is 'А · Б' — no 'Города:' prefix", () => {
+  const src = readFileSync("src/lib/server/rbac/cabinet-dashboards.ts", "utf8");
+  const fnSrc = src.slice(src.indexOf("export async function getCityManagerHomeBlock"));
+  const labelSrc = fnSrc.slice(fnSrc.indexOf("const scopeLabel ="), fnSrc.indexOf("return {"));
+  assert.match(labelSrc, /cityNames\.join\("\\u00A0· "\)/);
+  assert.doesNotMatch(labelSrc, /`Города:/);
 });
 
 /* ----------------------------- distinctCityNames ---------------------------- */

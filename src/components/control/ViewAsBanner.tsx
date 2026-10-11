@@ -81,23 +81,35 @@ export function ViewAsBanner({
     }
   };
 
+  const roleLabel = ROLE_LABEL[previewRole] ?? previewRole;
+  // Sprint: LIVE QA QA-03.1 — compact two-line banner: a small eyebrow over
+  // "Роль · Клуб", with one short exit button pinned to the right. The
+  // no-break space keeps the "·" glued to the role, so a long club name
+  // wraps onto its own line instead of leaving an isolated separator.
+  // The real role is still announced, via the exit button's aria-label.
   return (
-    <div className="sticky top-0 z-50 flex flex-wrap items-center justify-between gap-2 bg-brand px-4 py-2.5 text-sm font-semibold text-brand-foreground">
-      <span className="inline-flex items-center gap-2">
-        <Eye className="size-4" />
-        Режим просмотра: {ROLE_LABEL[previewRole] ?? previewRole}
-        {scopeLabel && <span className="font-normal opacity-80">· {scopeLabel}</span>}
-        <span className="font-normal opacity-80">· Ваша роль: {realRoleLabel}</span>
-      </span>
-      <button
-        onClick={() => void end()}
-        disabled={ending}
-        className="inline-flex items-center gap-1 rounded-xl bg-black/15 px-3 py-1 text-xs font-semibold disabled:opacity-60"
-      >
-        <X className="size-3.5" />
-        {ending ? "…" : "Выйти из режима просмотра"}
-      </button>
-      {error && <p className="w-full basis-full text-xs font-normal text-red-100">{error}</p>}
+    <div className="sticky top-0 z-50 bg-brand px-4 py-2 text-brand-foreground">
+      <div className="flex items-center gap-3">
+        <Eye className="size-4 shrink-0" aria-hidden />
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] font-medium uppercase leading-tight tracking-wide opacity-80">Режим просмотра</p>
+          <p className="text-sm font-semibold leading-snug [overflow-wrap:anywhere]">
+            {roleLabel}
+            {scopeLabel && <span className="font-medium">{"\u00A0· "}{scopeLabel}</span>}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void end()}
+          disabled={ending}
+          aria-label={`Выйти из режима просмотра. Ваша роль: ${realRoleLabel}`}
+          className="inline-flex min-h-9 shrink-0 items-center gap-1 rounded-xl bg-black/15 px-3 text-xs font-semibold disabled:opacity-60"
+        >
+          <X className="size-3.5" aria-hidden />
+          {ending ? "…" : "Выйти"}
+        </button>
+      </div>
+      {error && <p className="mt-1 text-xs font-normal text-red-100">{error}</p>}
     </div>
   );
 }
