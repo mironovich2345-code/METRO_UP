@@ -1,46 +1,39 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, Clock, RotateCw } from "lucide-react";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { CheckCircle2 } from "lucide-react";
 import { managerApi } from "@/lib/api/club-plan-client";
 import { cabinetApi } from "@/lib/api/cabinet-client";
 import { ApiError } from "@/lib/api/client";
 import type { AccessStatusDTO, ClubTeamDTO } from "@/lib/api/club-plan-types";
 import type { ClubSummaryDTO } from "@/lib/api/roles-client";
 import { ClubScopePicker } from "@/components/control/ClubScopePicker";
+import { ClubAccessActionButton } from "@/components/control/ClubAccessAction";
+import { CLUB_ACCESS_LABEL, applyMemberAccessStatus } from "@/lib/control/club-access";
 import { resolvePlanScopeUiState } from "@/lib/control-plan-ui";
 
-const ACCESS_LABEL: Record<AccessStatusDTO, string> = {
-  LIMITED: "Ограниченный доступ",
-  PENDING_APPROVAL: "Ожидает подтверждения",
-  FULL: "Полный доступ",
-  SUSPENDED: "Доступ приостановлен",
-};
-
 /**
- * Sprint 1 / Phase 2B — one action per accessStatus, matching what the
- * server actually allows: PENDING_APPROVAL can ONLY be moved by approve()
- * (setEmployeeAccess refuses a pending target, 409); everything else goes
- * through the existing setAccess(). Never offer an action the server will
- * reject — that was the previous bug (the old single "Предоставить полный
- * доступ" button called setAccess on a PENDING_APPROVAL row and 409'd).
+ * /control/team — Sprint: LIVE QA QA-05.1: a COMPATIBILITY surface. The club
+ * team and its full access lifecycle now live in «Управляющий»
+ * (/control/club), which is the primary club-management screen; «Команда» is
+ * no longer in the primary navigation. This route stays for bookmarks, old
+ * links and the detailed per-employee table (today's plan, lessons) that the
+ * cabinet links to with ?clubId=. Access rules, endpoints and status mapping
+ * are the SAME shared implementation the cabinet uses
+ * (lib/control/club-access.ts + ClubAccessActionButton) — no second copy.
  */
-function nextAction(
-  status: AccessStatusDTO,
-): { label: string; icon: typeof CheckCircle2; approve: boolean; target: "FULL" | "SUSPENDED" } | null {
-  switch (status) {
-    case "PENDING_APPROVAL":
-      return { label: "Подтвердить", icon: Clock, approve: true, target: "FULL" };
-    case "LIMITED":
-      return { label: "Выдать полный доступ", icon: CheckCircle2, approve: false, target: "FULL" };
-    case "FULL":
-      return { label: "Приостановить", icon: RotateCw, approve: false, target: "SUSPENDED" };
-    case "SUSPENDED":
-      return { label: "Восстановить", icon: RotateCw, approve: false, target: "FULL" };
-  }
+export default function ControlTeamPage() {
+  return (
+    <Suspense fallback={<p className="text-sm text-muted-foreground">Загрузка…</p>}>
+      <ControlTeamCompat />
+    </Suspense>
+  );
 }
 
-export default function ControlTeamPage() {
+function ControlTeamCompat() {
+  const searchParams = useSearchParams();
   const [team, setTeam] = useState<ClubTeamDTO | null>(null);
   /** The actor's own EXPLICIT choice — relevant for ADMIN (any active club)
    * and, as of R4.3, a CLUB_MANAGER with 2+ eligible clubs (legacy
@@ -52,9 +45,10 @@ export default function ControlTeamPage() {
    * — mirrors control/plan's exact scope model (see that page's own doc
    * comment) so the two pages behave identically for every legacy/grant/
    * mixed shape, per the brief's "ONE consistent scope model" requirement. */
-  const [selectedClubId, setSelectedClubId] = useState<string | null>(null);
+  // ?clubId= (from «Управляющий») pre-selects the club; never trusted — the
+  // server re-verifies it against the actor's real scope like any selection.
+  const [selectedClubId, setSelectedClubId] = useState<string | null>(() => searchParams.get("clubId"));
   const [status, setStatus] = useState<"loading" | "ready" | "error" | "denied">("loading");
-  const [busyId, setBusyId] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   /** Sprint: REMEDIATION R4.3 — lazily fetched ONLY for a non-admin actor,
    * the SAME existing, server-validated "clubs I personally manage"
@@ -112,22 +106,23 @@ export default function ControlTeamPage() {
    * list fine. */
   const scopeClubId = team?.clubId ?? null;
 
-  const applyAccessChange = async (userId: string, action: NonNullable<ReturnType<typeof nextAction>>) => {
-    setBusyId(userId); setMsg(null);
-    try {
-      const res = action.approve
-        ? await managerApi.approve(userId, action.target === "SUSPENDED" ? "FULL" : action.target, scopeClubId)
-        : await managerApi.setAccess(userId, action.target, scopeClubId);
-      setTeam((t) => t ? { ...t, members: t.members.map((m) => (m.userId === userId ? { ...m, accessStatus: res.accessStatus } : m)) } : t);
-    } catch (e) {
-      setMsg(e instanceof ApiError ? "Не удалось изменить доступ." : "Ошибка.");
-    } finally {
-      setBusyId(null);
-    }
+  const onAccessApplied = (userId: string, next: AccessStatusDTO) => {
+    setMsg(null);
+    setTeam((t) => (t ? { ...t, members: applyMemberAccessStatus(t.members, userId, next) } : t));
   };
 
   return (
     <div>
+      <div className="mb-4 rounded-2xl border border-brand/30 bg-brand/[0.06] px-4 py-3 text-sm">
+        Команда и управление доступом теперь в разделе{" "}
+        <Link
+          href={team?.clubId ? `/control/club?clubId=${encodeURIComponent(team.clubId)}` : "/control/club"}
+          className="font-semibold text-brand hover:underline"
+        >
+          «Управляющий»
+        </Link>
+        . Здесь — подробная таблица плана и уроков.
+      </div>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Команда</h1>
@@ -199,24 +194,11 @@ export default function ControlTeamPage() {
                   <td className="px-4 py-2.5">
                     <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${m.accessStatus === "FULL" ? "bg-success-soft text-success" : "bg-muted text-muted-foreground"}`}>
                       {m.accessStatus === "FULL" && <CheckCircle2 className="size-3.5" />}
-                      {ACCESS_LABEL[m.accessStatus]}
+                      {CLUB_ACCESS_LABEL[m.accessStatus]}
                     </span>
                   </td>
                   <td className="px-4 py-2.5 text-right">
-                    {(() => {
-                      const action = nextAction(m.accessStatus);
-                      if (!action) return null;
-                      const Icon = action.icon;
-                      return (
-                        <button
-                          onClick={() => applyAccessChange(m.userId, action)}
-                          disabled={busyId === m.userId}
-                          className="inline-flex items-center gap-1.5 rounded-xl bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground disabled:opacity-50"
-                        >
-                          {busyId === m.userId ? "…" : <><Icon className="size-3.5" />{action.label}</>}
-                        </button>
-                      );
-                    })()}
+                    <ClubAccessActionButton userId={m.userId} status={m.accessStatus} clubId={scopeClubId} onApplied={onAccessApplied} onError={setMsg} />
                   </td>
                 </tr>
               ))}

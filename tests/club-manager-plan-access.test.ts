@@ -700,11 +700,13 @@ test("CMTEAM-WIRE-H: the team page's picker-visibility guard is the exact same s
   assert.match(src, /const canPickManagerClub = !isAdmin && managedClubs !== null && managedClubs\.length > 1;/);
 });
 
-test("CMTEAM-WIRE-I: THE SECTION-8 FIX — Team mutations (approve/setAccess) are scoped by the server-RESOLVED team.clubId, never the raw selectedClubId — closing on Team the exact R4.1-class gap control/plan already closed for its own writes (ScopeContext sourced from plan.clubId, not selection state)", () => {
+test("CMTEAM-WIRE-I (updated for QA-05.1 — the mutation moved into the shared ClubAccessActionButton): Team mutations (approve/setAccess) are scoped by the server-RESOLVED team.clubId, never the raw selectedClubId", () => {
   const src = readTeamPage();
   assert.match(src, /const scopeClubId = team\?\.clubId \?\? null;/);
-  assert.match(src, /managerApi\.approve\(userId, action\.target === "SUSPENDED" \? "FULL" : action\.target, scopeClubId\)/);
-  assert.match(src, /managerApi\.setAccess\(userId, action\.target, scopeClubId\)/);
+  assert.match(src, /<ClubAccessActionButton userId=\{m\.userId\} status=\{m\.accessStatus\} clubId=\{scopeClubId\}/);
+  assert.doesNotMatch(src, /clubId=\{selectedClubId\}/);
+  const shared = read("src/components/control/ClubAccessAction.tsx");
+  assert.match(shared, /\? await managerApi\.approve\(userId, "FULL", clubId\)\s*\n\s*: await managerApi\.setAccess\(userId, action\.target, clubId\);/);
 });
 
 test("CMTEAM-WIRE-J: the team page's main table and the empty/selection panel are driven by the SAME uiState value — never two independently-computed conditions that could disagree about whether a club is actually resolved (mirrors CMWIRE-M for Plan)", () => {

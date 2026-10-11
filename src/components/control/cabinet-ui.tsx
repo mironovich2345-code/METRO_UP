@@ -3,6 +3,7 @@
 import { RotateCw, CheckCircle2 } from "lucide-react";
 import type { AccessStatusDTO } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
+import { CLUB_ACCESS_LABEL } from "@/lib/control/club-access";
 
 /**
  * Sprint: role-cabinets, step 6, section 19 — small, genuinely-shared
@@ -103,12 +104,8 @@ export function CabinetSection({ title, children }: { title: string; children: R
  * Human-facing access labels — section 7's explicit requirement: never leak
  * raw enum values (PENDING_APPROVAL/LIMITED/FULL/SUSPENDED) into the UI.
  */
-const ACCESS_LABEL: Record<AccessStatusDTO, string> = {
-  LIMITED: "Ограниченный доступ",
-  PENDING_APPROVAL: "Ожидает подтверждения",
-  FULL: "Активен",
-  SUSPENDED: "Приостановлен",
-};
+// QA-05.1 — one access-status vocabulary for every Control club surface.
+const ACCESS_LABEL = CLUB_ACCESS_LABEL;
 
 export function AccessBadge({ status, onboarded }: { status: AccessStatusDTO; onboarded: boolean }) {
   if (!onboarded) return <span className="text-xs text-muted-foreground">Онбординг не завершён</span>;

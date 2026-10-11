@@ -8,14 +8,16 @@ import {
   Circle,
   Clock,
   GraduationCap,
-  UserCheck,
   Users,
 } from "lucide-react";
 import { ApiError } from "@/lib/api/client";
 import { cabinetApi } from "@/lib/api/cabinet-client";
 import { managerApi } from "@/lib/api/club-plan-client";
 import { completePlanTask, skipPlanTask, toggleChecklistItem } from "@/lib/api/home-client";
-import type { ClubSummaryDTO } from "@/lib/api/roles-client";
+import Link from "next/link";
+import type { AccessStatusDTO } from "@/lib/api/types";
+import { applyMemberAccessStatus } from "@/lib/control/club-access";
+import { ClubAccessActionButton } from "@/components/control/ClubAccessAction";
 import type { CabinetTeamMemberDTO, ClubManagerDashboardDTO } from "@/lib/api/cabinet-client";
 import type { DailyPlanDTO, DailyTaskDTO } from "@/lib/api/home-types";
 import { filterPendingEmployees, planWidgetState, pluralRu, resolveManagedClubSelection } from "@/lib/cabinet-ui";
@@ -49,12 +51,15 @@ export function ClubManagerCabinet() {
   const urlClubId = searchParams.get("clubId");
 
   const [status, setStatus] = useState<"loading" | "select-club" | "no-club" | "denied" | "error" | "ready">("loading");
-  const [candidates, setCandidates] = useState<ClubSummaryDTO[]>([]);
+  /** Clubs this actor may pick between: their own managed clubs, or — for a
+   * system-access admin who manages none — every active club from the
+   * existing managerApi.team scope (the same list /control/team's admin
+   * switcher always used). Kept after a pick so «Сменить клуб» works. */
+  const [candidates, setCandidates] = useState<{ id: string; name: string; cityName: string | null }[]>([]);
   const [cityName, setCityName] = useState<string | null>(null);
   const [dashboard, setDashboard] = useState<ClubManagerDashboardDTO | null>(null);
   const [team, setTeam] = useState<CabinetTeamMemberDTO[] | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
   const pendingSectionRef = useRef<HTMLDivElement | null>(null);
 
   const loadFor = useCallback(async (id: string | undefined, knownCityName: string | null) => {
@@ -71,8 +76,16 @@ export function ClubManagerCabinet() {
         try {
           const { clubs } = await cabinetApi.myManagedClubs();
           const selection = resolveManagedClubSelection(clubs);
-          if (selection.kind === "none") setStatus("no-club");
-          else if (selection.kind === "auto") void loadFor(selection.club.id, selection.club.cityName);
+          if (selection.kind === "none") {
+            // QA-05.1 — an admin manages no club of their own but may open any
+            // active club (what /control/team's admin switcher offered).
+            // Same existing endpoint; a non-admin gets canSwitch:false.
+            const { scope } = await managerApi.team(null).catch(() => ({ scope: null }));
+            if (scope?.canSwitch && scope.clubs.length > 0) {
+              setCandidates(scope.clubs);
+              setStatus("select-club");
+            } else setStatus("no-club");
+          } else if (selection.kind === "auto") void loadFor(selection.club.id, selection.club.cityName);
           else {
             setCandidates(selection.clubs);
             setStatus("select-club");
@@ -93,29 +106,17 @@ export function ClubManagerCabinet() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // resolve once on mount — urlClubId is a one-time entry point, not a live filter
 
-  const reload = useCallback(() => {
-    if (dashboard) void loadFor(dashboard.clubId, cityName);
-  }, [dashboard, cityName, loadFor]);
-
-  const approve = async (userId: string) => {
-    if (!dashboard) return;
-    setBusyId(userId);
-    setMsg(null);
-    try {
-      await managerApi.approve(userId, "FULL", dashboard.clubId);
-      reload();
-    } catch (e) {
-      setMsg(
-        e instanceof ApiError && e.status === 409
-          ? "Заявка уже обработана."
-          : e instanceof ApiError && e.status === 403
-            ? "Недостаточно прав для подтверждения."
-            : "Не удалось подтвердить сотрудника. Проверьте соединение.",
-      );
-    } finally {
-      setBusyId(null);
+  /** QA-05.1 — the shared access action reports the server-confirmed status;
+   * the row (and the pending counter) update in place — no refetch flash.
+   * A failure leaves every row as it was and shows the message. */
+  const onAccessApplied = (userId: string, next: AccessStatusDTO) => {
+    const prev = team?.find((m) => m.userId === userId)?.accessStatus;
+    setTeam((t) => (t ? applyMemberAccessStatus(t, userId, next) : t));
+    if (prev === "PENDING_APPROVAL" && next !== "PENDING_APPROVAL") {
+      setDashboard((d) => (d ? { ...d, summary: { ...d.summary, pendingApprovalCount: Math.max(0, d.summary.pendingApprovalCount - 1) } } : d));
     }
   };
+  const canChangeAccess = dashboard ? !dashboard.isPreviewing : false;
 
   const scrollToPending = () => pendingSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
 
@@ -161,12 +162,25 @@ export function ClubManagerCabinet() {
   return (
     <div>
       {/* ---- Header (section 4) ---- */}
-      <div>
-        <h1 className="text-2xl font-bold">Управляющий</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {dashboard.clubName ?? "Клуб"}
-          {cityName ? ` · ${cityName}` : ""}
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold">Управляющий</h1>
+          <p className="mt-1 text-sm text-muted-foreground [overflow-wrap:anywhere]">
+            {dashboard.clubName ?? "Клуб"}
+            {cityName ? ` · ${cityName}` : ""}
+          </p>
+        </div>
+        {/* QA-05.1 — switch between the actor's OWN candidate clubs (multi-club
+            manager, or an admin) without leaving the page. */}
+        {!dashboard.isPreviewing && candidates.length > 1 && (
+          <button
+            type="button"
+            onClick={() => setStatus("select-club")}
+            className="min-h-11 rounded-2xl border border-border px-4 py-2 text-sm font-semibold hover:bg-muted"
+          >
+            Сменить клуб
+          </button>
+        )}
       </div>
       {msg && <p className="mt-2 text-sm text-red-500">{msg}</p>}
 
@@ -229,14 +243,8 @@ export function ClubManagerCabinet() {
                     {m.position ?? "—"} · {m.onboardingCompleted ? "Онбординг пройден" : "Онбординг не завершён"}
                   </p>
                 </div>
-                {!dashboard.isPreviewing && (
-                  <button
-                    onClick={() => void approve(m.userId)}
-                    disabled={busyId === m.userId}
-                    className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-brand px-3 py-1.5 text-xs font-semibold text-brand-foreground disabled:opacity-50"
-                  >
-                    <UserCheck className="size-3.5" /> {busyId === m.userId ? "…" : "Подтвердить"}
-                  </button>
+                {canChangeAccess && (
+                  <ClubAccessActionButton userId={m.userId} status={m.accessStatus} clubId={dashboard.clubId} onApplied={onAccessApplied} onError={setMsg} />
                 )}
               </div>
             ))}
@@ -244,47 +252,89 @@ export function ClubManagerCabinet() {
         </div>
       )}
 
-      {/* ---- Команда (section 7) ---- */}
+      {/* ---- Команда (section 7) ----
+          QA-05.1 — «Управляющий» is now THE club-management surface: the
+          roster carries the full access lifecycle formerly only on
+          /control/team (one contextual action per employee, shared
+          implementation — ClubAccessActionButton / club-access.ts). Hidden
+          during a View-As preview; the server decides either way. */}
       <CabinetSection title="Команда">
         {!team || team.length === 0 ? (
           <p className="text-sm text-muted-foreground">В клубе пока нет сотрудников.</p>
         ) : (
-          <div className="overflow-x-auto rounded-2xl border border-border">
-            <table className="w-full min-w-[560px] text-sm">
-              <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-                <tr>
-                  <th className="px-3 py-2.5">Сотрудник</th>
-                  <th className="px-3 py-2.5">Должность</th>
-                  <th className="px-3 py-2.5">Доступ</th>
-                  <th className="px-3 py-2.5">Обучение</th>
-                  <th className="px-3 py-2.5">Тест</th>
-                </tr>
-              </thead>
-              <tbody>
-                {team.map((m) => (
-                  <tr key={m.userId} className="border-t border-border">
-                    <td className="px-3 py-2 font-medium">{m.displayName}</td>
-                    <td className="px-3 py-2 text-muted-foreground">{m.position ?? "—"}</td>
-                    <td className="px-3 py-2">
-                      <AccessBadge status={m.accessStatus} onboarded={m.onboardingCompleted} />
-                    </td>
-                    <td className="px-3 py-2 tabular-nums text-muted-foreground">
-                      {m.academy.progressPercent != null ? `${m.academy.progressPercent}%` : "Нет данных"}
-                    </td>
-                    <td className="px-3 py-2 text-muted-foreground">
-                      {m.academy.latestTestResult
-                        ? `${m.academy.latestTestResult.scorePercent}% · ${m.academy.latestTestResult.passed ? "сдан" : "не сдан"}`
-                        : "Нет данных"}
-                    </td>
+          <>
+            <ul className="flex flex-col gap-2 md:hidden">
+              {team.map((m) => (
+                <li key={m.userId} className="rounded-2xl border border-border bg-card px-4 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold [overflow-wrap:anywhere]">{m.displayName}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {m.position ?? "—"} · Обучение {m.academy.progressPercent != null ? `${m.academy.progressPercent}%` : "—"}
+                      </p>
+                    </div>
+                    <AccessBadge status={m.accessStatus} onboarded={m.onboardingCompleted} />
+                  </div>
+                  {canChangeAccess && (
+                    <ClubAccessActionButton
+                      userId={m.userId}
+                      status={m.accessStatus}
+                      clubId={dashboard.clubId}
+                      onApplied={onAccessApplied}
+                      onError={setMsg}
+                      className="mt-3 min-h-11 w-full"
+                    />
+                  )}
+                </li>
+              ))}
+            </ul>
+            <div className="hidden overflow-x-auto rounded-2xl border border-border md:block">
+              <table className="w-full min-w-[640px] text-sm">
+                <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                  <tr>
+                    <th className="px-3 py-2.5">Сотрудник</th>
+                    <th className="px-3 py-2.5">Должность</th>
+                    <th className="px-3 py-2.5">Доступ</th>
+                    <th className="px-3 py-2.5">Обучение</th>
+                    <th className="px-3 py-2.5">Тест</th>
+                    {canChangeAccess && <th className="px-3 py-2.5" />}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {team.map((m) => (
+                    <tr key={m.userId} className="border-t border-border">
+                      <td className="px-3 py-2 font-medium">{m.displayName}</td>
+                      <td className="px-3 py-2 text-muted-foreground">{m.position ?? "—"}</td>
+                      <td className="px-3 py-2">
+                        <AccessBadge status={m.accessStatus} onboarded={m.onboardingCompleted} />
+                      </td>
+                      <td className="px-3 py-2 tabular-nums text-muted-foreground">
+                        {m.academy.progressPercent != null ? `${m.academy.progressPercent}%` : "Нет данных"}
+                      </td>
+                      <td className="px-3 py-2 text-muted-foreground">
+                        {m.academy.latestTestResult
+                          ? `${m.academy.latestTestResult.scorePercent}% · ${m.academy.latestTestResult.passed ? "сдан" : "не сдан"}`
+                          : "Нет данных"}
+                      </td>
+                      {canChangeAccess && (
+                        <td className="px-3 py-2 text-right">
+                          <ClubAccessActionButton userId={m.userId} status={m.accessStatus} clubId={dashboard.clubId} onApplied={onAccessApplied} onError={setMsg} />
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
-        {/* Section 10 — no safe existing employee-detail page a CLUB_MANAGER
-            may open exists yet (control/users/[id] is requireSystemAccess()-
-            only); documented limitation, roster row only for now. */}
+        {/* Today's plan per employee and lessons-completed counts stay on the
+            detailed table (same data source as before), opened for THIS club. */}
+        {!dashboard.isPreviewing && (
+          <Link href={`/control/team?clubId=${encodeURIComponent(dashboard.clubId)}`} className="mt-3 inline-flex min-h-11 items-center text-sm font-semibold text-brand hover:underline">
+            План и уроки сотрудников →
+          </Link>
+        )}
       </CabinetSection>
 
       {/* ---- Мой клуб (section 14) ---- */}
