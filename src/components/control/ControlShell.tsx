@@ -1,27 +1,58 @@
 "use client";
 
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   ArrowLeft,
   BarChart3,
   BookOpen,
+  Bot,
+  Building2,
+  ChevronDown,
+  ClipboardList,
   Eye,
+  Globe2,
   GraduationCap,
   Home,
+  KeyRound,
   ListChecks,
   LogOut,
   ScrollText,
   Trophy,
   UserCog,
   Users,
+  X,
+  type LucideIcon,
 } from "lucide-react";
 import type { AppRole } from "@prisma/client";
-import { canAccessSpm, canManageClub } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 import { ThemeSegmented, ThemeSwitcher } from "@/components/ui/theme-switcher";
+import {
+  buildControlNav,
+  resolveActiveControlNavItem,
+  type ControlNavGroup,
+  type ControlNavIcon,
+} from "@/lib/control/control-nav";
 import { ViewAsBanner } from "./ViewAsBanner";
-import { Building2, Globe2 } from "lucide-react";
+
+const NAV_ICON: Record<ControlNavIcon, LucideIcon> = {
+  home: Home,
+  learning: GraduationCap,
+  scripts: ScrollText,
+  instructions: BookOpen,
+  metric: Bot,
+  users: UserCog,
+  roles: KeyRound,
+  club: ClipboardList,
+  plan: ListChecks,
+  team: Users,
+  city: Building2,
+  network: Globe2,
+  sales: BarChart3,
+  mystery: Eye,
+  rating: Trophy,
+};
 
 const ROLE_LABEL: Record<string, string> = { ADMIN: "Администратор", SPM: "СПМ", CLUB_MANAGER: "Управляющий" };
 
@@ -68,38 +99,12 @@ export function ControlShell({
   const router = useRouter();
   const isAdmin = hasSystemAccess;
 
-  const nav = [
-    { href: "/control", label: "Главная", icon: Home, exact: true },
-    ...(isAdmin
-      ? [
-          { href: "/admin/content", label: "Обучение", icon: GraduationCap, exact: false },
-          { href: "/control/scripts", label: "Скрипты", icon: ScrollText, exact: false },
-          { href: "/control/instructions", label: "Инструкции", icon: BookOpen, exact: false },
-          { href: "/control/users", label: "Сотрудники", icon: UserCog, exact: false },
-          { href: "/control/roles", label: "Роли", icon: UserCog, exact: false },
-        ]
-      : []),
-    ...(canManageClub(role) || isClubManager
-      ? [
-          { href: "/control/club", label: "Управляющий", icon: UserCog, exact: false },
-          { href: "/control/plan", label: "План дня", icon: ListChecks, exact: false },
-          { href: "/control/team", label: "Команда", icon: Users, exact: false },
-        ]
-      : []),
-    ...(isCityManager
-      ? [{ href: "/control/city", label: "Мои клубы", icon: Building2, exact: false }]
-      : []),
-    ...(isOperationsDirector
-      ? [{ href: "/control/network", label: "Сеть", icon: Globe2, exact: false }]
-      : []),
-    ...(canAccessSpm(role)
-      ? [
-          { href: "/spm/sales", label: "Продажи", icon: BarChart3, exact: false },
-          { href: "/spm/mystery", label: "Тайный покупатель", icon: Eye, exact: false },
-          { href: "/spm/rating", label: "Рейтинг", icon: Trophy, exact: false },
-        ]
-      : []),
-  ];
+  // QA-05 — one grouped model for the sidebar and the mobile sheet; the
+  // visibility conditions are the same ones this list always used.
+  const groups = buildControlNav({ role, hasSystemAccess: isAdmin, isClubManager, isCityManager, isOperationsDirector });
+  const activeItem = resolveActiveControlNavItem(groups, pathname);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const closeMenu = useCallback(() => setMenuOpen(false), []);
 
   const logout = async () => {
     try {
@@ -122,24 +127,8 @@ export function ControlShell({
           </div>
         </Link>
 
-        <nav className="mt-8 flex flex-col gap-1">
-          {nav.map((item) => {
-            const active = item.exact ? pathname === item.href : pathname?.startsWith(item.href);
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  "flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-medium transition-colors",
-                  active ? "bg-brand/12 text-foreground" : "text-muted-foreground hover:bg-muted",
-                )}
-              >
-                <Icon className={cn("size-4", active && "text-brand")} />
-                {item.label}
-              </Link>
-            );
-          })}
+        <nav className="mt-8 flex min-h-0 flex-col gap-4 overflow-y-auto" aria-label="Разделы">
+          <ControlNavGroups groups={groups} pathname={pathname} />
         </nav>
 
         <div className="mt-auto">
@@ -182,28 +171,114 @@ export function ControlShell({
               </button>
             </div>
           </div>
-          <nav className="flex gap-1 overflow-x-auto px-4 pb-2.5">
-            {nav.map((item) => {
-              const active = item.exact ? pathname === item.href : pathname?.startsWith(item.href);
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={cn(
-                    "shrink-0 rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
-                    active ? "bg-brand/12 text-brand" : "text-muted-foreground hover:bg-muted",
-                  )}
-                >
-                  {item.label}
-                </Link>
-              );
-            })}
-          </nav>
+          {/* QA-05 — no more sideways-scrolling strip of 10–15 tabs: one
+              full-width «Разделы» button that always names the current
+              section and opens the grouped list. */}
+          <div className="px-4 pb-3">
+            <button
+              type="button"
+              onClick={() => setMenuOpen(true)}
+              aria-haspopup="dialog"
+              aria-expanded={menuOpen}
+              className="flex min-h-11 w-full items-center gap-2 rounded-2xl border border-border bg-background px-4 py-2 text-left"
+            >
+              <span className="text-xs font-medium text-muted-foreground">Разделы</span>
+              <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">{activeItem?.label ?? "Выберите раздел"}</span>
+              <ChevronDown className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+            </button>
+          </div>
         </div>
 
         <div className="mx-auto w-full max-w-[1440px] px-5 py-6 sm:px-6 lg:px-8 lg:py-8">{children}</div>
+        {/* Rendered OUTSIDE the sticky header on purpose: its backdrop-blur
+            would become the containing block of a position:fixed sheet. */}
+        {menuOpen && <ControlSectionsSheet groups={groups} pathname={pathname} onClose={closeMenu} />}
       </main>
       </div>
     </>
+  );
+}
+
+/** The grouped nav list — shared by the desktop sidebar and the mobile sheet. */
+function ControlNavGroups({
+  groups,
+  pathname,
+  onNavigate,
+  size = "md",
+}: {
+  groups: ControlNavGroup[];
+  pathname: string | null;
+  onNavigate?: () => void;
+  size?: "md" | "lg";
+}) {
+  const active = resolveActiveControlNavItem(groups, pathname);
+  return (
+    <>
+      {groups.map((group) => (
+        <div key={group.id} className="flex flex-col gap-1">
+          {group.title && <p className="px-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/80">{group.title}</p>}
+          {group.items.map((item) => {
+            const isActive = active?.href === item.href;
+            const Icon = NAV_ICON[item.icon];
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={onNavigate}
+                aria-current={isActive ? "page" : undefined}
+                className={cn(
+                  "flex items-center gap-3 rounded-2xl px-3 font-medium transition-colors",
+                  size === "lg" ? "min-h-12 py-3 text-[15px]" : "py-2.5 text-sm",
+                  isActive ? "bg-brand/12 text-foreground" : "text-muted-foreground hover:bg-muted",
+                )}
+              >
+                <Icon className={cn("size-4 shrink-0", isActive && "text-brand")} />
+                <span className="min-w-0 [overflow-wrap:anywhere]">{item.label}</span>
+              </Link>
+            );
+          })}
+        </div>
+      ))}
+    </>
+  );
+}
+
+/** QA-05 — mobile «Разделы»: a bottom sheet with every section the actor
+ * may open, grouped, the current one highlighted. Esc / backdrop / a link
+ * closes it; the page behind does not scroll while it is open. */
+function ControlSectionsSheet({ groups, pathname, onClose }: { groups: ControlNavGroup[]; pathname: string | null; onClose: () => void }) {
+  useEffect(() => {
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = previous;
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 md:hidden">
+      <div className="absolute inset-0 bg-black/45" onClick={onClose} />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Разделы"
+        className="absolute inset-x-0 bottom-0 flex max-h-[85dvh] flex-col rounded-t-3xl border-t border-border bg-card pb-[calc(env(safe-area-inset-bottom)+12px)]"
+      >
+        <div className="flex shrink-0 items-center justify-between gap-3 px-5 pt-4 pb-2">
+          <h2 className="text-lg font-bold">Разделы</h2>
+          <button type="button" onClick={onClose} aria-label="Закрыть" className="flex size-11 items-center justify-center rounded-full text-muted-foreground hover:bg-muted">
+            <X className="size-5" />
+          </button>
+        </div>
+        <nav className="flex min-h-0 flex-col gap-4 overflow-y-auto overscroll-contain px-3 pb-2" aria-label="Разделы">
+          <ControlNavGroups groups={groups} pathname={pathname} onNavigate={onClose} size="lg" />
+        </nav>
+      </div>
+    </div>
   );
 }
