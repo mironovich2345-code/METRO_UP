@@ -11,7 +11,6 @@ import {
   ArrowUp,
   Award,
   BookOpen,
-  Building2,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -31,13 +30,20 @@ import { BottomNavigation } from "@/components/bottom-navigation";
 import {
   AttentionSection,
   ManagementListRow,
-  ManagementSummary,
   type AttentionItemData,
 } from "@/components/management/management-primitives";
+import {
+  DashboardSection,
+  ManagementLinkGroup,
+  ManagementScope,
+  TeamSummaryCard,
+  TerritoryClubList,
+  TerritoryOverviewCard,
+  TodayCard,
+} from "@/components/management/management-dashboard";
 import { ThemeSwitcher } from "@/components/ui/theme-switcher";
 import { Avatar } from "@/components/ui/avatar";
 import { GlassCard } from "@/components/ui/glass-card";
-import { SectionHeader } from "@/components/ui/section-header";
 import { Button } from "@/components/ui/button";
 import { XPProgress } from "@/components/ui/xp-progress";
 import { RevalidatingBar } from "@/components/ui/revalidating-bar";
@@ -45,10 +51,19 @@ import { FirstRunWelcome } from "@/components/home/first-run-welcome";
 import { ContinueLearningCard } from "@/components/home/ContinueLearningCard";
 import { useApp } from "@/providers/app-provider";
 import { useAppUser } from "@/providers/AppUserProvider";
-import { getPositionById, getClubById, getCityById } from "@/content";
+import { getPositionById, getClubById, getCityById, getCityByClubId } from "@/content";
 import { cardIn, staggerStack, springSoft } from "@/lib/motion";
 import { cn, formatNumber } from "@/lib/utils";
 import { pluralRu } from "@/lib/cabinet-ui";
+import {
+  attentionClubNames,
+  cityOverview,
+  listNames,
+  managementIdentity,
+  pendingEmployeeNames,
+  summarizeToday,
+  territoryClubs,
+} from "@/lib/management-home";
 import { fetchHome } from "@/lib/api/home-client";
 import { viewAsApi } from "@/lib/api/roles-client";
 import { useQuery, QUERY_POLICY } from "@/lib/client/query-cache";
@@ -269,6 +284,16 @@ export default function HomeScreen() {
   // personalIdentity line is NOT a duplicate of anything in its header
   // (which shows the personal greeting, not position/club/city) and stays.
   const isManagementKind = dash?.kind === "city_manager" || dash?.kind === "club_manager";
+  // Sprint: LIVE QA QA-03 — a management Home's identity: the greeting with
+  // the person's own name, the role, and the scope (club / territory) shown
+  // large under the greeting row. null for PERSONAL/onboarding, whose header
+  // is unchanged. Read straight from the dash this render already has, so a
+  // cached revisit paints it on its first frame (no QA-01B header swap).
+  const management = managementIdentity(dash, {
+    greeting,
+    firstName,
+    cityNameForClub: (clubId) => getCityByClubId(clubId)?.name ?? null,
+  });
 
   return (
     <div className="relative min-h-[100dvh] pb-32">
@@ -286,34 +311,37 @@ export default function HomeScreen() {
                 already routes to /profile where it can be changed. */}
             <Avatar name={profile.displayName} src={appUser?.avatarUrl ?? undefined} size={48} ring />
             <div className="min-w-0 flex-1">
-              {/* Management UX Round B, section 2 — CLUB_MANAGER gets
-                  "Управляющий / {club}" here instead of the personal
-                  greeting/name; PERSONAL (onboarding, untouched) keeps this
-                  exactly as before. Round C, section 2 — CITY_MANAGER gets
-                  the same role/scope two-line treatment: "Ст. города" /
-                  scopeLabel (the existing aggregate-across-grants label,
-                  unchanged — no per-city picker invented here). The
-                  context-switcher row below is separate and unchanged — a
+              {/* Management UX Round B/C gave CLUB_MANAGER/CITY_MANAGER a
+                  role/scope pair here. Sprint: LIVE QA QA-03 — it is now
+                  the greeting with the person's name over the role
+                  ("Управляющий" / "Ст. города"); the scope itself (club /
+                  territory, the existing aggregate-across-grants label) moved
+                  out of this truncated line into the large ManagementScope
+                  title below, so a long club or city name is never cut.
+                  PERSONAL/onboarding keep greeting + name exactly as before.
+                  The context-switcher row below is separate and unchanged — a
                   multi-club/multi-context manager still switches there. */}
-              <p className="text-xs font-medium text-muted-foreground">
-                {dash && dash.kind === "club_manager"
-                  ? "Управляющий"
-                  : dash && dash.kind === "city_manager"
-                    ? "Ст. города"
-                    : `${greeting},`}
-              </p>
-              <h1 className="truncate text-xl font-extrabold tracking-tight text-foreground">
-                {dash && dash.kind === "club_manager"
-                  ? dash.block.clubLabel
-                  : dash && dash.kind === "city_manager"
-                    ? dash.block.scopeLabel
-                    : firstName}
-              </h1>
+              {management ? (
+                <>
+                  {/* Wraps (max two lines) rather than truncating: the name
+                      in "Добрый день, Иван" must survive a 320px row. */}
+                  <p className="line-clamp-2 text-[15px] font-semibold leading-snug text-foreground [overflow-wrap:anywhere]">
+                    {management.greeting}
+                  </p>
+                  <p className="truncate text-xs font-medium text-muted-foreground">{management.roleLabel}</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-xs font-medium text-muted-foreground">{`${greeting},`}</p>
+                  <h1 className="truncate text-xl font-extrabold tracking-tight text-foreground">{firstName}</h1>
+                </>
+              )}
             </div>
             <ChevronRight className="size-4 shrink-0 text-muted-foreground/50" />
           </Link>
           <ThemeSwitcher />
         </div>
+        {management?.scopeTitle && <ManagementScope title={management.scopeTitle} meta={management.scopeMeta} />}
         {/* Management UX Round D, section 0 — the header above is now the
             source of truth for "who/where am I" (role/scope, or the personal
             greeting). This row's OLD job — repeating that same context as a
@@ -328,7 +356,9 @@ export default function HomeScreen() {
             pre-existing position/club/city identity line, which was never a
             context-switcher duplicate to begin with, is untouched below). */}
         {showSwitcher ? (
-          <div className="mt-2 pl-[60px] pr-1">
+          // QA-03 — under a management scope title the chip aligns with
+          // that title; otherwise with the greeting text, as before.
+          <div className={management?.scopeTitle ? "mt-3 px-1" : "mt-2 pl-[60px] pr-1"}>
             <button
               type="button"
               onClick={() => setSwitcherOpen(true)}
@@ -780,10 +810,6 @@ function OnboardingContent({
 
 type HomeRouter = { push: (href: string) => void };
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return <p className="px-1 text-sm font-bold text-foreground">{children}</p>;
-}
-
 /**
  * Sprint: mini-app-cold-start, section 7 — shown instead of
  * CityManagerHomeSection/ClubManagerHomeSection while `dash.kind` is a
@@ -804,30 +830,27 @@ function ConfirmingAccessPlaceholder() {
 }
 
 /**
- * CITY_MANAGER context body — Management UX Round C. Rebuilt on the same
- * Round A/B management primitives CLUB_MANAGER already uses (AttentionSection,
- * ManagementSummary, ManagementListRow) so Home answers "what is happening
- * in my city, and where do I need to intervene" at a glance — summary +
- * attention + entry points, not a second copy of /city's own detailed
- * workspace. Approved order: Требует внимания → Город сегодня → Клубы →
- * Обучение → Вопросы сотрудников.
+ * CITY_MANAGER context body — "Моя территория". Management UX Round C made
+ * it summary + attention + entry points, not a second copy of /city's own
+ * detailed workspace. Sprint: LIVE QA QA-03 gives it a strategic hierarchy
+ * of its own instead of CLUB_MANAGER's layout with different words:
  *
- * REMOVED (sections 1/9): the full "Мои клубы" list, the separate full
- * "Управляющие" list, and the oversized per-club training card — all three
- * duplicated content /city (unchanged this round) already owns in full
- * detail. Manager-assignment state now surfaces only (a) in Требует
- * внимания when a club genuinely has none (tapping it opens the EXISTING
- * /city/managers drill-down, unchanged — not a new screen), and (b) inside
- * the Клубы row's own subtitle count — never as a second full roster here.
+ *   LEVEL 1  the territory overview — clubs, employees, training average
+ *   LEVEL 2  Требует внимания — every row says WHAT, WHERE (the clubs) and
+ *            WHAT TO DO; then Клубы — the territory club by club
+ *   LEVEL 3  Обучение · Тайный покупатель · Вопросы сотрудников
  *
- * Only real CityManagerHomeBlockDTO fields are used — clubCount/
- * employeeCount/clubManagerCount/pendingApprovalCount/attention/training/
- * questionsNewCount/questionsUnreadCount. `training` is null, and
+ * The Клубы block is a compact territory list (name, attention marker,
+ * manager, headcount, training — capped, server order), each row opening the
+ * existing /city/club drill-down; /city keeps the full workspace ("Все
+ * клубы"). Every attention item keeps its Round C/E1 gate and target.
+ *
+ * Only real CityManagerHomeBlockDTO fields are used (via
+ * src/lib/management-home.ts). `training` is null, and
  * `averageProgressPercent` within it independently nullable, whenever there
- * is no published content or no one in scope yet — both render an honest
- * "—"/"Открыть обучение по клубам" rather than a fabricated 0%; a GENUINE
- * 0% (data exists, average is truly zero) still renders "0%", never
- * swallowed into the same neutral state as "no data at all".
+ * is no published content or no one in scope yet — the overview then says
+ * "Данных по обучению пока нет" instead of a fabricated 0% or "—"; a GENUINE
+ * 0% (data exists, average truly zero) still renders "0%".
  */
 function CityManagerHomeSection({ block, router }: { block: CityManagerHomeBlockDTO; router: HomeRouter }) {
   // Home's own lean HomeAttentionItemDTO (no entityType/cityId — see
@@ -837,21 +860,27 @@ function CityManagerHomeSection({ block, router }: { block: CityManagerHomeBlock
   // widening that shared helper's signature for one caller.
   const clubsWithoutManagerCount = block.attention.filter((a) => a.category === "CLUB_WITHOUT_CLUB_MANAGER").length;
 
+  // QA-03 — each row also names WHERE (the clubs, from the block's own
+  // attention + club list) and WHAT TO DO; gates and targets are unchanged.
   const attentionItems: AttentionItemData[] = [];
   if (clubsWithoutManagerCount > 0) {
     attentionItems.push({
       key: "clubs-without-manager",
       icon: UserCog,
-      text: `${clubsWithoutManagerCount} ${pluralRu(clubsWithoutManagerCount, "клуб без управляющего", "клуба без управляющего", "клубов без управляющего")}`,
       onClick: () => router.push("/city/managers"),
+      text: `${clubsWithoutManagerCount} ${pluralRu(clubsWithoutManagerCount, "клуб без управляющего", "клуба без управляющего", "клубов без управляющего")}`,
+      detail: listNames(attentionClubNames(block, "CLUB_WITHOUT_CLUB_MANAGER")),
+      actionLabel: "Назначить",
     });
   }
   if (block.pendingApprovalCount > 0) {
     attentionItems.push({
       key: "pending-approval",
       icon: Users,
-      text: `${block.pendingApprovalCount} ${pluralRu(block.pendingApprovalCount, "сотрудник ожидает подтверждения", "сотрудника ожидают подтверждения", "сотрудников ожидают подтверждения")}`,
       onClick: () => router.push("/city"),
+      text: `${block.pendingApprovalCount} ${pluralRu(block.pendingApprovalCount, "сотрудник ожидает подтверждения", "сотрудника ожидают подтверждения", "сотрудников ожидают подтверждения")}`,
+      detail: listNames(attentionClubNames(block, "PENDING_EMPLOYEE_APPROVAL")),
+      actionLabel: "Проверить",
     });
   }
   // Management Round E1, section 16 — approved as a small, isolated
@@ -866,22 +895,17 @@ function CityManagerHomeSection({ block, router }: { block: CityManagerHomeBlock
     attentionItems.push({
       key: "new-questions",
       icon: MessageSquare,
-      text: `${block.questionsNewCount} ${pluralRu(block.questionsNewCount, "новый вопрос", "новых вопроса", "новых вопросов")}`,
       onClick: () => router.push("/questions"),
+      text: `${block.questionsNewCount} ${pluralRu(block.questionsNewCount, "новый вопрос", "новых вопроса", "новых вопросов")}`,
+      // Questions are scoped to this actor's whole territory (no per-club
+      // field on Home), so WHERE is the territory itself.
+      detail: block.clubCount > 0 ? block.scopeLabel : null,
+      actionLabel: "Ответить",
     });
   }
 
-  // Section 4/7 — null means "no published lessons or no one in scope yet"
-  // (honest neutral state below), never conflated with a real, computed 0%.
-  const averageProgressPercent = block.training?.averageProgressPercent ?? null;
-
-  const clubsSubtitle =
-    `${block.clubCount} ${pluralRu(block.clubCount, "клуб", "клуба", "клубов")} · ${block.clubManagerCount} ${pluralRu(block.clubManagerCount, "управляющий", "управляющих", "управляющих")}` +
-    (clubsWithoutManagerCount > 0
-      ? ` · ${clubsWithoutManagerCount} ${pluralRu(clubsWithoutManagerCount, "клуб без управляющего", "клуба без управляющего", "клубов без управляющего")}`
-      : "");
-
-  const trainingSubtitle = averageProgressPercent !== null ? `Средний прогресс ${averageProgressPercent}%` : "Открыть обучение по клубам";
+  const overview = cityOverview(block);
+  const territory = territoryClubs(block.clubs);
 
   const questionsSubtitle =
     block.questionsNewCount > 0
@@ -890,52 +914,48 @@ function CityManagerHomeSection({ block, router }: { block: CityManagerHomeBlock
 
   return (
     <>
+      {/* LEVEL 1 — the territory at a glance. */}
+      <motion.div variants={cardIn}>
+        <TerritoryOverviewCard overview={overview} />
+      </motion.div>
+
+      {/* LEVEL 2 — where intervention is needed. */}
       <motion.div variants={cardIn}>
         <AttentionSection items={attentionItems} />
       </motion.div>
 
-      <motion.div variants={cardIn} className="flex flex-col gap-3">
-        <SectionLabel>Город сегодня</SectionLabel>
-        <ManagementSummary
-          stats={[
-            { key: "clubs", label: "Клубы", value: block.clubCount },
-            { key: "employees", label: "Сотрудники", value: block.employeeCount },
-            { key: "training", label: "Обучение", value: averageProgressPercent !== null ? `${averageProgressPercent}%` : "—" },
-          ]}
-        />
-      </motion.div>
+      {/* LEVEL 2 — the territory club by club (/city keeps the full
+          workspace). Absent when the scope has no clubs — the overview
+          already says so in words. */}
+      {territory.visible.length > 0 && (
+        <motion.div variants={cardIn}>
+          <DashboardSection title="Клубы" action={{ label: "Все клубы", onClick: () => router.push("/city") }}>
+            <TerritoryClubList
+              clubs={territory.visible}
+              hiddenCount={territory.hiddenCount}
+              onOpenClub={(clubId) => router.push(`/city/club?clubId=${clubId}`)}
+              onOpenAll={() => router.push("/city")}
+            />
+          </DashboardSection>
+        </motion.div>
+      )}
 
+      {/* LEVEL 3 — supporting entry points. Обучение names its destination
+          instead of repeating the overview's average. Management Round E3:
+          Тайный покупатель is a compact entry into its workspace — no live
+          count fetched here, and no clubId (the CITY_MANAGER root scope,
+          every club their grants cover). */}
       <motion.div variants={cardIn}>
-        <GlassCard variant="solid" pad="none" animateIn={false}>
-          <ManagementListRow icon={Building2} title="Клубы" subtitle={clubsSubtitle} onClick={() => router.push("/city")} />
-        </GlassCard>
-      </motion.div>
-
-      <motion.div variants={cardIn}>
-        <GlassCard variant="solid" pad="none" animateIn={false}>
-          <ManagementListRow icon={GraduationCap} title="Обучение" subtitle={trainingSubtitle} onClick={() => router.push("/city/training")} />
-        </GlassCard>
-      </motion.div>
-
-      {/* Management Round E3 — compact entry point into the new Mystery
-          Shopper workspace. No live count fetched here (round brief
-          section 6's "compact" entry point — the workspace itself, not
-          Home, owns the summary); static copy only. No clubId — this is
-          the CITY_MANAGER root scope (every club their grants cover). */}
-      <motion.div variants={cardIn}>
-        <GlassCard variant="solid" pad="none" animateIn={false}>
-          <ManagementListRow icon={Search} title="Тайный покупатель" subtitle="Результаты по клубам" onClick={() => router.push("/mystery-shopper")} />
-        </GlassCard>
-      </motion.div>
-
-      <motion.div variants={cardIn}>
-        <GlassCard variant="solid" pad="none" animateIn={false}>
+        <ManagementLinkGroup>
+          <ManagementListRow wrapTitle icon={GraduationCap} title="Обучение" subtitle="Прогресс по клубам" onClick={() => router.push("/city/training")} />
+          <ManagementListRow wrapTitle icon={Search} title="Тайный покупатель" subtitle="Результаты по клубам" onClick={() => router.push("/mystery-shopper")} />
           {/* METRO UP ROUND 1, Milestone 4, section 9 — the unread-notification
               badge is ADDITIVE to the existing business count (questionsNewCount,
               in the subtitle, unchanged semantics) — never a replacement for it.
               Round C, section 8 — kept deliberately subtle (neutral bg-muted,
               not the brand/yellow this round reserves for genuine attention). */}
           <ManagementListRow
+            wrapTitle
             icon={MessageSquare}
             title="Вопросы сотрудников"
             subtitle={questionsSubtitle}
@@ -948,7 +968,7 @@ function CityManagerHomeSection({ block, router }: { block: CityManagerHomeBlock
             }
             onClick={() => router.push("/questions")}
           />
-        </GlassCard>
+        </ManagementLinkGroup>
       </motion.div>
     </>
   );
@@ -1012,19 +1032,21 @@ function ReturnToCityCabinetCard({ onReturned }: { onReturned: () => void }) {
 }
 
 /**
- * CLUB_MANAGER context body — Management UX Round B. Rebuilt on the Round
- * A management primitives (AttentionSection, ManagementListRow); approved
- * order: Требует внимания → План на сегодня → Команда → Обучение команды.
- * `plan` now renders INSIDE this section (moved out of the caller, which
- * used to render it unconditionally first) so the approved order is one
- * real ordered sequence, attention genuinely first — not "Plan always
- * first, then whatever this section has."
+ * CLUB_MANAGER context body — "Мой клуб", operational: "what is happening in
+ * my club today, and what needs me?" Management UX Round B built it on the
+ * Round A primitives as four equal rows; Sprint: LIVE QA QA-03 gives it a
+ * hierarchy (the club itself is the large title in Home's header):
  *
- * "Мой клуб" is REMOVED (section 1) — audited and confirmed there is no
- * distinct, useful club-level destination or content behind it today
- * beyond what Team/Plan/Training already surface; no empty page was built
- * to preserve the card. It returns once a real club-level indicator
- * (Operations Plan / Mystery Shopper / club indicators) exists.
+ *   LEVEL 1  Сегодня — the EXISTING Daily Plan as the dashboard's anchor
+ *   LEVEL 2  Требует внимания (who is waiting), then Команда — headcount,
+ *            pending state and training in ONE summary with one way in
+ *   LEVEL 3  Тайный покупатель
+ *
+ * The old "Мой клуб" card stays removed (Round B, section 1 — no distinct
+ * club-level destination behind it). Only real ClubManagerHomeBlockDTO +
+ * Daily Plan fields are used; a zero-task day keeps its dedicated empty
+ * state (no "0 из 0", no empty bar). A View-As-CLUB_MANAGER preview renders
+ * this exact component (see the caller) — no separate preview dashboard.
  *
  * block.clubId is always a real, single club — the context switcher (not
  * this component) disambiguates a multi-club manager, unchanged.
@@ -1042,20 +1064,23 @@ function ClubManagerHomeSection({
   // for CLUB_MANAGER (pending employee approval); never a fabricated
   // mystery-shopper/plan/budget item. Aggregated into one row, same as
   // before — a tap goes to the one place it can actually be acted on.
+  // QA-03 — the row also says WHO is waiting (the real names in the block).
   const attentionItems: AttentionItemData[] =
     block.attention.length > 0
       ? [
           {
             key: "pending-approval",
             icon: Users,
-            text: `${block.attention.length} ${pluralRu(block.attention.length, "сотрудник ожидает подтверждения", "сотрудника ожидают подтверждения", "сотрудников ожидают подтверждения")}`,
             onClick: () => router.push("/team"),
+            text: `${block.attention.length} ${pluralRu(block.attention.length, "сотрудник ожидает подтверждения", "сотрудника ожидают подтверждения", "сотрудников ожидают подтверждения")}`,
+            detail: listNames(pendingEmployeeNames(block.attention)),
+            actionLabel: "Проверить",
           },
         ]
       : [];
 
   // Section 4 — the EXISTING Daily Plan, never a future business plan.
-  const planRatio = plan.total > 0 ? plan.completed / plan.total : 0;
+  const today = summarizeToday(plan);
 
   // Section 6 — only real ClubTrainingSummaryDTO fields (totalPublishedLessons/
   // employeesInTraining/employeesCompleted); no "средний прогресс %" field
@@ -1076,62 +1101,43 @@ function ClubManagerHomeSection({
     return parts.length > 0 ? parts.join(" · ") : "Пока никто не начал обучение";
   })();
 
-  const teamSubtitle =
-    `${block.employeeCount} ${pluralRu(block.employeeCount, "сотрудник", "сотрудника", "сотрудников")}` +
-    (block.pendingApprovalCount > 0
-      ? ` · ${block.pendingApprovalCount} ${pluralRu(block.pendingApprovalCount, "ждёт подтверждения", "ждут подтверждения", "ждут подтверждения")}`
-      : "");
-
   return (
     <>
+      {/* LEVEL 1 — today's Daily Plan, the operational anchor. */}
+      <motion.div variants={cardIn}>
+        <TodayCard summary={today} onOpen={() => router.push("/plan")} />
+      </motion.div>
+
+      {/* LEVEL 2 — who is waiting on this manager. */}
       <motion.div variants={cardIn}>
         <AttentionSection items={attentionItems} />
       </motion.div>
 
-      <motion.div variants={cardIn} className="flex flex-col gap-3">
-        <SectionHeader title="План на сегодня" />
-        <GlassCard variant="solid" pad="md" animateIn={false} interactive onClick={() => router.push("/plan")}>
-          <div className="flex items-center gap-3">
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-2xl bg-muted">
-              <ListChecks className="size-4.5 text-muted-foreground" />
-            </span>
-            <p className="min-w-0 flex-1 truncate font-semibold">{plan.total === 0 ? "Задач нет" : `${plan.completed} из ${plan.total}`}</p>
-            <ChevronRight className="size-4 shrink-0 text-muted-foreground/50" />
-          </div>
-          {plan.total > 0 && (
-            <div className="mt-3">
-              <XPProgress value={planRatio} size="md" />
-            </div>
-          )}
-        </GlassCard>
+      {/* LEVEL 2 — the team (Round B's separate Команда + Обучение команды
+          rows, which both opened /team) as one summary with one CTA. */}
+      <motion.div variants={cardIn}>
+        <TeamSummaryCard
+          employeeCount={block.employeeCount}
+          pendingCount={block.pendingApprovalCount}
+          trainingText={trainingSubtitle}
+          onOpenTeam={() => router.push("/team")}
+        />
       </motion.div>
 
+      {/* LEVEL 3 — Management Round E3: the club-level indicator Round B
+          said would return once Mystery Shopper existed. block.clubId is
+          always this manager's own, single club — passed explicitly so the
+          shared /mystery-shopper route resolves straight to it. */}
       <motion.div variants={cardIn}>
-        <GlassCard variant="solid" pad="none" animateIn={false}>
-          <ManagementListRow icon={Users} title="Команда" subtitle={teamSubtitle} onClick={() => router.push("/team")} />
-        </GlassCard>
-      </motion.div>
-
-      <motion.div variants={cardIn}>
-        <GlassCard variant="solid" pad="none" animateIn={false}>
-          <ManagementListRow icon={GraduationCap} title="Обучение команды" subtitle={trainingSubtitle} onClick={() => router.push("/team")} />
-        </GlassCard>
-      </motion.div>
-
-      {/* Management Round E3 — the club-level indicator this section's own
-          header comment (above) said would return once Mystery Shopper
-          existed. block.clubId is always this manager's own, single club
-          (same invariant that comment documents) — passed explicitly so
-          the shared /mystery-shopper route resolves straight to it. */}
-      <motion.div variants={cardIn}>
-        <GlassCard variant="solid" pad="none" animateIn={false}>
+        <ManagementLinkGroup>
           <ManagementListRow
+            wrapTitle
             icon={Search}
             title="Тайный покупатель"
             subtitle="Результаты сотрудников"
             onClick={() => router.push(`/mystery-shopper?clubId=${block.clubId}`)}
           />
-        </GlassCard>
+        </ManagementLinkGroup>
       </motion.div>
     </>
   );

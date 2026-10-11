@@ -318,12 +318,14 @@ test("VISUAL-F (updated for Round D): /city/club is now DELIBERATELY rewired ont
   }
 });
 
-test("VISUAL-F2 (superseded by Round C): CityManagerHomeSection now DOES use the shared management primitives — Round B's 'CITY_MANAGER Home remains unchanged this round' constraint applied only through Round B.1; Round C is the round that explicitly rebuilds it on AttentionSection/ManagementSummary/ManagementListRow, same as CLUB_MANAGER already was", () => {
+test("VISUAL-F2 (updated for LIVE QA QA-03): CityManagerHomeSection is still built on the shared management primitives (AttentionSection, ManagementListRow) plus QA-03's dashboard components (TerritoryOverviewCard, TerritoryClubList, ManagementLinkGroup). ManagementSummary — and its '—' training fallback, which QA-03 forbids — is no longer used on Home; /city keeps using it unchanged (CITYROOT-A)", () => {
   const src = read("src/app/home/page.tsx");
   const fnSrc = src.slice(src.indexOf("function CityManagerHomeSection"), src.indexOf("function ReturnToCityCabinetCard"));
-  assert.match(fnSrc, /AttentionSection/);
-  assert.match(fnSrc, /ManagementSummary/);
-  assert.match(fnSrc, /ManagementListRow/);
+  for (const component of ["AttentionSection", "ManagementListRow", "TerritoryOverviewCard", "TerritoryClubList", "ManagementLinkGroup"]) {
+    assert.match(fnSrc, new RegExp(`<${component}\\b`));
+  }
+  assert.doesNotMatch(fnSrc, /ManagementSummary/);
+  assert.match(read("src/app/city/page.tsx"), /<ManagementSummary/);
 });
 
 test("VISUAL-G: no generic 'ManagementHomeSection' wrapper abstraction was created — the audit's own explicit 'do not abstract for its own sake' instruction (the file's own comment explains WHY it's absent, in prose — this checks there is no actual declaration or usage, not that the words never appear)", () => {
@@ -411,10 +413,15 @@ test("A1-PROFILE-STILL-ABSENT: none of the Round A.1 header changes added Profil
  *  ROUND B — CLUB_MANAGER Home rebuild
  * ===================================================================== */
 
-test("B-PERSONAL-A (updated for Round C): the PERSONAL header fallback — neither club_manager nor city_manager — still resolves to greeting+firstName, now as the final branch of a three-way role/scope ternary instead of a two-way one", () => {
+test("B-PERSONAL-A (updated for LIVE QA QA-03): the PERSONAL header — neither club_manager nor city_manager — still renders greeting + firstName with its exact markup, now as the `: (` branch of `management ? (...)` (managementIdentity returns null for every non-management kind — tests/management-dashboard.test.ts MDB-H)", () => {
   const src = read("src/app/home/page.tsx");
-  assert.match(src, /: dash && dash\.kind === "city_manager"\s*\n\s*\? "Ст\. города"\s*\n\s*: `\$\{greeting\},`/);
-  assert.match(src, /: dash && dash\.kind === "city_manager"\s*\n\s*\? dash\.block\.scopeLabel\s*\n\s*: firstName/);
+  assert.match(src, /const management = managementIdentity\(dash, \{/);
+  const branchIdx = src.indexOf("{management ? (");
+  const personalIdx = src.indexOf(") : (", branchIdx);
+  assert.ok(branchIdx > 0 && personalIdx > branchIdx);
+  const personal = src.slice(personalIdx, src.indexOf(")}", personalIdx));
+  assert.match(personal, /<p className="text-xs font-medium text-muted-foreground">\{`\$\{greeting\},`\}<\/p>/);
+  assert.match(personal, /<h1 className="truncate text-xl font-extrabold tracking-tight text-foreground">\{firstName\}<\/h1>/);
 });
 
 test("B-PERSONAL-B: the PERSONAL Home body branch (dash.kind==='full') was not touched by this round — same card sequence as before", () => {
@@ -450,22 +457,25 @@ test("B-CLUBMGR-B: 'Мой клуб' card is removed from ClubManagerHomeSection
   assert.doesNotMatch(fnSrc, /Мой клуб/);
 });
 
-test("B-CLUBMGR-C: the approved order is Требует внимания (AttentionSection) -> План на сегодня -> Команда -> Обучение команды", () => {
+test("B-CLUBMGR-C (updated for LIVE QA QA-03): the CLUB_MANAGER hierarchy is Сегодня (TodayCard, Level 1) -> Требует внимания (AttentionSection) -> Команда (TeamSummaryCard — Round B's separate Команда + Обучение команды rows as one summary) -> supporting links (ManagementLinkGroup), the order the QA-03 brief sets", () => {
   const src = read("src/app/home/page.tsx");
   const fnSrc = src.slice(src.indexOf("function ClubManagerHomeSection"), src.indexOf("function AttentionRow"));
+  const iToday = fnSrc.indexOf("<TodayCard");
   const iAttention = fnSrc.indexOf("<AttentionSection");
-  const iPlan = fnSrc.indexOf("План на сегодня");
-  const iTeam = fnSrc.indexOf('title="Команда"');
-  const iTraining = fnSrc.indexOf('title="Обучение команды"');
-  assert.ok(iAttention >= 0 && iPlan > iAttention && iTeam > iPlan && iTraining > iTeam, "expected Attention -> Plan -> Team -> Training, in that order");
+  const iTeam = fnSrc.indexOf("<TeamSummaryCard");
+  const iLinks = fnSrc.indexOf("<ManagementLinkGroup");
+  assert.ok(iToday >= 0 && iAttention > iToday && iTeam > iAttention && iLinks > iTeam, "expected Today -> Attention -> Team -> links, in that order");
 });
 
-test("B-CLUBMGR-D: the Plan row navigates to /plan, the Team row navigates to /team, the Training row uses the existing /team drill-down — no new/invented route", () => {
+test("B-CLUBMGR-D (updated for LIVE QA QA-03): Сегодня opens /plan, the attention row and the ONE team CTA open /team, Тайный покупатель opens this club's /mystery-shopper — the same existing routes as before, no new/invented one", () => {
   const src = read("src/app/home/page.tsx");
   const fnSrc = src.slice(src.indexOf("function ClubManagerHomeSection"), src.indexOf("function AttentionRow"));
-  assert.match(fnSrc, /onClick=\{\(\) => router\.push\("\/plan"\)\}/);
-  assert.match(fnSrc, /title="Команда" subtitle=\{teamSubtitle\} onClick=\{\(\) => router\.push\("\/team"\)\}/);
-  assert.match(fnSrc, /title="Обучение команды" subtitle=\{trainingSubtitle\} onClick=\{\(\) => router\.push\("\/team"\)\}/);
+  assert.match(fnSrc, /<TodayCard summary=\{today\} onOpen=\{\(\) => router\.push\("\/plan"\)\} \/>/);
+  assert.match(fnSrc, /key: "pending-approval",\s*\n\s*icon: Users,\s*\n\s*onClick: \(\) => router\.push\("\/team"\),/);
+  assert.match(fnSrc, /onOpenTeam=\{\(\) => router\.push\("\/team"\)\}/);
+  assert.match(fnSrc, /onClick=\{\(\) => router\.push\(`\/mystery-shopper\?clubId=\$\{block\.clubId\}`\)\}/);
+  const routes = [...fnSrc.matchAll(/router\.push\((["`])([^"`?]+)/g)].map((m) => m[2]);
+  assert.deepEqual([...new Set(routes)].sort(), ["/mystery-shopper", "/plan", "/team"]);
 });
 
 test("B-CLUBMGR-E: no fake KPI DATA (an actual field/value reference, not this test file's own explanatory prose) appears anywhere in ClubManagerHomeSection — no averageProgressPercent (CLUB_MANAGER has no such field), no рекламный бюджет/Operations Plan/mystery-shopper value", () => {
@@ -622,11 +632,13 @@ test("PLAN-ZERO-D: the redundant second 'На сегодня задач нет' 
   assert.equal(occurrences, 1);
 });
 
-test("PLAN-HOME-ZERO-A: ClubManagerHomeSection's own compact Plan row already correctly omits the progress bar at zero tasks (built this way since Round B, re-confirmed here) and shows 'Задач нет', never a 0% indicator", () => {
+test("PLAN-HOME-ZERO-A (updated for LIVE QA QA-03): CLUB_MANAGER Home's plan block (now the Level 1 Сегодня card) still omits the progress bar at zero tasks and never shows a 0% indicator — summarizeToday returns its own 'empty' kind (tests/management-dashboard.test.ts MDB-A), and TodayCard's empty branch is the dedicated 'На сегодня задач нет' sentence (the /plan screen's own wording)", () => {
   const src = read("src/app/home/page.tsx");
   const fnSrc = src.slice(src.indexOf("function ClubManagerHomeSection"), src.indexOf("function AttentionRow"));
-  assert.match(fnSrc, /plan\.total === 0 \? "Задач нет"/);
-  assert.match(fnSrc, /\{plan\.total > 0 && \(/);
+  assert.match(fnSrc, /const today = summarizeToday\(plan\);/);
+  const ui = read("src/components/management/management-dashboard.tsx");
+  const card = ui.slice(ui.indexOf("export function TodayCard"), ui.indexOf("export function TeamSummaryCard"));
+  assert.match(card, /summary\.kind === "empty" \? \(\s*\n\s*<p className="[^"]*">На сегодня задач нет<\/p>\s*\n\s*\) : \(/);
 });
 
 /* --------- section 5: training copy --------- */
@@ -669,9 +681,11 @@ function cityManagerHomeFnSrc(): string {
   return src.slice(src.indexOf("function CityManagerHomeSection"), src.indexOf("function ReturnToCityCabinetCard"));
 }
 
-test("ROUND-C-A: CityManagerHomeSection no longer renders the full club list — no iteration over block.clubs anywhere in its body", () => {
+test("ROUND-C-A (superseded by LIVE QA QA-03, section 15): Home shows a COMPACT territory list again — block.clubs only through territoryClubs (server order, capped at six, the rest behind /city) — never /city's full workspace: no manager roster, no per-club training card, no assign/revoke actions", () => {
   const fnSrc = cityManagerHomeFnSrc();
-  assert.doesNotMatch(fnSrc, /block\.clubs/);
+  assert.match(fnSrc, /const territory = territoryClubs\(block\.clubs\);/);
+  assert.equal((fnSrc.match(/block\.clubs/g) ?? []).length, 1, "block.clubs is read in exactly one place (WHERE lookups go through attentionClubNames)");
+  assert.doesNotMatch(fnSrc, /rolesApi|revoke|restore|Назначить управляющего/);
 });
 
 test("ROUND-C-B: CityManagerHomeSection no longer renders a separate full 'Управляющие' roster — no such heading and no per-club 'Не назначен' manager row loop", () => {
@@ -680,33 +694,44 @@ test("ROUND-C-B: CityManagerHomeSection no longer renders a separate full 'Уп�
   assert.doesNotMatch(fnSrc, /Не назначен/);
 });
 
-test("ROUND-C-C: approved section order — Требует внимания (AttentionSection) -> Город сегодня (ManagementSummary) -> Клубы -> Обучение -> Вопросы сотрудников", () => {
+test("ROUND-C-C (updated for LIVE QA QA-03): the CITY_MANAGER hierarchy — territory overview (Level 1) -> Требует внимания -> Клубы -> Обучение -> Тайный покупатель -> Вопросы сотрудников (Level 3)", () => {
   const fnSrc = cityManagerHomeFnSrc();
+  const iOverview = fnSrc.indexOf("<TerritoryOverviewCard overview={overview} />");
   const iAttention = fnSrc.indexOf("<AttentionSection items={attentionItems}");
-  const iSummary = fnSrc.indexOf("Город сегодня");
-  const iClubs = fnSrc.indexOf('title="Клубы"');
+  const iClubs = fnSrc.indexOf('<DashboardSection title="Клубы"');
   const iTraining = fnSrc.indexOf('title="Обучение"');
+  const iMystery = fnSrc.indexOf('title="Тайный покупатель"');
   const iQuestions = fnSrc.indexOf('title="Вопросы сотрудников"');
-  for (const i of [iAttention, iSummary, iClubs, iTraining, iQuestions]) assert.ok(i >= 0);
-  assert.ok(iAttention < iSummary);
-  assert.ok(iSummary < iClubs);
+  for (const i of [iOverview, iAttention, iClubs, iTraining, iMystery, iQuestions]) assert.ok(i >= 0);
+  assert.ok(iOverview < iAttention);
+  assert.ok(iAttention < iClubs);
   assert.ok(iClubs < iTraining);
-  assert.ok(iTraining < iQuestions);
+  assert.ok(iTraining < iMystery);
+  assert.ok(iMystery < iQuestions);
 });
 
-test("ROUND-C-D: Город сегодня (ManagementSummary) uses only real DTO fields — clubCount, employeeCount, averageProgressPercent — never a fabricated sales/advertising/rating/mystery/plan metric", () => {
+test("ROUND-C-D (updated for LIVE QA QA-03): the territory overview takes ONLY the block's real summary fields, through cityOverview (clubCount, employeeCount, training — pass-through proven in tests/management-dashboard.test.ts MDB-D) — never a fabricated sales/advertising/rating/mystery/plan metric", () => {
   const fnSrc = cityManagerHomeFnSrc();
-  assert.match(fnSrc, /label: "Клубы", value: block\.clubCount/);
-  assert.match(fnSrc, /label: "Сотрудники", value: block\.employeeCount/);
-  assert.match(fnSrc, /label: "Обучение", value: averageProgressPercent !== null/);
-  assert.doesNotMatch(fnSrc, /salesTotal|advertisingBudget|рекламный бюджет|mysteryShopper|operationsPlan|businessPlan/i);
+  assert.match(fnSrc, /const overview = cityOverview\(block\);/);
+  const lib = read("src/lib/management-home.ts");
+  const fn = lib.slice(lib.indexOf("export function cityOverview"), lib.indexOf("export const HOME_TERRITORY_CLUB_LIMIT"));
+  assert.match(fn, /clubCount: block\.clubCount,/);
+  assert.match(fn, /employeeCount: block\.employeeCount,/);
+  assert.match(fn, /block\.training\?\.averageProgressPercent \?\? null/);
+  for (const src of [fnSrc, fn]) {
+    assert.doesNotMatch(src, /salesTotal|advertisingBudget|рекламный бюджет|mysteryShopper|operationsPlan|businessPlan/i);
+  }
 });
 
-test("ROUND-C-E: Клубы -> /city, Обучение -> /city/training, Вопросы сотрудников -> /questions — no new/invented route", () => {
+test("ROUND-C-E (updated for LIVE QA QA-03): Все клубы / 'Ещё N клубов' -> /city, a club row -> its existing /city/club drill-down, Обучение -> /city/training, Вопросы сотрудников -> /questions — no new/invented route", () => {
   const fnSrc = cityManagerHomeFnSrc();
-  assert.match(fnSrc, /title="Клубы" subtitle=\{clubsSubtitle\} onClick=\{\(\) => router\.push\("\/city"\)\}/);
-  assert.match(fnSrc, /title="Обучение" subtitle=\{trainingSubtitle\} onClick=\{\(\) => router\.push\("\/city\/training"\)\}/);
+  assert.match(fnSrc, /action=\{\{ label: "Все клубы", onClick: \(\) => router\.push\("\/city"\) \}\}/);
+  assert.match(fnSrc, /onOpenClub=\{\(clubId\) => router\.push\(`\/city\/club\?clubId=\$\{clubId\}`\)\}/);
+  assert.match(fnSrc, /onOpenAll=\{\(\) => router\.push\("\/city"\)\}/);
+  assert.match(fnSrc, /title="Обучение" subtitle="Прогресс по клубам" onClick=\{\(\) => router\.push\("\/city\/training"\)\}/);
   assert.match(fnSrc, /onClick=\{\(\) => router\.push\("\/questions"\)\}/);
+  const routes = [...fnSrc.matchAll(/router\.push\((["`])([^"`?]+)/g)].map((m) => m[2]);
+  assert.deepEqual([...new Set(routes)].sort(), ["/city", "/city/club", "/city/managers", "/city/training", "/mystery-shopper", "/questions"]);
 });
 
 test("ROUND-C-F: no fake KPI labels anywhere in the rebuilt section — no Реклама/Рейтинг/Operations Plan/Бизнес-план text. Тайный покупатель is EXEMPT as of Management Round E3: it is no longer a fake placeholder — it is a real, working entry point into the real /mystery-shopper workspace (ENTRY-B, tests/mystery-shopper.test.ts), reusing real PUBLISHED MysteryShopperResult data", () => {
@@ -733,10 +758,15 @@ test("ROUND-C-H: attention is empty exactly when both real categories are zero �
   assert.match(fnSrc, /if \(block\.pendingApprovalCount > 0\) \{/);
 });
 
-test("ROUND-C-I: no-training-data is an honest state, never a fabricated 0% — the ternary checks `!== null`, and a GENUINE 0% (real data, truly zero) still renders its own value rather than collapsing into the same branch", () => {
-  const fnSrc = cityManagerHomeFnSrc();
-  assert.match(fnSrc, /averageProgressPercent !== null \? `Средний прогресс \$\{averageProgressPercent\}%` : "Открыть обучение по клубам"/);
-  assert.match(fnSrc, /averageProgressPercent !== null \? `\$\{averageProgressPercent\}%` : "—"/);
+test("ROUND-C-I (updated for LIVE QA QA-03): no-training-data is an honest state, never a fabricated 0% — and no longer a bare '—' either: cityOverview yields training=null only when the average is null (a GENUINE 0% stays 0 — MDB-D), and the overview card then says 'Данных по обучению пока нет'", () => {
+  const lib = read("src/lib/management-home.ts");
+  assert.match(lib, /block\.training && average !== null\s*\n\s*\? \{ averagePercent: average, completedAll: block\.training\.employeesCompletedAll \}\s*\n\s*: null/);
+  const ui = read("src/components/management/management-dashboard.tsx");
+  const card = ui.slice(ui.indexOf("export function TerritoryOverviewCard"), ui.indexOf("function OverviewMetric"));
+  assert.match(card, /\{overview\.training \? \(/);
+  assert.match(card, /\{overview\.training\.averagePercent\}%/);
+  assert.match(card, /Данных по обучению пока нет/);
+  assert.doesNotMatch(card, /"—"/);
 });
 
 test("ROUND-C-J: zero-question state is clean copy ('Нет новых вопросов'), not a forced '0 новых'", () => {
@@ -749,10 +779,14 @@ test("ROUND-C-K: the View-As-return nav/context fix from Round B.1 still applies
   assert.match(src, /dash\.kind === "city_manager"[\s\S]{0,200}<CityManagerHomeSection block=\{dash\.block\} router=\{router\} \/>/);
 });
 
-test("ROUND-C-L: header shows the role/scope two-line treatment for CITY_MANAGER too — 'Ст. города' / block.scopeLabel, the same pattern CLUB_MANAGER already uses for 'Управляющий' / clubLabel", () => {
+test("ROUND-C-L (updated for LIVE QA QA-03): a management header shows the person's greeting over the role ('Управляющий' / 'Ст. города'), and the scope (clubLabel / scopeLabel) as the large ManagementScope title below it — a long club or city name is no longer cut by the one-line header", () => {
   const src = read("src/app/home/page.tsx");
-  assert.match(src, /dash\.kind === "city_manager"\s*\n\s*\? "Ст\. города"/);
-  assert.match(src, /dash\.kind === "city_manager"\s*\n\s*\? dash\.block\.scopeLabel/);
+  assert.match(src, /\{management\.greeting\}/);
+  assert.match(src, /\{management\.roleLabel\}/);
+  assert.match(src, /\{management\?\.scopeTitle && <ManagementScope title=\{management\.scopeTitle\} meta=\{management\.scopeMeta\} \/>\}/);
+  const lib = read("src/lib/management-home.ts");
+  assert.match(lib, /roleLabel: "Управляющий",[\s\S]{0,200}scopeTitle: dash\.block\.clubLabel,/);
+  assert.match(lib, /roleLabel: "Ст\. города",[\s\S]{0,260}scopeTitle: dash\.block\.clubCount > 0 \? dash\.block\.scopeLabel : null,/);
 });
 
 test("ROUND-C-M: the old EmptyAttention/AttentionRow/TrainingSummaryCard helpers are gone, not left as dead code alongside the shared AttentionSection/ManagementListRow/ManagementSummary primitives now used instead", () => {
@@ -762,15 +796,17 @@ test("ROUND-C-M: the old EmptyAttention/AttentionRow/TrainingSummaryCard helpers
   assert.doesNotMatch(src, /function TrainingSummaryCard/);
 });
 
-test("ROUND-C-N: PERSONAL Home's card sequence and ClubManagerHomeSection are untouched by this round — same anchor content still present, unrelated to the CITY_MANAGER rebuild", () => {
+test("ROUND-C-N (updated for LIVE QA QA-03): PERSONAL Home's card anchors are untouched, and ClubManagerHomeSection still carries its team + training content (as one TeamSummaryCard since QA-03) with no 'Мой клуб' card", () => {
   const src = read("src/app/home/page.tsx");
   assert.match(src, /dash\.kind === "full"/);
   for (const anchor of ["Продолжить обучение", "Твой опыт", "Тайный покупатель", "База знаний"]) {
     assert.match(src, new RegExp(anchor));
   }
+  // Updated for LIVE QA QA-03: Round B's separate "Команда" and "Обучение
+  // команды" rows are now ONE TeamSummaryCard (headcount + pending + the same
+  // trainingSubtitle copy) — the team and its training stay on Home, merged.
   const clubMgrFnSrc = src.slice(src.indexOf("function ClubManagerHomeSection"), src.indexOf("function AttentionRow") === -1 ? src.length : src.indexOf("function AttentionRow"));
-  assert.match(clubMgrFnSrc, /title="Команда"/);
-  assert.match(clubMgrFnSrc, /title="Обучение команды"/);
+  assert.match(clubMgrFnSrc, /<TeamSummaryCard\s*\n\s*employeeCount=\{block\.employeeCount\}\s*\n\s*pendingCount=\{block\.pendingApprovalCount\}\s*\n\s*trainingText=\{trainingSubtitle\}/);
   assert.doesNotMatch(clubMgrFnSrc, /Мой клуб/);
 });
 

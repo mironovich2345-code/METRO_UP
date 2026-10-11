@@ -16,9 +16,11 @@ export function formatNumber(value: number) {
   return new Intl.NumberFormat("ru-RU").format(value);
 }
 
-/** Return initials from a full name (max two letters). */
+/** Return initials from a full name (max two letters). Only words that start
+ * with a letter count (Sprint: LIVE QA QA-03) — a View-As persona name like
+ * "Управляющий (просмотр)" gives "У", never "У(". Real names are unaffected. */
 export function getInitials(name: string) {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const parts = name.trim().split(/\s+/).filter((part) => /^\p{L}/u.test(part));
   if (parts.length === 0) return "M";
   if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
   return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();

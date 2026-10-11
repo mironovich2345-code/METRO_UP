@@ -13,6 +13,11 @@ interface XPProgressProps {
   onBrand?: boolean;
   /** Animate a soft moving highlight along the fill. */
   glow?: boolean;
+  /** Fill from 0 when the bar mounts (the default). `false` paints the bar
+   * at its value on its first frame — later value changes still
+   * interpolate — so a cached screen revisit never replays the fill
+   * (QA-03, the same first-screen-only rule as QA-01B's root entrance). */
+  animateIn?: boolean;
 }
 
 const heights = { sm: "h-1.5", md: "h-2.5", lg: "h-3.5" } as const;
@@ -23,6 +28,7 @@ export function XPProgress({
   size = "md",
   onBrand,
   glow = true,
+  animateIn = true,
 }: XPProgressProps) {
   const ratio = clamp(value, 0, 1);
 
@@ -42,7 +48,7 @@ export function XPProgress({
             ? "bg-brand-foreground"
             : "bg-gradient-to-r from-brand-strong to-brand",
         )}
-        initial={{ width: 0 }}
+        initial={animateIn ? { width: 0 } : false}
         animate={{ width: `${ratio * 100}%` }}
         transition={{ duration: 0.9, ease: easeOutSoft }}
       >

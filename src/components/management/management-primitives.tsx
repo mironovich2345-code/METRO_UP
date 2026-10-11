@@ -23,7 +23,9 @@ import { useAppUser } from "@/providers/AppUserProvider";
  * SECTION 10, the design rule every primitive below encodes: brand/yellow
  * emphasis means "this needs attention or is the primary action" — never
  * decoration. AttentionItem is the ONLY primitive here that uses
- * `bg-brand/12`/`text-brand` on its icon; ManagementListRow (plain
+ * `bg-brand/12`/`text-brand` on its icon (AttentionSection's own grouped
+ * rows, QA-03, carry the same attention meaning via the brand-soft token
+ * pair); ManagementListRow (plain
  * navigation, nothing to act on) uses a neutral `bg-muted`/
  * `text-muted-foreground` icon treatment instead — the exact split the
  * audit's visual-system section asked for. This round does not touch any
@@ -122,7 +124,14 @@ export function ManagementEmptyState({ text = "Сейчас ничего не т
 export interface AttentionItemData {
   key: string;
   icon: LucideIcon;
+  /** WHAT happened, with its real count — "2 клуба без управляющего". */
   text: string;
+  /** Sprint: LIVE QA QA-03 — WHERE (club names) or WHO (employee names)
+   * the item is about. AttentionSection's row omits the line when absent. */
+  detail?: string | null;
+  /** Sprint: LIVE QA QA-03 — WHAT the user can do, as a short verb for the
+   * tap ("Назначить", "Проверить", "Ответить"). */
+  actionLabel?: string;
   onClick: () => void;
 }
 
@@ -144,21 +153,70 @@ export function AttentionItem({ icon: Icon, text, onClick }: Omit<AttentionItemD
  * the audit found (Home's CityManagerHomeSection, Home's
  * ClubManagerHomeSection, /city's local AttentionList) into one. Renders
  * ManagementEmptyState automatically when there is nothing to show — a
- * caller never needs its own empty-state branch. */
+ * caller never needs its own empty-state branch.
+ *
+ * Sprint: LIVE QA QA-03 — now ONE grouped card instead of a stack of
+ * equal-weight cards, a dashboard's Level 2 (see management-dashboard.tsx).
+ * Each row answers WHAT happened (text), WHERE/WHO (detail) and WHAT the
+ * user can do (actionLabel). A faint brand edge marks the group as needing a
+ * decision — no red alarm styling and no invented severity. Home is the only
+ * caller; /city/club keeps using AttentionItem above, unchanged. */
 export function AttentionSection({ title = "Требует внимания", items }: { title?: string; items: AttentionItemData[] }) {
   return (
-    <div className="flex flex-col gap-3">
-      <p className="px-1 text-sm font-bold text-foreground">{title}</p>
+    <section className="flex flex-col gap-2.5">
+      <h2 className="px-1 text-[15px] font-semibold text-foreground">{title}</h2>
       {items.length === 0 ? (
         <ManagementEmptyState />
       ) : (
-        <div className="flex flex-col gap-2">
+        <GlassCard
+          variant="solid"
+          pad="none"
+          animateIn={false}
+          className="divide-y divide-border border border-brand/50 dark:border-brand/30"
+        >
           {items.map((item) => (
-            <AttentionItem key={item.key} icon={item.icon} text={item.text} onClick={item.onClick} />
+            <AttentionListRow
+              key={item.key}
+              icon={item.icon}
+              text={item.text}
+              detail={item.detail}
+              actionLabel={item.actionLabel}
+              onClick={item.onClick}
+            />
           ))}
-        </div>
+        </GlassCard>
       )}
-    </div>
+    </section>
+  );
+}
+
+/** One AttentionSection row. The icon chip uses the brand-soft token pair
+ * (dark glyph on pale yellow in light mode, yellow glyph on dark olive in
+ * dark mode) so the attention accent stays legible in both themes. */
+function AttentionListRow({ icon: Icon, text, detail, actionLabel = "Открыть", onClick }: Omit<AttentionItemData, "key">) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-start gap-3 px-4 py-3.5 text-left transition-colors active:bg-foreground/5"
+    >
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-2xl bg-brand-soft text-brand-foreground dark:text-brand">
+        <Icon className="size-[18px]" />
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-1 pt-0.5">
+        <span className="line-clamp-2 text-[15px] font-semibold leading-snug text-foreground">{text}</span>
+        {/* WHERE/WHO keeps at least 9rem: when it and the action don't both
+            fit (a 320px screen, a long list of names), the action wraps to
+            its own right-aligned line instead of squeezing WHERE to "…". */}
+        <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          {detail && <span className="min-w-0 max-w-full grow basis-36 truncate text-[13px] text-muted-foreground">{detail}</span>}
+          <span className="ml-auto flex shrink-0 items-center gap-0.5 text-[13px] font-semibold text-foreground">
+            {actionLabel}
+            <ChevronRight className="size-3.5 text-muted-foreground" />
+          </span>
+        </span>
+      </span>
+    </button>
   );
 }
 
@@ -190,14 +248,27 @@ export interface ManagementListRowData {
  * instruction was to prove the row primitive, not also invent a
  * `ManagementListSection` wrapper nothing asked for.
  */
-export function ManagementListRow({ icon: Icon, title, subtitle, trailing, onClick }: Omit<ManagementListRowData, "key">) {
+export function ManagementListRow({
+  icon: Icon,
+  title,
+  subtitle,
+  trailing,
+  onClick,
+  wrapTitle = false,
+}: Omit<ManagementListRowData, "key"> & {
+  /** Sprint: LIVE QA QA-03 — let a fixed section title ("Вопросы
+   * сотрудников") wrap instead of truncating on a 320px screen. Off by
+   * default, so every existing list (dynamic club/employee names) keeps its
+   * single-line rows exactly as before. */
+  wrapTitle?: boolean;
+}) {
   return (
     <button type="button" onClick={onClick} className="flex w-full items-center gap-3 p-4 text-left transition-colors active:bg-foreground/5">
       <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-muted">
         <Icon className="size-4.5 text-muted-foreground" />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="truncate font-semibold">{title}</p>
+        <p className={cn("font-semibold", wrapTitle ? "leading-snug" : "truncate")}>{title}</p>
         {subtitle && <p className="truncate text-xs text-muted-foreground">{subtitle}</p>}
       </div>
       {trailing}
