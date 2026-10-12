@@ -16,11 +16,15 @@ import { classifyMode, needsRetrieval, nextRolePlayState, readRolePlayState, wri
 import { MAX_SEARCH_RESULTS } from "./tuning";
 import { getOrCreateActiveConversation, requireOwnConversation, getRecentMessages, appendMessages, extendAssistantMessage } from "./conversations";
 import type { Prisma } from "@prisma/client";
+import { buildMetricUsageEvent, type MetricUsageEventInput } from "@/lib/telemetry/metric-usage-core";
+import { recordMetricUsage } from "../telemetry/metric-usage";
 
 /** Injected dependencies (real by default; a fake transport is used in tests). */
 export interface ChatDeps {
   transport?: MetricTransport;
   env?: MetricEnv;
+  /** QA-07 — usage telemetry writer (never throws; see telemetry/metric-usage.ts). */
+  recordUsage?: (event: MetricUsageEventInput) => Promise<void>;
 }
 
 const ROLE_LABEL: Record<string, string> = {
@@ -133,38 +137,54 @@ async function runTurn(
     : await transport.createResponse(reqInput, signal);
   const tAI = Date.now();
 
-  if (!result.text) throw new AuthError(502, "empty_response", "Пустой ответ");
-  const sources = await mapSources(result.citedFileIds, position);
-
-  // Safe retrieval diagnostics — mode, whether retrieval ran, how many citations
-  // came back, and which source TYPES + titles were surfaced. No question text, no
-  // chunk text, no document content, no PII, no key. Titles are corporate labels.
-  if (useFileSearch) {
-    const surfaced = sources.map((s) => `${s.sourceType}:${s.title.slice(0, 48)}`);
-    console.info(`[metric] retrieval {mode:"${decision.mode}", used:true, citations:${result.citedFileIds.length}, sources:${JSON.stringify(surfaced)}}`);
+  // QA-07 — the provider call happened (and is billed) whatever happens
+  // next, so its usage is recorded in `finally`, linked to the assistant
+  // message when that got persisted. Fire-and-forget: telemetry never delays
+  // or fails the answer.
+  let assistantMessageId: string | null = null;
+  try {
+    return await finishTurn();
+  } finally {
+    void (deps.recordUsage ?? recordMetricUsage)(
+      buildMetricUsageEvent(result, { kind: "CHAT", requestedModel: env.model, userId: user.id, conversationId: conv.id, messageId: assistantMessageId }),
+    );
   }
 
-  // Persist role-play state only when it changed (start/exit).
-  const nextRp = nextRolePlayState(decision.mode, rp);
-  if (!rolePlayEqual(nextRp, rp)) {
-    await prisma.metricConversation.update({
-      where: { id: conv.id },
-      data: { state: writeRolePlayState(conv.state, nextRp) as Prisma.InputJsonValue },
+  async function finishTurn(): Promise<MetricChatResultDTO> {
+    if (!result.text) throw new AuthError(502, "empty_response", "Пустой ответ");
+    const sources = await mapSources(result.citedFileIds, position);
+
+    // Safe retrieval diagnostics — mode, whether retrieval ran, how many citations
+    // came back, and which source TYPES + titles were surfaced. No question text, no
+    // chunk text, no document content, no PII, no key. Titles are corporate labels.
+    if (useFileSearch) {
+      const surfaced = sources.map((s) => `${s.sourceType}:${s.title.slice(0, 48)}`);
+      console.info(`[metric] retrieval {mode:"${decision.mode}", used:true, citations:${result.citedFileIds.length}, sources:${JSON.stringify(surfaced)}}`);
+    }
+
+    // Persist role-play state only when it changed (start/exit).
+    const nextRp = nextRolePlayState(decision.mode, rp);
+    if (!rolePlayEqual(nextRp, rp)) {
+      await prisma.metricConversation.update({
+        where: { id: conv.id },
+        data: { state: writeRolePlayState(conv.state, nextRp) as Prisma.InputJsonValue },
+      });
+    }
+
+    const { assistantMsg } = await appendMessages(conv.id, input.text, {
+      content: result.text,
+      sources,
+      openaiResponseId: result.responseId || null,
+      isTruncated: result.truncated,
     });
+    assistantMessageId = assistantMsg.id;
+    const tDone = Date.now();
+
+    // Safe timing metrics — no question/answer text, no PII, no key, no prompt.
+    console.info(`[metric] timing {mode:"${decision.mode}", retrieval:${useFileSearch}, firstDeltaMs:${firstDeltaMs || "-"}, openaiMs:${tAI - tReq}, ctxMs:${tCtx - t0}, persistMs:${tDone - tAI}, totalMs:${tDone - t0}, src:${sources.length}, trunc:${result.truncated}, historyCount:${history.length}, maxSearchResults:${useFileSearch ? MAX_SEARCH_RESULTS : 0}}`);
+
+    return { conversationId: conv.id, message: assistantMsg, rolePlayActive: nextRp?.active ?? false };
   }
-
-  const { assistantMsg } = await appendMessages(conv.id, input.text, {
-    content: result.text,
-    sources,
-    openaiResponseId: result.responseId || null,
-    isTruncated: result.truncated,
-  });
-  const tDone = Date.now();
-
-  // Safe timing metrics — no question/answer text, no PII, no key, no prompt.
-  console.info(`[metric] timing {mode:"${decision.mode}", retrieval:${useFileSearch}, firstDeltaMs:${firstDeltaMs || "-"}, openaiMs:${tAI - tReq}, ctxMs:${tCtx - t0}, persistMs:${tDone - tAI}, totalMs:${tDone - t0}, src:${sources.length}, trunc:${result.truncated}, historyCount:${history.length}, maxSearchResults:${useFileSearch ? MAX_SEARCH_RESULTS : 0}}`);
-
-  return { conversationId: conv.id, message: assistantMsg, rolePlayActive: nextRp?.active ?? false };
 }
 
 export function metricChat(user: CurrentUser, input: { text: string; conversationId?: string }, deps: ChatDeps = {}): Promise<MetricChatResultDTO> {
@@ -235,6 +255,11 @@ export async function continueMetric(user: CurrentUser, conversationId: string, 
     console.error(`[metric] continue stage=openai status=${status} err=${e instanceof Error ? e.name : "unknown"} conv=${convPrefix} msg=${msgPrefix}`);
     throw e;
   }
+  // QA-07 — the continuation call is billed too; recorded against the SAME
+  // assistant message it extends. Fire-and-forget, never fails the answer.
+  void (deps.recordUsage ?? recordMetricUsage)(
+    buildMetricUsageEvent(result, { kind: "CONTINUE", requestedModel: env.model, userId: user.id, conversationId: conv.id, messageId: last.id }),
+  );
   if (!result.text) {
     console.error(`[metric] continue stage=empty conv=${convPrefix} msg=${msgPrefix} out=${result.usage?.outputTokens ?? "?"}`);
     throw new AuthError(502, "empty_response", "Пустой ответ");

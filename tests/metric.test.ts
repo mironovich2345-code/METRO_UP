@@ -128,7 +128,7 @@ test("E: response parser extracts text + maps file citations to source ids", () 
   assert.equal(r.text, "В абонемент входит доступ 24/7.");
   assert.equal(r.responseId, "resp_1");
   assert.deepEqual(r.citedFileIds.sort(), ["file_A", "file_B"]);
-  assert.deepEqual(r.usage, { inputTokens: 100, outputTokens: 20 });
+  assert.deepEqual(r.usage, { inputTokens: 100, outputTokens: 20, totalTokens: 120, cachedInputTokens: 0 });
 });
 
 test("empty output yields empty text (caller rejects → safe error, no fake answer)", () => {

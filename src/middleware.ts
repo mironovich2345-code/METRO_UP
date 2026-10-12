@@ -38,6 +38,9 @@ const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
  * - auth/logout, auth/telegram(-web): identity/session management must
  *   always work regardless of any stale or active preview cookie — these
  *   never write business data.
+ * - telemetry/view (QA-07): a screen visit during a preview is still the REAL
+ *   actor's activity (the route records the session user, never the persona)
+ *   and writes no business data — only an append-only analytics row.
  */
 const ALLOWLIST = new Set([
   "/api/control/view-as/end",
@@ -45,6 +48,7 @@ const ALLOWLIST = new Set([
   "/api/auth/logout",
   "/api/auth/telegram",
   "/api/auth/telegram-web",
+  "/api/telemetry/view",
 ]);
 
 export async function middleware(req: NextRequest) {

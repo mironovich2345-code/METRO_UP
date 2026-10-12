@@ -10,6 +10,7 @@ import { AppUserProvider } from "@/providers/AppUserProvider";
 import { ThemeProvider } from "@/providers/theme-provider";
 import { AppProvider } from "@/providers/app-provider";
 import { markBootOrigin, logBootEvent } from "@/lib/client/perf-boot";
+import { ScreenViewTracker } from "@/components/telemetry/ScreenViewTracker";
 
 // Sprint: mini-app-cold-start, section 2 — the origin mark for every
 // perf-boot event downstream, taken at the earliest point our own client
@@ -55,6 +56,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
           <ThemeProvider>
             <AppProvider>
               <TelegramChrome />
+              <ScreenViewTracker />
               {children}
             </AppProvider>
           </ThemeProvider>

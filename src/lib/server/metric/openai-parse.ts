@@ -7,9 +7,15 @@ export interface CreateResponseResult {
   text: string;
   responseId: string;
   citedFileIds: string[];
-  usage: { inputTokens: number; outputTokens: number } | null;
+  /** The provider's own reported usage (QA-07: the ONLY token source for
+   * cost telemetry — never estimated). null when the provider sent none. */
+  usage: { inputTokens: number; outputTokens: number; totalTokens?: number; cachedInputTokens?: number } | null;
   /** True when OpenAI reports the answer was cut off by the output-token limit. */
   truncated: boolean;
+  /** QA-07 — the model the provider reports it actually ran (e.g. a dated snapshot). */
+  model?: string | null;
+  /** QA-07 — number of file_search tool calls in this response. */
+  fileSearchCalls?: number;
 }
 
 export function parseResponsePayload(data: unknown): CreateResponseResult {
@@ -18,15 +24,23 @@ export function parseResponsePayload(data: unknown): CreateResponseResult {
     status?: string;
     incomplete_details?: { reason?: string } | null;
     output_text?: string;
+    model?: string;
     output?: Array<{
       type?: string;
       content?: Array<{ type?: string; text?: string; annotations?: Array<{ type?: string; file_id?: string }> }>;
     }>;
-    usage?: { input_tokens?: number; output_tokens?: number };
+    usage?: {
+      input_tokens?: number;
+      output_tokens?: number;
+      total_tokens?: number;
+      input_tokens_details?: { cached_tokens?: number } | null;
+    };
   };
   const cited = new Set<string>();
   let text = "";
+  let fileSearchCalls = 0;
   for (const item of d.output ?? []) {
+    if (item.type === "file_search_call") fileSearchCalls += 1;
     if (item.type !== "message") continue;
     for (const c of item.content ?? []) {
       if (c.type === "output_text" && typeof c.text === "string") text += c.text;
@@ -41,7 +55,25 @@ export function parseResponsePayload(data: unknown): CreateResponseResult {
     text: text.trim(),
     responseId: d.id ?? "",
     citedFileIds: [...cited],
-    usage: d.usage ? { inputTokens: d.usage.input_tokens ?? 0, outputTokens: d.usage.output_tokens ?? 0 } : null,
+    usage: d.usage ? parseUsage(d.usage) : null,
     truncated,
+    model: typeof d.model === "string" && d.model ? d.model : null,
+    fileSearchCalls,
+  };
+}
+
+function parseUsage(u: {
+  input_tokens?: number;
+  output_tokens?: number;
+  total_tokens?: number;
+  input_tokens_details?: { cached_tokens?: number } | null;
+}): NonNullable<CreateResponseResult["usage"]> {
+  const inputTokens = u.input_tokens ?? 0;
+  const outputTokens = u.output_tokens ?? 0;
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens: u.total_tokens ?? inputTokens + outputTokens,
+    cachedInputTokens: u.input_tokens_details?.cached_tokens ?? 0,
   };
 }

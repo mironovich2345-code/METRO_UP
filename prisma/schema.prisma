@@ -1101,7 +1101,81 @@ model MetricMessage {
 
   @@index([conversationId, createdAt])
   @@index([conversationId, seq])
+  /// QA-07 — «Частые вопросы Метрику»: the 7/30-day scan of USER prompts.
+  @@index([role, createdAt])
   @@map("metric_messages")
+}
+
+/// Sprint: LIVE QA QA-07 — what a Metric provider call was for.
+///   CHAT     — one employee turn (streamed answer), /api/metric/chat.
+///   CONTINUE — «Продолжить» of a truncated answer, /api/metric/chat/continue.
+/// Knowledge sync uses only the Files / Vector Store APIs, which report no
+/// token usage per call, so it has no kind here (see the QA-07 report).
+enum MetricUsageKind {
+  CHAT
+  CONTINUE
+}
+
+/// Sprint: LIVE QA QA-07 — ONE row per Metric provider call. Append-only;
+/// kept 90 days (src/lib/server/telemetry/retention.ts).
+///
+/// Token counts come ONLY from the provider's own response `usage` (null when
+/// the provider reported none — never estimated). `costMicroUsd` is the cost
+/// computed AT CALL TIME from the code-level pricing registry
+/// (src/lib/server/telemetry/metric-pricing.ts) in integer micro-USD
+/// (1 = 0.000001 USD), persisted so later price changes never rewrite old
+/// spend; null = UNPRICED (no verified price configured for this model /
+/// tool) — never treated as $0. No prompt or answer text is stored here:
+/// MetricMessage owns the content. userId / conversationId / messageId are
+/// plain references (no FK) so historical spend survives a deleted
+/// conversation or user.
+model MetricUsageEvent {
+  id                String          @id @default(uuid()) @db.Uuid
+  createdAt         DateTime        @default(now())
+  provider          String
+  /// The model the provider reports it ran (falls back to the requested id).
+  model             String
+  kind              MetricUsageKind
+  inputTokens       Int?
+  /// Part of inputTokens the provider billed as cached input.
+  cachedInputTokens Int?
+  outputTokens      Int?
+  totalTokens       Int?
+  /// file_search tool calls the provider reported for this response.
+  fileSearchCalls   Int             @default(0)
+  costMicroUsd      Int?
+  /// The pricing registry version that produced costMicroUsd (null when unpriced).
+  pricingVersion    String?
+  userId            String?         @db.Uuid
+  conversationId    String?         @db.Uuid
+  messageId         String?         @db.Uuid
+
+  @@index([createdAt])
+  @@map("metric_usage_events")
+}
+
+/// Sprint: LIVE QA QA-07 — which app a screen belongs to.
+enum TelemetrySurface {
+  MINI_APP
+  CONTROL
+  SPM
+}
+
+/// Sprint: LIVE QA QA-07 — ONE committed screen visit (initial load or a
+/// route change; never a rerender). Append-only; kept 90 days. `screenKey`
+/// is a controlled, normalized key from src/lib/telemetry/screens.ts — never
+/// a raw URL, query string or entity id. `userId` is the REAL session user
+/// (derived server-side; never client-supplied, also during View As).
+model PageViewEvent {
+  id        String           @id @default(uuid()) @db.Uuid
+  createdAt DateTime         @default(now())
+  userId    String           @db.Uuid
+  surface   TelemetrySurface
+  screenKey String
+
+  @@index([createdAt])
+  @@index([screenKey, createdAt])
+  @@map("page_view_events")
 }
 
 /**
