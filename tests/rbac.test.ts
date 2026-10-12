@@ -187,7 +187,7 @@ test("SYSTEM-ROLE-D: an OPERATIONS_DIRECTOR grant alone (no PROJECT_ADMIN) has n
   assert.equal(hasSystemAccess(a), false);
 });
 
-test("SYSTEM-ROLE-E: legacy AppRole=SPM alone has no system access — Profile's separate 'Панель СПМ' entry (canAccessSpm) is an independent, unchanged check, never a path to the admin entry", () => {
+test("SYSTEM-ROLE-E: legacy AppRole=SPM alone has no system access — Profile's separate «Контроль и результаты» entry (isSharedControlRole, QA-06.2) is an independent check, never a path to the admin entry", () => {
   assert.equal(hasSystemAccess(actor({ appRole: "SPM" })), false);
 });
 

@@ -19,7 +19,7 @@ import { SectionHeader } from "@/components/ui/section-header";
 import { useApp } from "@/providers/app-provider";
 import { useAppUser } from "@/providers/AppUserProvider";
 import { getCityById, getClubById, getPositionById } from "@/content";
-import { canAccessSpm } from "@/lib/roles";
+import { isSharedControlRole } from "@/lib/roles";
 import { RANKS } from "@/lib/ranks";
 import type { AccessStatus, CareerLevel } from "@/lib/profile";
 import { cardIn, staggerStack } from "@/lib/motion";
@@ -72,7 +72,13 @@ export default function ProfileScreen() {
   // persona-substituted, per meDTO's own doc comment) — View As cannot
   // widen or hide it.
   const isAdmin = serverUser?.hasSystemAccess ?? false;
-  const canSpm = serverUser ? canAccessSpm(serverUser.role) : false; // SPM or ADMIN
+  // Sprint: LIVE QA QA-06.1/06.2 — the shared PROJECT_ADMIN + SPM workspace
+  // (Тайный покупатель, Продажи, Рейтинг сотрудников at /spm). The SAME
+  // predicate the /spm server guard (hasSharedControlAccess) and the Control
+  // navigation use, fed with the server-derived hasSystemAccess — so a
+  // grant-only PROJECT_ADMIN sees it, CLUB_MANAGER / CITY_MANAGER / MANAGER
+  // never do, and an ended/suspended/pending grant never counts.
+  const canSharedControl = serverUser ? isSharedControlRole(serverUser.role, isAdmin) : false;
   const router = useRouter();
 
   useEffect(() => {
@@ -296,8 +302,8 @@ export default function ProfileScreen() {
           </motion.div>
         )}
 
-        {/* SPM panel entry — for server role SPM or ADMIN (never EMPLOYEE/CLUB_MANAGER). */}
-        {canSpm && (
+        {/* Shared Control entry (/spm) — PROJECT_ADMIN or SPM; never CLUB_MANAGER/CITY_MANAGER/MANAGER. */}
+        {canSharedControl && (
           <motion.div variants={cardIn}>
             <GlassCard variant="solid" pad="md" animateIn={false}>
               <div className="flex items-center gap-3">
@@ -305,7 +311,7 @@ export default function ProfileScreen() {
                   <Trophy className="size-5 text-brand" />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="font-bold text-foreground">Панель СПМ</p>
+                  <p className="font-bold text-foreground">Контроль и результаты</p>
                   <p className="text-sm text-muted-foreground">
                     Продажи, тайный покупатель и рейтинг
                   </p>
