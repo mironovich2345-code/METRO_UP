@@ -215,13 +215,13 @@ test("NAV-NO-TEAM: «Команда» is not a primary item for anyone; /control
   assert.equal(resolveActiveControlNavItem(groups, "/control/teamx"), null);
 });
 
-test("NAV-IA-V2 (updated for QA-06): the grouped IA matches the QA-06 target (empty groups never shown)", () => {
+test("NAV-IA-V2 (updated for QA-07): the grouped IA matches the QA-07 target (empty groups never shown)", () => {
   const groups = buildControlNav(ADMIN_ALL);
   assert.deepEqual(
     groups.map((g) => [g.title, g.items.map((i) => i.label)]),
     [
       [null, ["Главная"]],
-      ["Система", ["Метрик", "Роли", "Сотрудники", "Логи"]],
+      ["Система", ["Метрик", "Роли", "Сотрудники", "Логи", "Расходы Метрика", "Посещаемость"]],
       ["Контент", ["Обучение", "Скрипты", "Инструкции"]],
       ["Контроль и результаты", ["Тайный покупатель", "Продажи", "Рейтинг сотрудников"]],
       ["Клуб", ["Управляющий", "План дня"]],

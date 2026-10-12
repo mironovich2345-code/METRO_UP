@@ -67,10 +67,11 @@ test("NAV-CABINETS: CLUB_MANAGER and CITY_MANAGER keep their own cabinets exactl
   assert.equal(resolveActiveControlNavItem(groups, "/control/team")?.label, "Управляющий");
 });
 
-test("NAV-NO-FAKE-DESTINATIONS: no nav item for features whose data does not exist yet (Расходы Метрика, Посещаемость, Рейтинг клубов); every href is a real page", () => {
+test("NAV-NO-FAKE-DESTINATIONS (updated for QA-07): no nav item for a feature whose data does not exist yet (Рейтинг клубов); Расходы Метрика / Посещаемость are real since QA-07; every href is a real page", () => {
   const everyone: ControlNavFlags = { role: "ADMIN", hasSystemAccess: true, isClubManager: true, isCityManager: true, isOperationsDirector: true };
   const l = labels(everyone);
-  for (const x of ["Расходы Метрика", "Посещаемость", "Рейтинг клубов"]) assert.ok(!l.includes(x), x);
+  assert.ok(!l.includes("Рейтинг клубов"));
+  for (const x of ["Расходы Метрика", "Посещаемость"]) assert.ok(l.includes(x), x);
   const toFile = (href: string) =>
     href.startsWith("/control")
       ? `src/app/control/(portal)${href.slice("/control".length)}/page.tsx`
@@ -203,14 +204,24 @@ test("HOME-ROLES: PROJECT_ADMIN gets the real-data cards; SPM and every other ro
   assert.equal((dash.match(/<EmployeeQuestionsCard \/>/g) ?? []).length, 1);
 });
 
-test("HOME-NO-FAKE-DATA: no Metric-cost, frequent-question, visit-analytics or club-ranking numbers anywhere in Control Home", () => {
+test("HOME-NO-FAKE-DATA (updated for QA-07): Control Home shows no invented numbers — telemetry lives in TelemetryCards and reads only the recorded QA-07 events; no club ranking", () => {
   const dash = code("src/components/control/ControlDashboard.tsx");
+  // The QA-06 cards themselves still carry no cost/token/visit numbers…
   assert.doesNotMatch(dash, /Расход|токен|Посещаем|Частые вопросы|Рейтинг клубов|cost|tokens|pageview/i);
-  // The data those would need is genuinely absent from the schema today.
+  // …the telemetry section is a separate component, fed by the real APIs.
+  assert.match(dash, /\{hasSystemAccess && <TelemetrySection \/>\}/);
+  const cards = code("src/components/control/TelemetryCards.tsx");
+  assert.match(cards, /controlAdminApi\.metricUsage/);
+  assert.match(cards, /controlAdminApi\.metricQuestions/);
+  assert.match(cards, /controlAdminApi\.visits/);
+  assert.doesNotMatch(cards, /Рейтинг клубов/);
+  // MetricMessage still carries no usage fields: usage lives in its own events table.
   const schema = read("prisma/schema.prisma");
   const metricMessage = schema.slice(schema.indexOf("model MetricMessage {"), schema.indexOf("}", schema.indexOf("model MetricMessage {")));
   const fields = metricMessage.split("\n").filter((l) => /^\s+\w+\s+\w/.test(l) && !l.trim().startsWith("///")).map((l) => l.trim().split(/\s+/)[0]);
   assert.ok(fields.includes("content") && fields.includes("openaiResponseId"));
   for (const f of fields) assert.doesNotMatch(f, /token|cost|usage|^model$/i, f);
-  assert.doesNotMatch(schema, /model PageView|model VisitEvent|model ClubRating/);
+  assert.match(schema, /model MetricUsageEvent \{/);
+  assert.match(schema, /model PageViewEvent \{/);
+  assert.doesNotMatch(schema, /model ClubRating/);
 });

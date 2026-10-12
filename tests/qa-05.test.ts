@@ -168,13 +168,15 @@ test("NAV-ROUTES: every nav item points at a real page (no dead links), for ever
   for (const href of hrefs(everything)) assert.ok(routes.has(href), `missing page for ${href}`);
 });
 
-test("NAV-ADMIN (updated for QA-06): a legacy ADMIN gets Система, Контент and Контроль и результаты — no club/city cabinets unless they really hold those roles", () => {
+test("NAV-ADMIN (updated for QA-07): a legacy ADMIN gets Система, Контент and Контроль и результаты — no club/city cabinets unless they really hold those roles", () => {
   assert.deepEqual(hrefs({ ...NONE, role: "ADMIN", hasSystemAccess: true }), [
     "/control",
     "/control/metric",
     "/control/roles",
     "/control/users",
     "/control/logs",
+    "/control/metric-usage",
+    "/control/visits",
     "/admin/content",
     "/control/scripts",
     "/control/instructions",
@@ -184,10 +186,10 @@ test("NAV-ADMIN (updated for QA-06): a legacy ADMIN gets Система, Кон�
   ]);
 });
 
-test("NAV-RBAC (updated for QA-06.1): each group appears only for the role whose server guard admits it — no widening", () => {
+test("NAV-RBAC (updated for QA-07): each group appears only for the role whose server guard admits it — no widening", () => {
   assert.deepEqual(hrefs(NONE), ["/control"]);
   // PROJECT_ADMIN by grant only (AppRole EMPLOYEE): system + the shared content and results.
-  assert.deepEqual(hrefs({ ...NONE, hasSystemAccess: true }), ["/control", "/control/metric", "/control/roles", "/control/users", "/control/logs", "/admin/content", "/control/scripts", "/control/instructions", "/spm/mystery", "/spm/sales", "/spm/rating"]);
+  assert.deepEqual(hrefs({ ...NONE, hasSystemAccess: true }), ["/control", "/control/metric", "/control/roles", "/control/users", "/control/logs", "/control/metric-usage", "/control/visits", "/admin/content", "/control/scripts", "/control/instructions", "/spm/mystery", "/spm/sales", "/spm/rating"]);
   for (const f of [{ ...NONE, role: "CLUB_MANAGER" as const }, { ...NONE, isClubManager: true }]) {
     assert.deepEqual(hrefs(f), ["/control", "/control/club", "/control/plan"]);
   }

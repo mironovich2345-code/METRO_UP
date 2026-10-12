@@ -173,7 +173,7 @@ test("VIEW-AS: View As does not widen mutation authority — persona writes stay
 
 const NONE: ControlNavFlags = { role: "EMPLOYEE", hasSystemAccess: false, isClubManager: false, isCityManager: false, isOperationsDirector: false };
 const groups = (f: ControlNavFlags) => buildControlNav(f).map((g) => [g.title, g.items.map((i) => i.label)]);
-const SYSTEM = ["Метрик", "Роли", "Сотрудники", "Логи"];
+const SYSTEM = ["Метрик", "Роли", "Сотрудники", "Логи", "Расходы Метрика", "Посещаемость"]; // QA-07 added the last two
 const CONTENT = ["Обучение", "Скрипты", "Инструкции"];
 const RESULTS = ["Тайный покупатель", "Продажи", "Рейтинг сотрудников"];
 
