@@ -1,5 +1,6 @@
 import { ApiError } from "./client";
 import type { EmployeeQuestionDTO } from "./questions-types";
+import type { FrequentMetricQuestionsDTO, MetricUsageSummaryDTO, TelemetryPeriodDays, VisitSummaryDTO } from "./telemetry-types";
 
 /** Sprint: LIVE QA QA-06 — PROJECT_ADMIN-only Control reads. */
 export interface AdminAuditLogRow {
@@ -48,4 +49,11 @@ export const controlAdminApi = {
   logs: (filter: { action?: string; sinceMinutes?: number; page?: number; limit?: number } = {}, signal?: AbortSignal) =>
     get<AdminAuditLogPage>(`/api/control/logs${qs(filter)}`, signal),
   questionsSummary: (signal?: AbortSignal) => get<AdminQuestionsSummary>("/api/control/admin/questions-summary", signal),
+  // Sprint: LIVE QA QA-07 — telemetry (PROJECT_ADMIN only on the server).
+  metricUsage: (days: TelemetryPeriodDays, signal?: AbortSignal) =>
+    get<MetricUsageSummaryDTO>(`/api/control/admin/metric-usage${qs({ days })}`, signal),
+  metricQuestions: (days: TelemetryPeriodDays, limit: 5 | 10, signal?: AbortSignal) =>
+    get<FrequentMetricQuestionsDTO>(`/api/control/admin/metric-questions${qs({ days, limit })}`, signal),
+  visits: (days: TelemetryPeriodDays, limit: 5 | 20, signal?: AbortSignal) =>
+    get<VisitSummaryDTO>(`/api/control/admin/visits${qs({ days, limit })}`, signal),
 };

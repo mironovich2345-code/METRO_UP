@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
-import { ArrowRight, GraduationCap, MessageSquare, ScrollText } from "lucide-react";
+import { GraduationCap, MessageSquare, ScrollText } from "lucide-react";
 import type { AppRole } from "@prisma/client";
 import { adminApi, type AdminDashboard } from "@/lib/api/content-client";
 import { controlAdminApi, type AdminAuditLogRow, type AdminQuestionsSummary } from "@/lib/api/control-admin-client";
@@ -14,6 +13,8 @@ import {
   formatLogTime,
 } from "@/lib/control/admin-dashboard";
 import { questionCategoryLabel, questionStatusLabel } from "@/lib/client/questions-ui";
+import { DashboardCard as Card, DashboardMoreLink as MoreLink, DashboardStat as Stat } from "./dashboard-card";
+import { TelemetrySection } from "./TelemetryCards";
 
 const ROLE_LABEL: Record<string, string> = { ADMIN: "Администратор", SPM: "СПМ", CLUB_MANAGER: "Управляющий" };
 
@@ -25,9 +26,10 @@ const ROLE_LABEL: Record<string, string> = { ADMIN: "Администратор"
  *   - «Вопросы сотрудников»: EmployeeQuestion via listEmployeeQuestionsForActor
  *     (the existing anonymity rules apply);
  *   - «Обучение»: the existing adminApi.dashboard() counts.
- * Metric costs, frequent Metric questions and visit analytics are NOT shown:
- * the data they need is not recorded yet (see the QA-06 report) — no
- * placeholder numbers. SPM and every other role get the header only; nothing
+ * QA-07 adds a telemetry section below (TelemetryCards.tsx, one shared
+ * 7/30-day period): «Расходы Метрика», «Частые вопросы Метрику»,
+ * «Посещаемость» — real recorded data only; the logs card keeps its own
+ * rolling 5 minutes. SPM and every other role get the header only; nothing
  * admin-only is ever requested for them. Navigation stays in «Разделы».
  */
 export function ControlDashboard({
@@ -56,30 +58,8 @@ export function ControlDashboard({
           <LearningCard />
         </div>
       )}
+      {hasSystemAccess && <TelemetrySection />}
     </div>
-  );
-}
-
-function Card({ icon: Icon, title, children, footer }: { icon: typeof ScrollText; title: string; children: React.ReactNode; footer?: React.ReactNode }) {
-  return (
-    <section className="flex min-w-0 flex-col rounded-3xl border border-border bg-card p-5">
-      <div className="flex items-center gap-3">
-        <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-brand/12">
-          <Icon className="size-5 text-brand" aria-hidden />
-        </span>
-        <h2 className="text-lg font-bold">{title}</h2>
-      </div>
-      <div className="mt-4 flex-1">{children}</div>
-      {footer && <div className="mt-3">{footer}</div>}
-    </section>
-  );
-}
-
-function MoreLink({ href, children }: { href: string; children: React.ReactNode }) {
-  return (
-    <Link href={href} className="inline-flex min-h-11 items-center gap-1.5 text-sm font-semibold text-brand hover:underline">
-      {children} <ArrowRight className="size-4" aria-hidden />
-    </Link>
   );
 }
 
@@ -214,14 +194,5 @@ function LearningCard() {
         <p className="text-sm text-muted-foreground">{error ? "Не удалось загрузить сводку." : "Загрузка…"}</p>
       )}
     </Card>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="min-w-0">
-      <p className="text-2xl font-bold tabular-nums">{value}</p>
-      <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{label}</p>
-    </div>
   );
 }

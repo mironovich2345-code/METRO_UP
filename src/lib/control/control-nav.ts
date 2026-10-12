@@ -8,8 +8,8 @@ import { isSharedControlRole } from "@/lib/roles";
  *
  * Sprint: LIVE QA QA-06 / QA-06.1 — Control is the PROJECT_ADMIN / SPM
  * workspace, so their navigation no longer mirrors the club/city cabinets:
- *   - Система (Метрик, Роли, Сотрудники, Логи) — PROJECT_ADMIN (system
- *     access) ONLY.
+ *   - Система (Метрик, Роли, Сотрудники, Логи, Расходы Метрика,
+ *     Посещаемость) — PROJECT_ADMIN (system access) ONLY.
  *   - Контент (Обучение, Скрипты, Инструкции) and Контроль и результаты
  *     (Тайный покупатель, Продажи, Рейтинг сотрудников) — the SHARED
  *     PROJECT_ADMIN + SPM surfaces: shown exactly when isSharedControlRole
@@ -21,8 +21,8 @@ import { isSharedControlRole } from "@/lib/roles";
  *     is true. City (Мои клубы) and Сеть keep their grant conditions.
  * No route is removed; every page keeps its own server-side guard, which is
  * what actually authorises access — this list only decides what is offered.
- * «Расходы Метрика», «Посещаемость» and «Рейтинг клубов» are NOT listed: the
- * data behind them is not recorded yet (QA-06 report) — no empty destinations.
+ * QA-07: «Расходы Метрика» and «Посещаемость» join Система (PROJECT_ADMIN
+ * only). «Рейтинг клубов» is still NOT listed: no formula/data yet.
  */
 
 export interface ControlNavFlags {
@@ -40,6 +40,8 @@ export type ControlNavIcon =
   | "instructions"
   | "metric"
   | "logs"
+  | "costs"
+  | "visits"
   | "users"
   | "roles"
   | "club"
@@ -88,6 +90,9 @@ export function buildControlNav(flags: ControlNavFlags): ControlNavGroup[] {
         // access status network-wide — «Роли» covers none of these.
         { href: "/control/users", label: "Сотрудники", icon: "users" },
         { href: "/control/logs", label: "Логи", icon: "logs" },
+        // QA-07 — admin-only telemetry (never the shared SPM capability).
+        { href: "/control/metric-usage", label: "Расходы Метрика", icon: "costs" },
+        { href: "/control/visits", label: "Посещаемость", icon: "visits" },
       ],
     });
   }

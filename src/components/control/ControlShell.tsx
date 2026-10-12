@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  Activity,
   ArrowLeft,
   BarChart3,
   BookOpen,
@@ -22,6 +23,7 @@ import {
   ScrollText,
   Trophy,
   UserCog,
+  Wallet,
   Users,
   X,
   type LucideIcon,
@@ -45,6 +47,8 @@ const NAV_ICON: Record<ControlNavIcon, LucideIcon> = {
   instructions: BookOpen,
   metric: Bot,
   logs: ScrollText,
+  costs: Wallet,
+  visits: Activity,
   users: UserCog,
   roles: KeyRound,
   club: ClipboardList,
