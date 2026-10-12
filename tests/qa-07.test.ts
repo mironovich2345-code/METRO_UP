@@ -123,22 +123,22 @@ test("USAGE-SCHEMA: MetricUsageEvent has no prompt/answer/content column; costs 
  *  B. Pricing — never invented, never $0
  * ===================================================================== */
 
-test("PRICING-REGISTRY: no price is configured in the repository (prices are not guessed)", () => {
-  assert.deepEqual(METRIC_PRICING.models, []);
-  assert.equal(METRIC_PRICING.tools, null);
-  assert.equal(PRICING_VERSION, "unconfigured");
+test("PRICING-REGISTRY (updated for QA-07.1): only verified prices are configured — gpt-4o-mini, its 2024-07-18 snapshot and file_search", () => {
+  assert.deepEqual(METRIC_PRICING.models.map((m) => m.model), ["gpt-4o-mini", "gpt-4o-mini-2024-07-18"]);
+  assert.deepEqual(METRIC_PRICING.tools, { fileSearchMicroUsdPer1kCalls: 2_500_000 });
+  assert.equal(PRICING_VERSION, "openai-2026-10-12");
 });
 
 test("PRICING-KNOWN: a priced model → exact integer micro-USD at call time, with the registry version persisted", () => {
   // 900 uncached × 0.15 + 100 cached × 0.075 + 250 × 0.6 (micro-USD per token) = 135 + 7.5 + 150 = 292.5 → 293
   const e = buildMetricUsageEvent(
-    { usage: { inputTokens: 1000, outputTokens: 250, cachedInputTokens: 100 }, model: "test-model-2026-01-01", fileSearchCalls: 0 },
+    { usage: { inputTokens: 1000, outputTokens: 250, cachedInputTokens: 100 }, model: "test-model", fileSearchCalls: 0 },
     { kind: "CHAT", requestedModel: "test-model", userId: null, conversationId: null, messageId: null },
     TEST_REGISTRY,
   );
   assert.equal(e.costMicroUsd, 293);
   assert.equal(e.pricingVersion, "test-2026-10");
-  assert.equal(resolveModelPrice("test-model-2026-01-01", TEST_REGISTRY)?.model, "test-model"); // dated snapshot → alias
+  assert.equal(resolveModelPrice("test-model-2026-01-01", TEST_REGISTRY), null); // QA-07.1: exact ids only, no alias
   // + 2 file_search calls at 2.5 USD / 1000 calls = 5000 micro-USD
   assert.deepEqual(
     priceMetricUsage({ model: "test-model", inputTokens: 1000, cachedInputTokens: 100, outputTokens: 250, fileSearchCalls: 2 }, TEST_REGISTRY),
@@ -152,7 +152,7 @@ test("PRICING-KNOWN: a priced model → exact integer micro-USD at call time, wi
 
 test("PRICING-UNKNOWN: unknown model, missing usage or an unpriced tool → event persists with cost NULL (never 0)", () => {
   const unknown = buildMetricUsageEvent(
-    { usage: { inputTokens: 500, outputTokens: 50 }, model: "gpt-4o-mini", fileSearchCalls: 0 },
+    { usage: { inputTokens: 500, outputTokens: 50 }, model: "gpt-unknown-model", fileSearchCalls: 0 },
     { kind: "CHAT", requestedModel: "gpt-4o-mini", userId: "u", conversationId: null, messageId: null },
   );
   assert.equal(unknown.costMicroUsd, null);

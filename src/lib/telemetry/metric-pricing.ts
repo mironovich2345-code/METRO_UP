@@ -9,16 +9,21 @@
  * time; a later price change (a new registry version) never rewrites old
  * spend.
  *
- * IMPORTANT — the registries below are deliberately EMPTY: no provider price
- * is recorded anywhere authoritative in this repository, and prices must not
- * be guessed. Until a VERIFIED price is added here, every call is stored with
- * its real tokens and `costMicroUsd = null` (UNPRICED) and the admin UI says
- * so — it never shows $0. To configure: add an entry with the provider's
- * published price, bump PRICING_VERSION, and note the source + date.
+ * Source: official OpenAI pricing / model documentation, verified
+ * 2026-10-12 (QA-07.1). Prices are matched by EXACT provider model id only —
+ * no prefix/alias matching, so a different (e.g. future) snapshot stays
+ * UNPRICED until it is added here explicitly. An unpriced call keeps
+ * `costMicroUsd = null` and the admin UI says so — never $0. Prices are
+ * never fetched at runtime; to change one, edit this file, bump
+ * PRICING_VERSION and note the source + date. Already-recorded events are
+ * never re-priced (MetricUsageEvent is append-only).
+ *
+ * NOT included in costMicroUsd: vector-store storage ($0.10 / GB / day, first
+ * 1 GB free) — its usage is not recorded per call, so it is not estimated.
  */
 
 export interface ModelPrice {
-  /** Exact provider model id, or its undated alias (see resolveModelPrice). */
+  /** Exact provider model id (see resolveModelPrice). */
   model: string;
   inputMicroUsdPer1M: number;
   /** Price for the cached part of the input; defaults to the input price. */
@@ -39,23 +44,26 @@ export interface PricingRegistry {
 }
 
 /** Bump whenever a price below changes. */
-export const PRICING_VERSION = "unconfigured";
+export const PRICING_VERSION = "openai-2026-10-12";
+
+/** gpt-4o-mini: $0.15 input / $0.075 cached input / $0.60 output per 1M tokens. */
+const GPT_4O_MINI = { inputMicroUsdPer1M: 150_000, cachedInputMicroUsdPer1M: 75_000, outputMicroUsdPer1M: 600_000 };
 
 export const METRIC_PRICING: PricingRegistry = {
   version: PRICING_VERSION,
-  models: [],
-  tools: null,
+  models: [
+    { model: "gpt-4o-mini", ...GPT_4O_MINI },
+    // The snapshot the provider reports for requests to "gpt-4o-mini".
+    { model: "gpt-4o-mini-2024-07-18", ...GPT_4O_MINI },
+  ],
+  // Responses API file_search: $2.50 / 1 000 calls — an ADDITIONAL fee; the
+  // retrieved content is already billed as model input tokens.
+  tools: { fileSearchMicroUsdPer1kCalls: 2_500_000 },
 };
 
-/** Provider snapshots carry a date suffix (`gpt-4o-mini-2024-07-18`). */
-const DATED_SUFFIX = /-\d{4}-\d{2}-\d{2}$/;
-
-/** Exact id first, then the undated alias. null = no configured price. */
+/** EXACT id match only. null = no configured price (stays unpriced). */
 export function resolveModelPrice(model: string, registry: PricingRegistry = METRIC_PRICING): ModelPrice | null {
-  const exact = registry.models.find((m) => m.model === model);
-  if (exact) return exact;
-  const alias = model.replace(DATED_SUFFIX, "");
-  return alias !== model ? registry.models.find((m) => m.model === alias) ?? null : null;
+  return registry.models.find((m) => m.model === model) ?? null;
 }
 
 export interface UsageForPricing {

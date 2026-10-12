@@ -37,6 +37,8 @@ export function MetricUsageAdmin() {
         ) : (
           <p className="text-sm text-muted-foreground">{usage.error ? "Не удалось загрузить расходы." : "Загрузка…"}</p>
         )}
+        {/* QA-07.1 — vector-store storage is billed separately and not recorded. */}
+        <p className="mt-3 text-xs text-muted-foreground">Хранение базы знаний в стоимость пока не включено.</p>
       </section>
 
       {usage.data && usage.data.totals.calls > 0 && (
