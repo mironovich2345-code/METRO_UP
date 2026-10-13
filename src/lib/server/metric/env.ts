@@ -1,5 +1,6 @@
 import "server-only";
 import { resolveMaxOutputTokens } from "./token-policy";
+import { resolveScopeModel } from "./scope";
 
 /**
  * Metric AI configuration. All values are read lazily at request time (never at
@@ -10,6 +11,8 @@ export interface MetricEnv {
   enabled: boolean;
   apiKey: string | null;
   model: string;
+  /** QA-07.3.1 — the work-scope classifier's model (OPENAI_SCOPE_MODEL). */
+  scopeModel: string;
   maxOutputTokens: number;
   vectorStoreId: string | null;
 }
@@ -22,6 +25,7 @@ export function getMetricEnv(): MetricEnv {
     enabled: (process.env.METRIC_AI_ENABLED ?? "").trim().toLowerCase() === "true",
     apiKey: process.env.OPENAI_API_KEY?.trim() || null,
     model: process.env.OPENAI_MODEL?.trim() || DEFAULT_MODEL,
+    scopeModel: resolveScopeModel(process.env.OPENAI_SCOPE_MODEL),
     maxOutputTokens: resolveMaxOutputTokens(process.env.OPENAI_MAX_OUTPUT_TOKENS),
     vectorStoreId: process.env.OPENAI_VECTOR_STORE_ID?.trim() || null,
   };

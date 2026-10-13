@@ -134,7 +134,7 @@ async function runTurn(
   // nothing. The check is billed, so its usage is recorded as SCOPE_CHECK.
   const scopeOutcome = await classifyMetricScope(
     transport,
-    scopeCheckRequest(env.model, env.vectorStoreId!, buildScopeMessages(history, input.text)),
+    scopeCheckRequest(env.scopeModel, env.vectorStoreId!, buildScopeMessages(history, input.text)),
     signal,
   );
   let scopedUserMessageId: string | null = null;
@@ -165,7 +165,7 @@ async function runTurn(
   } finally {
     if (scopeOutcome.result) {
       void (deps.recordUsage ?? recordMetricUsage)(
-        buildMetricUsageEvent(scopeOutcome.result, { kind: "SCOPE_CHECK", requestedModel: env.model, userId: user.id, conversationId: conv.id, messageId: scopedUserMessageId }),
+        buildMetricUsageEvent(scopeOutcome.result, { kind: "SCOPE_CHECK", requestedModel: env.scopeModel, userId: user.id, conversationId: conv.id, messageId: scopedUserMessageId }),
       );
     }
   }

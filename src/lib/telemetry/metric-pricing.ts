@@ -10,7 +10,8 @@
  * spend.
  *
  * Source: official OpenAI pricing / model documentation, verified
- * 2026-10-12 (QA-07.1). Prices are matched by EXACT provider model id only —
+ * 2026-10-12 (QA-07.1: gpt-4o-mini, file_search); gpt-6-luna added
+ * 2026-10-13 (QA-07.3.1) → version openai-2026-10-13. Prices are matched by EXACT provider model id only —
  * no prefix/alias matching, so a different (e.g. future) snapshot stays
  * UNPRICED until it is added here explicitly. An unpriced call keeps
  * `costMicroUsd = null` and the admin UI says so — never $0. Prices are
@@ -44,7 +45,7 @@ export interface PricingRegistry {
 }
 
 /** Bump whenever a price below changes. */
-export const PRICING_VERSION = "openai-2026-10-12";
+export const PRICING_VERSION = "openai-2026-10-13";
 
 /** gpt-4o-mini: $0.15 input / $0.075 cached input / $0.60 output per 1M tokens. */
 const GPT_4O_MINI = { inputMicroUsdPer1M: 150_000, cachedInputMicroUsdPer1M: 75_000, outputMicroUsdPer1M: 600_000 };
@@ -55,6 +56,9 @@ export const METRIC_PRICING: PricingRegistry = {
     { model: "gpt-4o-mini", ...GPT_4O_MINI },
     // The snapshot the provider reports for requests to "gpt-4o-mini".
     { model: "gpt-4o-mini-2024-07-18", ...GPT_4O_MINI },
+    // QA-07.3.1 — the scope classifier model: $0.10 input / $0.01 cached
+    // input / $0.50 output per 1M tokens (official OpenAI pricing).
+    { model: "gpt-6-luna", inputMicroUsdPer1M: 100_000, cachedInputMicroUsdPer1M: 10_000, outputMicroUsdPer1M: 500_000 },
   ],
   // Responses API file_search: $2.50 / 1 000 calls — an ADDITIONAL fee; the
   // retrieved content is already billed as model input tokens.

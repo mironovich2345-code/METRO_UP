@@ -26,11 +26,20 @@ export const SCOPE_CHECK_FAILED_MESSAGE = "Не удалось проверит�
 export const SCOPE_CHECK_FAILED_CODE = "scope_check_failed";
 
 /**
- * Room for the one-word label. Generous on purpose: for reasoning models the
- * output budget also covers internal reasoning, and a too-small budget would
- * return no label (→ fail-safe) rather than a wrong one.
+ * QA-07.3.1 — the classifier runs on its OWN fast model (OPENAI_SCOPE_MODEL,
+ * default gpt-6-luna) with reasoning.effort = "none"; the main Metric answer
+ * keeps OPENAI_MODEL. With no reasoning, the one-word label needs only a few
+ * tokens: 16 is the smallest budget the Responses API accepts. If the label
+ * still does not fit, the strict parser rejects it → fail-safe, never a guess.
  */
-export const SCOPE_MAX_OUTPUT_TOKENS = 256;
+export const DEFAULT_SCOPE_MODEL = "gpt-6-luna";
+export const SCOPE_REASONING_EFFORT = "none" as const;
+export const SCOPE_MAX_OUTPUT_TOKENS = 16;
+
+/** OPENAI_SCOPE_MODEL (trimmed) or the default when unset/blank. */
+export function resolveScopeModel(raw: string | undefined | null): string {
+  return raw?.trim() || DEFAULT_SCOPE_MODEL;
+}
 /** Per context message — enough to resolve a follow-up, never the whole chat. */
 export const SCOPE_CONTEXT_CHARS = 400;
 
@@ -79,13 +88,15 @@ export function parseScopeDecision(text: string | null | undefined): MetricScope
   return t === "IN_SCOPE" || t === "OUT_OF_SCOPE" ? t : null;
 }
 
-export function scopeCheckRequest(model: string, vectorStoreId: string, messages: ChatMessage[]): CreateResponseInput {
+/** `scopeModel` is OPENAI_SCOPE_MODEL — never the main answer model. */
+export function scopeCheckRequest(scopeModel: string, vectorStoreId: string, messages: ChatMessage[]): CreateResponseInput {
   return {
-    model,
+    model: scopeModel,
     instructions: SCOPE_INSTRUCTIONS,
     messages,
     vectorStoreId,
     maxOutputTokens: SCOPE_MAX_OUTPUT_TOKENS,
+    reasoningEffort: SCOPE_REASONING_EFFORT,
     useFileSearch: false, // never retrieval for the scope check
   };
 }

@@ -23,9 +23,9 @@ const code = (p: string) => read(p).replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\
 const usage = (model: string, o: { input?: number; cached?: number; output?: number; fs?: number }) =>
   priceMetricUsage({ model, inputTokens: o.input ?? 0, cachedInputTokens: o.cached ?? 0, outputTokens: o.output ?? 0, fileSearchCalls: o.fs ?? 0 });
 
-test("VERSION: pricing version openai-2026-10-12, configured in code (no runtime fetch)", () => {
-  assert.equal(PRICING_VERSION, "openai-2026-10-12");
-  assert.equal(METRIC_PRICING.version, "openai-2026-10-12");
+test("VERSION (updated for QA-07.3.1): pricing version openai-2026-10-13 (gpt-6-luna added), configured in code (no runtime fetch)", () => {
+  assert.equal(PRICING_VERSION, "openai-2026-10-13");
+  assert.equal(METRIC_PRICING.version, "openai-2026-10-13");
   const src = read("src/lib/telemetry/metric-pricing.ts");
   assert.match(src, /official OpenAI pricing/);
   assert.match(src, /verified\s+\*?\s*2026-10-12/);
@@ -34,7 +34,7 @@ test("VERSION: pricing version openai-2026-10-12, configured in code (no runtime
 
 for (const model of ["gpt-4o-mini", "gpt-4o-mini-2024-07-18"]) {
   test(`PRICE ${model}: input $0.15, cached input $0.075, output $0.60 per 1M tokens`, () => {
-    assert.deepEqual(usage(model, { input: 1_000_000 }), { costMicroUsd: 150_000, pricingVersion: "openai-2026-10-12" });
+    assert.deepEqual(usage(model, { input: 1_000_000 }), { costMicroUsd: 150_000, pricingVersion: "openai-2026-10-13" });
     assert.equal(usage(model, { input: 1_000_000, cached: 1_000_000 }).costMicroUsd, 75_000); // fully cached input
     assert.equal(usage(model, { output: 1_000_000 }).costMicroUsd, 600_000);
     // Realistic turn: 3 000 input (1 000 cached) + 400 output
@@ -65,7 +65,7 @@ test("ACTUAL-MODEL: pricing uses the model the provider actually ran, never the 
   const snapshot = buildMetricUsageEvent({ usage: { inputTokens: 1000, outputTokens: 100 }, model: "gpt-4o-mini-2024-07-18", fileSearchCalls: 1 }, ctx);
   assert.equal(snapshot.model, "gpt-4o-mini-2024-07-18");
   assert.equal(snapshot.costMicroUsd, 150 + 60 + 2500);
-  assert.equal(snapshot.pricingVersion, "openai-2026-10-12");
+  assert.equal(snapshot.pricingVersion, "openai-2026-10-13");
 });
 
 test("MIXED: a period with priced and older unpriced calls shows the money AND «Не рассчитано для N запросов»", () => {

@@ -9,6 +9,7 @@ import "server-only";
 
 import { parseResponsePayload, type CreateResponseResult } from "./openai-parse";
 import { consumeSSEStream } from "./stream-consume";
+import { buildResponseBody } from "./openai-body";
 export { parseResponsePayload };
 export type { CreateResponseResult };
 
@@ -43,6 +44,9 @@ export interface CreateResponseInput {
   maxNumResults?: number;
   /** When false, the file_search tool is omitted (no retrieval this turn). */
   useFileSearch?: boolean;
+  /** QA-07.3.1 — sent as `reasoning.effort` only when set (the scope check);
+   * the main Metric answer never sets it, so its request is unchanged. */
+  reasoningEffort?: "none" | "minimal" | "low" | "medium" | "high";
 }
 
 /** OpenAI vector-store file indexing status (from the file object's `status`). */
@@ -83,26 +87,6 @@ async function withTimeout<T>(ms: number, run: (signal: AbortSignal) => Promise<
   }
 }
 
-/** Build the Responses API request body (shared by streaming + non-streaming). */
-function buildResponseBody(input: CreateResponseInput, stream: boolean): Record<string, unknown> {
-  const body: Record<string, unknown> = {
-    model: input.model,
-    instructions: input.instructions,
-    input: input.messages.map((m) => ({ role: m.role, content: m.content })),
-    max_output_tokens: input.maxOutputTokens,
-  };
-  if (input.useFileSearch !== false) {
-    const tool: Record<string, unknown> = {
-      type: "file_search",
-      vector_store_ids: [input.vectorStoreId],
-      max_num_results: input.maxNumResults ?? 6,
-    };
-    if (input.filters) tool.filters = input.filters;
-    body.tools = [tool];
-  }
-  if (stream) body.stream = true;
-  return body;
-}
 
 export function httpTransport(apiKey: string, timeoutMs = DEFAULT_TIMEOUT_MS): MetricTransport {
   const authHeaders = { Authorization: `Bearer ${apiKey}` };

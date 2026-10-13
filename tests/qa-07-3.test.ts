@@ -135,7 +135,7 @@ test("REQUEST: small, retrieval-free classification request on the configured mo
   assert.equal(req.useFileSearch, false);
   assert.equal(req.filters, undefined);
   assert.equal(req.maxOutputTokens, SCOPE_MAX_OUTPUT_TOKENS);
-  assert.ok(SCOPE_MAX_OUTPUT_TOKENS <= 256);
+  assert.ok(SCOPE_MAX_OUTPUT_TOKENS <= 16); // QA-07.3.1
 });
 
 /* ===================================================================== *
@@ -253,7 +253,7 @@ test("SCOPE_CHECK usage: the classification call is recorded as its own usage ki
   assert.equal(e.costMicroUsd, null); // gpt-5.6-luna is NOT priced (no verified price)
   assert.equal(usageKindLabel("SCOPE_CHECK"), "Проверка темы вопроса");
   const chat = code("src/lib/server/metric/chat.ts");
-  assert.match(chat, /\} finally \{\s*if \(scopeOutcome\.result\) \{\s*void \(deps\.recordUsage \?\? recordMetricUsage\)\(\s*buildMetricUsageEvent\(scopeOutcome\.result, \{ kind: "SCOPE_CHECK", requestedModel: env\.model, userId: user\.id, conversationId: conv\.id, messageId: scopedUserMessageId \}\),/);
+  assert.match(chat, /\} finally \{\s*if \(scopeOutcome\.result\) \{\s*void \(deps\.recordUsage \?\? recordMetricUsage\)\(\s*buildMetricUsageEvent\(scopeOutcome\.result, \{ kind: "SCOPE_CHECK", requestedModel: env\.scopeModel, userId: user\.id, conversationId: conv\.id, messageId: scopedUserMessageId \}\),/);
 });
 
 test("FREQUENT: the work Top list is IN_SCOPE only; OUT_OF_SCOPE is a separate count; UNKNOWN history and assistants are in neither", () => {

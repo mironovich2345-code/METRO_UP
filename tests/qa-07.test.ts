@@ -123,10 +123,10 @@ test("USAGE-SCHEMA: MetricUsageEvent has no prompt/answer/content column; costs 
  *  B. Pricing — never invented, never $0
  * ===================================================================== */
 
-test("PRICING-REGISTRY (updated for QA-07.1): only verified prices are configured — gpt-4o-mini, its 2024-07-18 snapshot and file_search", () => {
-  assert.deepEqual(METRIC_PRICING.models.map((m) => m.model), ["gpt-4o-mini", "gpt-4o-mini-2024-07-18"]);
+test("PRICING-REGISTRY (updated for QA-07.3.1): only verified prices are configured — gpt-4o-mini, its 2024-07-18 snapshot, gpt-6-luna and file_search", () => {
+  assert.deepEqual(METRIC_PRICING.models.map((m) => m.model), ["gpt-4o-mini", "gpt-4o-mini-2024-07-18", "gpt-6-luna"]);
   assert.deepEqual(METRIC_PRICING.tools, { fileSearchMicroUsdPer1kCalls: 2_500_000 });
-  assert.equal(PRICING_VERSION, "openai-2026-10-12");
+  assert.equal(PRICING_VERSION, "openai-2026-10-13");
 });
 
 test("PRICING-KNOWN: a priced model → exact integer micro-USD at call time, with the registry version persisted", () => {
