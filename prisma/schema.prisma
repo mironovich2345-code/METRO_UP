@@ -1044,6 +1044,15 @@ enum MetricMessageRole {
   ASSISTANT
 }
 
+/// Sprint: LIVE QA QA-07.3 — the work-scope decision for a USER message.
+/// UNKNOWN = recorded before the scope guard existed (never re-classified)
+/// and the value every ASSISTANT message keeps.
+enum MetricMessageScope {
+  IN_SCOPE
+  OUT_OF_SCOPE
+  UNKNOWN
+}
+
 /// Tracks the OpenAI vector-store sync state of one PUBLISHED knowledge source.
 model KnowledgeSyncRecord {
   id                String              @id @default(uuid()) @db.Uuid
@@ -1095,6 +1104,9 @@ model MetricMessage {
   openaiResponseId String?
   /// True when OpenAI reported the answer was cut off by the output-token limit.
   isTruncated      Boolean           @default(false)
+  /// QA-07.3 — USER messages: the server-side scope decision taken before the
+  /// answer (IN_SCOPE / OUT_OF_SCOPE). UNKNOWN for history and assistants.
+  scope            MetricMessageScope @default(UNKNOWN)
   createdAt        DateTime          @default(now())
 
   conversation MetricConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
@@ -1109,11 +1121,14 @@ model MetricMessage {
 /// Sprint: LIVE QA QA-07 — what a Metric provider call was for.
 ///   CHAT     — one employee turn (streamed answer), /api/metric/chat.
 ///   CONTINUE — «Продолжить» of a truncated answer, /api/metric/chat/continue.
+///   SCOPE_CHECK — QA-07.3: the small work-scope classification that runs
+///                 before every chat turn (its tokens are real cost too).
 /// Knowledge sync uses only the Files / Vector Store APIs, which report no
 /// token usage per call, so it has no kind here (see the QA-07 report).
 enum MetricUsageKind {
   CHAT
   CONTINUE
+  SCOPE_CHECK
 }
 
 /// Sprint: LIVE QA QA-07 — ONE row per Metric provider call. Append-only;

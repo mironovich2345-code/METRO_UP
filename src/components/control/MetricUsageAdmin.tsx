@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { controlAdminApi } from "@/lib/api/control-admin-client";
 import type { TelemetryPeriodDays, UsageBucketDTO } from "@/lib/api/telemetry-types";
-import { describeCost, formatCount, requestsWord, usageKindLabel } from "@/lib/control/telemetry-view";
+import { describeCost, formatCount, offTopicCountLabel, requestsWord, usageKindLabel } from "@/lib/control/telemetry-view";
 import { FREQUENT_QUESTIONS_ROW_BOUND } from "@/lib/telemetry/frequent-questions";
 import { FrequentQuestionsList, MetricCostBody, PeriodToggle, usePeriodData } from "./TelemetryCards";
 
@@ -50,7 +50,7 @@ export function MetricUsageAdmin() {
 
       <section id="questions" className="scroll-mt-24 rounded-3xl border border-border bg-card p-5">
         <h2 className="text-lg font-bold">Частые вопросы Метрику</h2>
-        <p className="mt-1 text-sm text-muted-foreground">Точные совпадения после нормализации регистра, пробелов и знаков препинания.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Только рабочие вопросы. Точные совпадения после нормализации регистра, пробелов и знаков препинания.</p>
         <div className="mt-4">
           {questions.data ? (
             <>
@@ -66,6 +66,21 @@ export function MetricUsageAdmin() {
           )}
         </div>
       </section>
+
+      {questions.data && (
+        <section id="off-topic" className="scroll-mt-24 rounded-3xl border border-border bg-card p-5">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-lg font-bold">Вне рабочих тем</h2>
+            <p className="text-sm font-bold tabular-nums">{offTopicCountLabel(questions.data.offTopic.count)}</p>
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">Вопросы, на которые Метрик не отвечал: не относятся к работе.</p>
+          {questions.data.offTopic.top.length > 0 && (
+            <div className="mt-4">
+              <FrequentQuestionsList data={{ ...questions.data, questions: questions.data.offTopic.top }} />
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }

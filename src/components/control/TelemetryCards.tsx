@@ -13,6 +13,7 @@ import {
   TELEMETRY_PERIOD_OPTIONS,
   describeCost,
   formatCount,
+  offTopicCountLabel,
   timesLabel,
   trackingNote,
 } from "@/lib/control/telemetry-view";
@@ -128,6 +129,16 @@ export function FrequentQuestionsList({ data }: { data: FrequentMetricQuestionsD
   );
 }
 
+/** QA-07.3 — the count of OUT_OF_SCOPE prompts only (no raw text on Home). */
+export function OffTopicCount({ count }: { count: number }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 border-t border-border pt-3">
+      <p className="min-w-0 text-sm text-muted-foreground">Вне рабочих тем</p>
+      <p className="shrink-0 text-sm font-bold tabular-nums">{offTopicCountLabel(count)}</p>
+    </div>
+  );
+}
+
 export function FrequentQuestionsCard({ days }: { days: TelemetryPeriodDays }) {
   const { data, error } = usePeriodData(loadQuestionsTop5, days);
   return (
@@ -136,7 +147,14 @@ export function FrequentQuestionsCard({ days }: { days: TelemetryPeriodDays }) {
       title="Частые вопросы Метрику"
       footer={<DashboardMoreLink href="/control/metric-usage#questions">Все частые вопросы</DashboardMoreLink>}
     >
-      {data ? <FrequentQuestionsList data={data} /> : <Muted>{error ? "Не удалось загрузить вопросы." : "Загрузка…"}</Muted>}
+      {data ? (
+        <div className="flex flex-col gap-3">
+          <FrequentQuestionsList data={data} />
+          <OffTopicCount count={data.offTopic.count} />
+        </div>
+      ) : (
+        <Muted>{error ? "Не удалось загрузить вопросы." : "Загрузка…"}</Muted>
+      )}
     </DashboardCard>
   );
 }

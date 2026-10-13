@@ -14,6 +14,7 @@ export const TELEMETRY_PERIOD_OPTIONS = [
 export const METRIC_USAGE_KIND_LABEL: Record<string, string> = {
   CHAT: "Ответы сотрудникам",
   CONTINUE: "«Продолжить» ответа",
+  SCOPE_CHECK: "Проверка темы вопроса",
 };
 
 export function usageKindLabel(kind: string): string {
@@ -74,4 +75,9 @@ export function trackingNote(trackingSince: string | null, since: string): strin
     return `Учёт ведётся с ${d.toLocaleDateString("ru-RU", { day: "numeric", month: "long" })}`;
   }
   return null;
+}
+
+/** QA-07.3 — «Вне рабочих тем»: "0 запросов", "1 запрос", "3 запроса". */
+export function offTopicCountLabel(n: number): string {
+  return `${formatCount(n)} ${requestsWord(n)}`;
 }

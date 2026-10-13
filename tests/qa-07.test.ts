@@ -236,9 +236,10 @@ test("FREQ-GROUP: one group per normalized text, a real original as display, det
   assert.equal(groupFrequentQuestions([{ content: "ВОПРОС" }, { content: "Вопрос" }], 5)[0].question, "ВОПРОС");
 });
 
-test("FREQ-SOURCE: only USER Metric messages in the period, newest first, bounded; assistant/system/sync text never included", () => {
+test("FREQ-SOURCE (updated for QA-07.3): only USER Metric messages in the period (now also scope-filtered), newest first, bounded; assistant/system/sync text never included", () => {
   const svc = code("src/lib/server/telemetry/admin-analytics.ts");
-  assert.match(svc, /prisma\.metricMessage\.findMany\(\{\s*where: \{ role: "USER", createdAt: \{ gte: since \} \},\s*orderBy: \[\{ createdAt: "desc" \}, \{ seq: "desc" \}\],\s*take: FREQUENT_QUESTIONS_ROW_BOUND,\s*select: \{ content: true \},/);
+  assert.match(svc, /const userSince = \{ role: "USER" as const, createdAt: \{ gte: since \} \};/);
+  assert.match(svc, /prisma\.metricMessage\.findMany\(\{\s*where: \{ \.\.\.userSince, scope \},\s*orderBy: \[\{ createdAt: "desc" \}, \{ seq: "desc" \}\],\s*take: FREQUENT_QUESTIONS_ROW_BOUND,\s*select: \{ content: true \},/);
   assert.equal(FREQUENT_QUESTIONS_ROW_BOUND, 5000);
   // The «Продолжить» directive is sent to the provider but never stored as a USER message.
   const chat = code("src/lib/server/metric/chat.ts");
@@ -474,7 +475,7 @@ test("HOME-COST: unpriced → «Стоимость пока недоступна
 });
 
 test("HOME-EMPTY: no frequent questions / visits → honest empty states, never fake examples", () => {
-  const q: FrequentMetricQuestionsDTO = { days: 30, since: "x", questions: [], processed: 0, bounded: false };
+  const q: FrequentMetricQuestionsDTO = { days: 30, since: "x", questions: [], processed: 0, bounded: false, offTopic: { count: 0, top: [] } };
   assert.match(renderToStaticMarkup(createElement(FrequentQuestionsList, { data: q })), /За выбранный период вопросов пока нет/);
   const list = renderToStaticMarkup(createElement(FrequentQuestionsList, { data: { ...q, questions: [{ question: "Как оформить возврат?", count: 17 }] } }));
   assert.match(list, /Как оформить возврат\?/);

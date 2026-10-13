@@ -51,9 +51,11 @@ export async function appendMessages(
   conversationId: string,
   userText: string,
   assistant: { content: string; sources: MetricSourceDTO[]; openaiResponseId: string | null; isTruncated: boolean },
+  /** QA-07.3 — the scope decision taken for this USER message. */
+  userScope: "IN_SCOPE" | "OUT_OF_SCOPE",
 ): Promise<{ userMsg: MetricMessageDTO; assistantMsg: MetricMessageDTO }> {
   const [userMsg, assistantMsg] = await prisma.$transaction([
-    prisma.metricMessage.create({ data: { conversationId, role: "USER", content: userText } }),
+    prisma.metricMessage.create({ data: { conversationId, role: "USER", content: userText, scope: userScope } }),
     prisma.metricMessage.create({
       data: {
         conversationId,

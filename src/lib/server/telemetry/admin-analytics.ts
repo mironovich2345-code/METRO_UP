@@ -83,25 +83,39 @@ export async function getMetricUsageSummary(days: TelemetryPeriodDays, now: Date
  * with role USER (assistant answers, the ephemeral «Продолжить» directive
  * and knowledge sync never are USER messages). Newest first, at most
  * FREQUENT_QUESTIONS_ROW_BOUND rows; grouped by exact normalized text.
+ *
+ * QA-07.3 — the work Top list counts ONLY scope = IN_SCOPE. OUT_OF_SCOPE is
+ * reported separately («Вне рабочих тем»: a count, plus grouped examples on
+ * the dedicated page); UNKNOWN (history from before the scope guard) is in
+ * neither — it is never guessed.
  */
 export async function getFrequentMetricQuestions(
   days: TelemetryPeriodDays,
   limit: number,
+  opts: { offTopicExamples?: boolean } = {},
   now: Date = new Date(),
 ): Promise<FrequentMetricQuestionsDTO> {
   const since = periodStart(days, now);
-  const rows = await prisma.metricMessage.findMany({
-    where: { role: "USER", createdAt: { gte: since } },
-    orderBy: [{ createdAt: "desc" }, { seq: "desc" }],
-    take: FREQUENT_QUESTIONS_ROW_BOUND,
-    select: { content: true },
-  });
+  const userSince = { role: "USER" as const, createdAt: { gte: since } };
+  const scan = (scope: "IN_SCOPE" | "OUT_OF_SCOPE") =>
+    prisma.metricMessage.findMany({
+      where: { ...userSince, scope },
+      orderBy: [{ createdAt: "desc" }, { seq: "desc" }],
+      take: FREQUENT_QUESTIONS_ROW_BOUND,
+      select: { content: true },
+    });
+  const [rows, offTopicCount, offTopicRows] = await Promise.all([
+    scan("IN_SCOPE"),
+    prisma.metricMessage.count({ where: { ...userSince, scope: "OUT_OF_SCOPE" } }),
+    opts.offTopicExamples ? scan("OUT_OF_SCOPE") : Promise.resolve([]),
+  ]);
   return {
     days,
     since: since.toISOString(),
     questions: groupFrequentQuestions(rows, limit),
     processed: rows.length,
     bounded: rows.length >= FREQUENT_QUESTIONS_ROW_BOUND,
+    offTopic: { count: offTopicCount, top: groupFrequentQuestions(offTopicRows, limit) },
   };
 }
 

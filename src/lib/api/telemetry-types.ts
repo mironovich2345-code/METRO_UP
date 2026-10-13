@@ -33,6 +33,9 @@ export interface FrequentMetricQuestionsDTO {
   /** USER prompts scanned (newest first) and whether the bound was reached. */
   processed: number;
   bounded: boolean;
+  /** QA-07.3 — «Вне рабочих тем»: OUT_OF_SCOPE prompts in the period. `top`
+   * (grouped examples) is filled only for the dedicated page. */
+  offTopic: { count: number; top: Array<{ question: string; count: number }> };
 }
 
 export interface VisitBucketDTO {

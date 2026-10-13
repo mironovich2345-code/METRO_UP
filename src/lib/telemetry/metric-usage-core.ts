@@ -8,7 +8,7 @@
 import type { CreateResponseResult } from "@/lib/server/metric/openai-parse";
 import { METRIC_PRICING, priceMetricUsage, type PricingRegistry } from "./metric-pricing";
 
-export type MetricUsageKindValue = "CHAT" | "CONTINUE";
+export type MetricUsageKindValue = "CHAT" | "CONTINUE" | "SCOPE_CHECK";
 
 export interface MetricUsageEventInput {
   provider: string;

@@ -89,6 +89,7 @@ export default function MetricScreen() {
         setSending(false);
         if (e instanceof ApiError && e.status === 429) setSendError("Слишком много сообщений подряд. Подожди немного.");
         else if (e instanceof ApiError && e.status === 503) { setReady(false); setSendError(null); }
+        else if (e instanceof ApiError && e.code === "scope_check_failed") setSendError("Не удалось проверить тему вопроса. Попробуй ещё раз.");
         else setSendError("Не удалось получить ответ. Попробуй ещё раз.");
       },
     });
